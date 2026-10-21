@@ -4295,9 +4295,9 @@ void sub_0807C9D8(u32* a1) {
     u32* v1; // r5@1
 
     v1 = a1;
-    LoadCompressedMapData((u8*)0x6004000, *a1);
-    LoadCompressedMapData((u8*)0x6000000, v1[1]);
-    LoadCompressedMapData((u8*)0x6008000, v1[2]);
+    LoadCompressedMapData((u8*)GBA_PTR(0x6004000), *a1);
+    LoadCompressedMapData((u8*)GBA_PTR(0x6000000), v1[1]);
+    LoadCompressedMapData((u8*)GBA_PTR(0x6008000), v1[2]);
     LoadCompressedMapData((u8*)(gPaletteBuffer + 32), v1[3]);
     LoadPalettes((u8*)(gPaletteBuffer + 32), 2, 13);
 }

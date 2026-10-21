@@ -99,7 +99,7 @@ void sub_0801C25C(void) {
             u8 temp = element->unk_0_2;
             if (temp == 1) {
                 element->unk_0_2 = 2;
-                DmaCopy32(3, element->firstTile, element->unk_1a * 0x20 + 0x6010000, (element->numTiles << 3) * 4);
+                DmaCopy32(3, element->firstTile, element->unk_1a * 0x20 + (VRAM + 0x10000), (element->numTiles << 3) * 4);
             }
         }
     }
@@ -125,7 +125,12 @@ void sub_0801C2F0(u32 dest, u32 param_2) {
     FORCE_REGISTER(union SplitDWord divRem, r0);
 #endif
 
+#ifdef PLATFORM_NATIVE
+    uintptr_t vramDest = dest * 0x20 + (VRAM + 0x10000);
+#define dest vramDest
+#else
     dest = dest * 0x20 + 0x6010000;
+#endif
     divRem = DivAndMod(param_2, 10);
     onesDigit = divRem.HALF_U.HI;
     tensDigit = divRem.HALF_U.LO;
@@ -135,6 +140,7 @@ void sub_0801C2F0(u32 dest, u32 param_2) {
 
     DmaCopy32(3, gUnk_085C4620 + tensDigit * 0x8, dest, 0x8 * 4);
     DmaCopy32(3, gUnk_085C4620 + (onesDigit + 10) * 0x8, dest + 0x20, 0x8 * 4);
+#undef dest
 }
 
 void DrawUI(void) {
@@ -281,7 +287,11 @@ void DrawRupees(void) {
  * Draw icon with text for rupees or keys
  */
 void RenderDigits(u32 iconVramIndex, u32 count, u32 isTextYellow, u32 digits) {
+#ifdef PLATFORM_NATIVE
+    uintptr_t iVar2; // a VRAM address
+#else
     int iVar2;
+#endif
     int iVar3;
     u8* puVar4;
     u32 digit;
@@ -298,7 +308,7 @@ void RenderDigits(u32 iconVramIndex, u32 count, u32 isTextYellow, u32 digits) {
         puVar4 -= 0x280;
     }
     iVar3 = (iconVramIndex & 0x3ff) * 0x20;
-    iVar2 = iVar3 + 0x600c000;
+    iVar2 = iVar3 + (VRAM + 0xc000);
     switch (digits) {
         case 3:
             divRem = DivAndMod(count, 100);
@@ -784,7 +794,7 @@ void TextUIElement(UIElement* element) {
     frameIndex = gHUD.buttonText[element->buttonElementId];
     element->unk_0_1 = 0;
     if (frameIndex != 0) {
-        frameIndex += gUnk_080C9044[((SaveHeader*)0x2000000)->language];
+        frameIndex += gUnk_080C9044[gSaveHeader->language];
         sub_0801CAFC(element, frameIndex);
         buttonUIElement = FindUIElement(element->buttonElementId);
         if (buttonUIElement != NULL) {

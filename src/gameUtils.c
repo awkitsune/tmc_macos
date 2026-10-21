@@ -52,7 +52,7 @@ extern u8 gUnk_0200AF14;
 void SetPopupState(u32 type, u32 choice_idx) {
     static const Font sDefaultFont = {
         .dest = gBG1Buffer,
-        .gfx_dest = (u16*)0x06006000,
+        .gfx_dest = (u16*)(VRAM + 0x6000),
         .buffer_loc = gTextGfxBuffer,
         ._c = 0,
         .gfx_src = 0xD300,

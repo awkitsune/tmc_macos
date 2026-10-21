@@ -610,7 +610,7 @@ u32 sub_080A4418(u32 param_1, u32 param_2) {
     u32 t, t2;
     void* dest;
 
-    dest = (void*)(param_2 * 0x20 + 0x6010000);
+    dest = (void*)(param_2 * 0x20 + (VRAM + 0x10000));
     t = gUnk_080CA06C[param_1];
     t2 = t & 0x80000000;
     src = (void*)&gGlobalGfxAndPalettes[~t2 & t];
@@ -662,7 +662,7 @@ u32 sub_080A44E0(WStruct* param_1, u8* param_2, u32 param_3) {
     size = 0x300;
     MemClear(param_1->unk8, size);
     uVar1 = sub_0805F76C(param_2, param_1);
-    MemCopy(param_1->unk8, (void*)(param_3 * 0x20 + 0x6010000), size);
+    MemCopy(param_1->unk8, (void*)(param_3 * 0x20 + (VRAM + 0x10000)), size);
     return uVar1;
 }
 

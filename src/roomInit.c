@@ -2334,7 +2334,7 @@ void sub_StateChange_DeepwoodShrineBoss_Main(void) {
         gUpdateVisibleTiles = 0;
         gFadeControl.active = 0;
         gUsedPalettes = 0;
-        *(u16*)0x5000000 = 0x7fff;
+        *(u16*)GBA_PTR(0x5000000) = 0x7fff;
         DispReset(1);
     }
     if (CheckGlobalFlag(LV1_CLEAR)) {

@@ -18,14 +18,24 @@ if(NOT EXISTS ${TMC_ASSETS_BUILD_DIR}/assets/gfx_offsets.h)
     message(FATAL_ERROR "Extracted assets not found in ${TMC_ASSETS_BUILD_DIR}. Run asset extraction first (see port/README.md).")
 endif()
 
+option(TMC_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(TMC_SANITIZE)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address)
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_OSX_ARCHITECTURES arm64)
 
 file(GLOB_RECURSE TMC_GAME_SOURCES CONFIGURE_DEPENDS ${TMC_ROOT}/src/*.c)
 
-# Game C files that cannot be built natively yet (none at the moment).
+# Game C files left out of the native build. eeprom.c drives cartridge hardware
+# (port/src/eeprom.c emulates it). The m4a sound engine reads raw GBA
+# addresses from song data; port/src/sound_stub.c stands in until phase 4.
 set(TMC_NATIVE_PENDING
+    src/gba/m4a.c
+    src/eeprom.c
 )
 foreach(pending ${TMC_NATIVE_PENDING})
     list(REMOVE_ITEM TMC_GAME_SOURCES ${TMC_ROOT}/${pending})
@@ -92,17 +102,19 @@ add_library(tmc_port STATIC
     src/bios.c
     src/interrupts.c
     src/data_glue.c
+    src/sound_stub.c
+    src/eeprom.c
+    src/trace.c
     ${TMC_PORT_ASM_SOURCES}
 )
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tmc_port PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR} ${TMC_DATA_DIR})
 target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
 
-# The executable cannot link until the asm-only code, data tables and BIOS calls
-# exist natively, so it is not part of the default build. Build `tmc` explicitly,
-# or run `link-report` for the list of unresolved symbols.
-add_executable(tmc EXCLUDE_FROM_ALL src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
+# `link-report` lists unresolved symbols if the link ever breaks again.
+add_executable(tmc src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
 target_link_libraries(tmc PRIVATE tmc_port)
+
 
 add_custom_target(link-report
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target tmc > ${CMAKE_BINARY_DIR}/link.log 2>&1 || true

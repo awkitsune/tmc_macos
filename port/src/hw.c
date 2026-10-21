@@ -63,6 +63,14 @@ static void RunTransfer(const void* src, void* dest, uint32_t control) {
 
 void HwDmaSet(int channel, const void* src, void* dest, uint32_t control) {
     uint16_t cnt = control >> 16;
+    static int sTrace = -1;
+
+    if (sTrace < 0) {
+        sTrace = getenv("TMC_TRACE_DMA") != NULL;
+    }
+    if (sTrace) {
+        fprintf(stderr, "dma%d %p -> %p ctrl %08x\n", channel, src, dest, control);
+    }
 
     if (!(cnt & CNT_ENABLE)) {
         return;
@@ -84,4 +92,50 @@ void HwSystemCall(int number) {
         fprintf(stderr, "HwSystemCall: unhandled BIOS call 0x%02x\n", number);
         abort();
     }
+}
+
+typedef struct {
+    uint32_t address;
+    uint32_t size;
+    uint8_t* native;
+} HwRamMapEntry;
+
+extern const HwRamMapEntry gHwRamMap[];
+extern const uint32_t gHwRamMapCount;
+
+void* HwGbaPtr(uint32_t address) {
+    static const struct {
+        uint32_t base;
+        uint32_t size;
+        uint8_t* native;
+    } sRegions[] = {
+        { 0x04000000, HW_IO_SIZE, gHwIo },
+        { 0x05000000, HW_PLTT_SIZE, gHwPltt },
+        { 0x06000000, HW_VRAM_SIZE, gHwVram },
+        { 0x07000000, HW_OAM_SIZE, gHwOam },
+    };
+    uint32_t lo = 0, hi = gHwRamMapCount;
+
+    for (size_t i = 0; i < sizeof(sRegions) / sizeof(sRegions[0]); i++) {
+        if (address - sRegions[i].base < sRegions[i].size) {
+            return sRegions[i].native + (address - sRegions[i].base);
+        }
+    }
+    // Last RAM symbol at or below the address.
+    while (lo < hi) {
+        uint32_t mid = (lo + hi) / 2;
+        if (gHwRamMap[mid].address <= address) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo > 0) {
+        const HwRamMapEntry* e = &gHwRamMap[lo - 1];
+        if (address - e->address < e->size && e->native != NULL) {
+            return e->native + (address - e->address);
+        }
+    }
+    fprintf(stderr, "HwGbaPtr: no native memory for GBA address 0x%08x\n", address);
+    abort();
 }

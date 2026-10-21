@@ -198,8 +198,17 @@ void sub_0806E964(PhonographEntity* this, ScriptExecutionContext* context) {
 }
 #endif
 
+#ifdef PLATFORM_NATIVE
+extern u16 gBG0Buffer[];
+#endif
+
 const static Font gUnk_081146B8 = {
-    (u16*)0x2034fce, (void*)0x0600d000, (void*)0x2000d00, 0, 0xf080, 0xd0, 1, 1, 1, 1, 0, 0, 0, 1, 0
+#ifdef PLATFORM_NATIVE
+    (u16*)((u8*)gBG0Buffer + 0x31e), (void*)(VRAM + 0xd000), gTextGfxBuffer,
+#else
+    (u16*)0x2034fce, (void*)0x0600d000, (void*)0x2000d00,
+#endif
+    0, 0xf080, 0xd0, 1, 1, 1, 1, 0, 0, 0, 1, 0
 };
 
 #ifdef EU

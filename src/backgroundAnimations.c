@@ -2428,7 +2428,7 @@ void LoadBgAnimationGfx(const BgAnimationGfx* param_1) {
         if ((*(u32*)param_1 >> 0x1c & 1) != 0) {
             LoadPalettes(src, vramOffset >> 5, size);
         } else {
-            MemCopy(src, (void*)(vramOffset + 0x6000000), size << 5);
+            MemCopy(src, (void*)(vramOffset + VRAM), size << 5);
         }
         if (*(int*)param_1 >= 0) {
             return;

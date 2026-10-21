@@ -106,7 +106,7 @@ void sub_080A7040(u32 param_1) {
     if (gGenericMenu.unk2e.HWORD != param_1) {
         gGenericMenu.unk2e.HWORD = param_1;
         MemClear(&gBG1Buffer[0x100], 0x300);
-        MemCopy(gBG1Buffer, (void*)0x600e000, 0x800);
+        MemCopy(gBG1Buffer, GBA_PTR(0x600e000), 0x800);
         if (GetInventoryValue(gUnk_08128D70[param_1].item) != 0) {
             ShowTextBox(gUnk_08128D70[param_1].textIndex, &gUnk_08129004);
         }

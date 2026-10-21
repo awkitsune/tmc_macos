@@ -34,6 +34,13 @@ extern void* gHwIntrVector;
 void HwDmaSet(int channel, const void* src, void* dest, uint32_t control);
 void HwDmaStop(int channel);
 
+/*
+ * Host pointer for a fixed GBA address: hardware regions map to the buffers above,
+ * EWRAM/IWRAM to the variable placed there (by symbol, from the GBA link).
+ * Aborts on an address with no native counterpart.
+ */
+void* HwGbaPtr(uint32_t address);
+
 /* BIOS calls issued through SystemCall(n) rather than a named wrapper. */
 void HwSystemCall(int number);
 

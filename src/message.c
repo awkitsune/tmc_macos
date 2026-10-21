@@ -824,7 +824,7 @@ void sub_08056F88(u32 unk_1, u32 unk_2) {
     uVar1 = unk_1 << 4 | unk_2;
     if (gTextRender._9c != uVar1) {
         gTextRender._9c = uVar1;
-        sub_0805F918(unk_1, unk_2, (void*)0x0600CF60);
+        sub_0805F918(unk_1, unk_2, GBA_PTR(0x0600CF60));
     }
 }
 

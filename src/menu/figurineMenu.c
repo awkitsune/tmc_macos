@@ -410,19 +410,38 @@ void sub_080A4B44(void) {
     }
 }
 
+#ifdef PLATFORM_NATIVE
+extern u8 gTextGfxBuffer[];
+#endif
+
+// Passed to ShowTextBox as a Font; natively it needs Font's pointer layout.
 typedef struct {
     u16* unk0;
-    u32 unk4;
-    u8 filler8[8];
+    PtrU32 unk4; // VRAM address
+#ifdef PLATFORM_NATIVE
+    void* unk8;
+    u32 unkC;
+#else
+    u8 filler8[8]; // 0x02000d00 (gTextGfxBuffer), 0
+#endif
     u16 unk10;
     u8 filler12[2];
     u8 unk14;
 } struct_0812816C;
 static_assert(sizeof(struct_0812816C) == 0x18);
 const struct_0812816C gUnk_0812816C = {
+#ifdef PLATFORM_NATIVE
+    (u16*)((u8*)gBG3Buffer + 0x100),
+#else
     (u16*)0x02001b40,
-    0x0600a000,
+#endif
+    VRAM + 0xa000,
+#ifdef PLATFORM_NATIVE
+    gTextGfxBuffer,
+    0,
+#else
     { 0u, 0xdu, 0u, 0x2u, 0u, 0u, 0u, 0u },
+#endif
     0xf100,
     {
         0x88u,
@@ -508,8 +527,16 @@ void sub_080A4BA0(u32 arg1, u32 arg2) {
 }
 
 const struct_0812816C gUnk_08128190 = {
+#ifdef PLATFORM_NATIVE
+    (u16*)((u8*)gBG1Buffer + 0x42),
+#else
     (u16*)0x02021f72,
-    0x06004000,
+#endif
+    VRAM + 0x4000,
+#ifdef PLATFORM_NATIVE
+    gTextGfxBuffer,
+    0,
+#else
     {
         0u,
         0xdu,
@@ -520,6 +547,7 @@ const struct_0812816C gUnk_08128190 = {
         0u,
         0u,
     },
+#endif
     0xc200,
     {
         0xe0u,
@@ -536,7 +564,7 @@ u32 sub_080A4CBC(u32 figurineIndex) {
     if (gFigurineMenu.unk1a != figurineIndex) {
         gFigurineMenu.unk1a = figurineIndex;
         MemClear(&gBG1Buffer, sizeof(gBG1Buffer));
-        MemCopy(&gBG1Buffer, (void*)0x600e000, sizeof(gBG1Buffer));
+        MemCopy(&gBG1Buffer, GBA_PTR(0x600e000), sizeof(gBG1Buffer));
         ownsFigurine = FigurineMenu_isFigurineOwned(figurineIndex);
         if (ownsFigurine != 0) {
             ShowTextBox(figurineIndex + 0x900, &gUnk_08128190);

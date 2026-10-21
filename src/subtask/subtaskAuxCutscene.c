@@ -146,7 +146,7 @@ void sub_08052010(void) {
     LoadPaletteGroup(0xA);
     SetColor(0, 0);
     LoadGfxGroup(4);
-    MemClear((void*)0x06000000, 0x20);
+    MemClear(GBA_PTR(0x06000000), 0x20);
     MemClear(&gGenericMenu, sizeof(gGenericMenu));
     gScreen.lcd.displayControl |= DISPCNT_OBJ_ON;
     gScreen.bg1.control = BGCNT_PRIORITY(1) | BGCNT_SCREENBASE(28) | BGCNT_CHARBASE(0);

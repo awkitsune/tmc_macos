@@ -5,6 +5,9 @@
  * @brief Title Screen object
  */
 #include "object.h"
+#ifdef PLATFORM_NATIVE
+#include "save.h"
+#endif
 #include "asm.h"
 
 void TitleScreenObject_Type0(Entity*);
@@ -39,8 +42,13 @@ void TitleScreenObject_Type0(Entity* this) {
     if (this->action == 0) {
         sub_080A2340(this);
         CreateObject(TITLE_SCREEN_OBJECT, 1, 0);
+#ifdef PLATFORM_NATIVE
+        addr = 0;
+        if (((u8*)gSaveHeader)[7] == 1) {
+#else
         addr = 0x02000000; // TODO write to 0x2000007
         if (*(u8*)(addr + 7) == 1) {
+#endif
             type = 2;
         } else {
             type = 3;

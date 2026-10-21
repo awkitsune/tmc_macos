@@ -61,8 +61,8 @@ void sub_080A2E40(void) {
     LoadGfxGroup(0x56);
     MemCopy(&gUnk_089FD1B4, gPaletteBuffer + 96, 0x100);
     MemCopy(&gUnk_089FD1B4, gPaletteBuffer + 352, 0x100);
-    MemCopy(&gUnk_089FD2F4, (void*)0x6000000, 0x8000);
-    MemCopy(&gUnk_089FD2F4, (void*)0x6010000, 0x8000);
+    MemCopy(&gUnk_089FD2F4, GBA_PTR(0x6000000), 0x8000);
+    MemCopy(&gUnk_089FD2F4, GBA_PTR(0x6010000), 0x8000);
     MemCopy(&gUnk_08A05751, &gBG1Buffer, 0x800);
     MemCopy(&gUnk_08A05751[0x800], &gBG2Buffer, 0x800);
     gScreen.lcd.displayControl = 0x1f00;

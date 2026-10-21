@@ -36,6 +36,14 @@
 #define INTR_VECTOR (*(void**)0x3007FFC)
 #endif
 
+// A fixed GBA address (RAM or hardware) as a pointer. Natively the address is
+// mapped to the host buffer or variable that holds it.
+#ifdef PLATFORM_NATIVE
+#define GBA_PTR(addr) HwGbaPtr(addr)
+#else
+#define GBA_PTR(addr) ((void*)(addr))
+#endif
+
 #define EWRAM_START 0x02000000
 #define EWRAM_END (EWRAM_START + 0x40000)
 #define IWRAM_START 0x03000000

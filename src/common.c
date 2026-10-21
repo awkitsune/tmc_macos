@@ -270,7 +270,11 @@ void LoadGfxGroup(u32 group) {
     u32 dmaCtrl;
     int gfxOffset;
     const u8* src;
+#ifdef PLATFORM_NATIVE
+    uintptr_t dest;
+#else
     u32 dest;
+#endif
     int size;
     const GfxItem* gfxItem = gGfxGroups[group];
     while (1) {
@@ -303,7 +307,11 @@ void LoadGfxGroup(u32 group) {
         if (loadGfx) {
             gfxOffset = gfxItem->unk0.raw & 0xFFFFFF;
             src = &gGlobalGfxAndPalettes[gfxOffset];
+#ifdef PLATFORM_NATIVE
+            dest = (uintptr_t)GBA_PTR(gfxItem->dest); // a GBA address in the data
+#else
             dest = gfxItem->dest;
+#endif
             size = gfxItem->unk8;
             dmaCtrl = 0x80000000;
             if (size < 0) {
@@ -484,14 +492,14 @@ void DispReset(bool32 refresh) {
     REG_DISPCNT = 0;
     ClearOAM();
     ResetScreenRegs();
-    MemClear((void*)0x600C000, 0x20);
+    MemClear(GBA_PTR(0x600C000), 0x20);
     MemClear(gBG0Buffer, sizeof(gBG0Buffer));
     gScreen.bg0.updated = refresh;
 }
 
 void ClearOAM(void) {
     u8* d = (u8*)gOAMControls.oam;
-    u8* mem = (u8*)0x07000000;
+    u8* mem = (u8*)GBA_PTR(0x07000000);
     u32 i;
     for (i = 128; i != 0; --i) {
         *(u16*)d = 0x2A0;

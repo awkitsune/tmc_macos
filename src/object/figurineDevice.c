@@ -609,7 +609,7 @@ void sub_080882A8(FigurineDeviceEntity* this) {
     sub_08050384();
     NumberToAsciiPad3Digits(this->shells, &gUnk_020227E8[0], 0x202020);
     NumberToAsciiPad3Digits(this->chance, &gUnk_020227E8[1], 0x202020);
-    ptr = (u8*)0x02000000;
+    ptr = (u8*)gSaveHeader;
     if (ptr[7] == 0) {
         ShowTextBox(gUnk_08120AE4[super->type2], (Font*)&gUnk_08120AB4); // TODO convert data
     } else {

@@ -1204,7 +1204,7 @@ void sub_0801AE44(bool32 loadGfx) {
         sub_0807C898();
     }
     if (gArea.lightType != 0) {
-        MemFill16(0xf, (void*)0x600f000, 0x800);
+        MemFill16(0xf, GBA_PTR(0x600f000), 0x800);
         sub_0805BB74(-1);
     }
     func = GetCurrentRoomProperty(5);

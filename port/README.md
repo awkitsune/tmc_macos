@@ -86,14 +86,38 @@ cmake -S port -B build/native
 cmake --build build/native -j
 ```
 
-The `tmc` executable does not link yet. To see what is still missing:
+This builds `build/native/tmc`, which runs the game headless (no window, picture
+or sound yet). If the link ever breaks, `cmake --build build/native --target
+link-report` groups the unresolved symbols by where the GBA build defines them.
+
+### Running headless
+
+Environment variables control the headless runner:
+
+| Variable | Effect |
+|---|---|
+| `TMC_FRAMES=n` | Exit after n frames |
+| `TMC_INPUT="frame:keys:duration,..."` | Hold buttons, e.g. `600:a:3,900:start+a:5` (`a b select start right left up down r l`) |
+| `TMC_TRACE_TASK=1` | Print each change of the game's task/state/substate |
+| `TMC_TRACE_DMA=1` | Log every DMA transfer |
+| `TMC_WATCHDOG=n` | After n seconds, print a backtrace and exit (finds hangs) |
+| `TMC_SAVE=path` | Back the emulated EEPROM with this file |
 
 ```bash
-cmake --build build/native --target link-report
+TMC_FRAMES=3000 TMC_TRACE_TASK=1 TMC_INPUT="600:a:3" build/native/tmc
 ```
 
-This writes `build/native/link_report.txt`, grouping every unresolved symbol by
-where the GBA build defines it.
+Crashes print a backtrace with the load address. Without debug info, macOS crash
+reports in `~/Library/Logs/DiagnosticReports/tmc-*.ips` name the functions too.
+For memory errors, configure a separate build with `-DTMC_SANITIZE=ON` and run with
+`ASAN_OPTIONS=symbolize=0`, then resolve the printed offsets offline:
+
+```bash
+atos -o build/native-asan/tmc -arch arm64 0x100026464
+```
+
+(Attaching lldb or letting ASan symbolize may wait on a macOS developer-tools
+permission prompt.)
 
 ## Layout
 
@@ -105,7 +129,11 @@ where the GBA build defines it.
 | `port/src/bios.c` | BIOS calls in C (copies, decompression, division, affine, VBlankIntrWait) |
 | `port/src/interrupts.c` | `IntrMain` replacement dispatching through the game's handler table |
 | `port/src/headless.c` | Headless platform and process entry; `TMC_FRAMES=n` stops after n frames |
-| `port/src/data_glue.c` | Code embedded in data, and demo-only symbols |
+| `port/src/data_glue.c` | Code embedded in data, demo-only symbols, the save header |
+| `port/src/asm/` | C versions of every function in `asm/src/*.s` |
+| `port/src/eeprom.c` | Emulated save EEPROM (replaces `src/eeprom.c`) |
+| `port/src/sound_stub.c` | Silent m4a API until the native sound engine (replaces `src/gba/m4a.c`) |
+| `port/src/trace.c` | Game-state tracing for the headless runner |
 | `port/tools/datagen/` | GBA data objects → native arm64 assembly (see below) |
 | `port/scripts/link_report.py` | Classifies unresolved symbols into the remaining worklist |
 
@@ -113,7 +141,9 @@ Header hooks (all `PLATFORM_NATIVE`-only): `gba/defines.h` and `gba/io_reg.h`
 point `PLTT`/`VRAM`/`OAM`/`REG_BASE` at the host buffers; `gba/macro.h` routes
 `DmaSet`/`DmaStop` to the port; `gba/syscall.h` routes `SystemCall`;
 `global.h` disables GBA struct-size asserts; `gba/types.h` adds `PtrU32`, an
-integer field that holds a pointer (`u32` on GBA, `uintptr_t` natively).
+integer field that holds a pointer (`u32` on GBA, `uintptr_t` natively);
+`gba/defines.h` adds `GBA_PTR(addr)` for fixed GBA addresses in C code, mapped
+natively to the host buffer or variable at that address.
 
 ## Phase 0 results
 
@@ -174,15 +204,20 @@ that need a pointer type natively (e.g. pointer tables declared as `u32[]`).
 
 ## Status
 
-All 619 game C files and all data build natively. 154 symbols are still
-unresolved:
+The native build links with no unresolved symbols and runs headless: through the
+Nintendo/Capcom logos and title screen into file select, and for tens of
+thousands of frames when left alone. Every function in `asm/src` has a C
+version, the BIOS calls are in C, and the save EEPROM is emulated.
 
-| Count | What | Plan |
-|---:|---|---|
-| 117 | functions in `asm/src/*.s` (~1,700 instructions) | Rewrite in C, phase 1 |
-| 29 | `asm/lib/m4a_asm.s` sound mixer | Phase 4; stubbed until then |
-| 8 | `ram_*` ARM code copied to IWRAM | Alias the functions they copy |
+Remaining for phase 1, so that gameplay runs:
 
-Still to do for phase 1 besides the asm: the script interpreter must decode
-tagged pointers, the C declarations in `notes.txt`, the compiler's pointer-cast
-warnings, and the 24 raw GBA addresses in C such as `(SaveHeader*)0x2000000`.
+- About 170 compiler warnings for pointer/integer casts, mostly in
+  `enemy/chuchuBoss.c` and `entity.c`. Many are decomp idioms that access fields
+  by GBA byte offset (`*(u8*)((int)entity + 0x85)`), which need real field names
+  natively. Creating a new file currently crashes on one of these in text code.
+- The C declarations listed in `build/native/data/notes.txt` (pointer tables
+  declared as `u32[]`).
+- Callers that declare `DoTileInteraction`'s returned pointer as `s32`.
+
+Sound is silent until phase 4: the m4a engine reads raw GBA addresses from song
+data, so `src/gba/m4a.c` is replaced by a stub for now.

@@ -59,7 +59,11 @@ void RegisterRamReset(u32 flags) {
         memset(gHwOam, 0, sizeof(gHwOam));
     }
     if (flags & 0x80) {
+        // KEYINPUT reflects the buttons; reset leaves it alone.
+        uint16_t keys;
+        memcpy(&keys, gHwIo + 0x130, 2);
         memset(gHwIo, 0, sizeof(gHwIo));
+        memcpy(gHwIo + 0x130, &keys, 2);
     }
     // EWRAM/IWRAM (0x01/0x02) are ordinary globals natively; only boot and soft
     // reset ask for them, and both start from zeroed (or deliberately kept) state.
