@@ -21,6 +21,7 @@
 
 void TraceGameTask(uint64_t frame); // trace.c (kept apart: game headers clash with libc)
 void TraceEntities(uint64_t frame);
+void TracePlayer(uint64_t frame);
 
 void AgbMain(void);
 
@@ -30,28 +31,66 @@ static jmp_buf sResetPoint;
 
 // TMC_INPUT="frame:keys:duration,...": hold buttons (a b select start right left
 // up down r l, joined with +) for duration frames from the given frame.
+// TMC_INPUT=@path reads the same items from a file, separated by commas or
+// whitespace; '#' starts a comment. A frame of +n means n frames after the
+// previous item's start.
 typedef struct {
     uint64_t start, end;
     uint16_t keys;
 } ScriptedInput;
-static ScriptedInput sInputs[64];
+#define MAX_INPUTS 8192
+static ScriptedInput sInputs[MAX_INPUTS];
 static int sInputCount;
+
+static char* ReadInputFile(const char* path) {
+    FILE* file = fopen(path, "r");
+    size_t size = 0, capacity = 4096;
+    char* text = malloc(capacity);
+    int c, comment = 0;
+
+    if (file == NULL) {
+        fprintf(stderr, "TMC_INPUT: cannot open %s\n", path);
+        exit(1);
+    }
+    while ((c = fgetc(file)) != EOF) {
+        if (c == '#') {
+            comment = 1;
+        } else if (c == '\n') {
+            comment = 0;
+        }
+        if (comment || c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            c = ',';
+        }
+        if (size + 2 > capacity) {
+            text = realloc(text, capacity *= 2);
+        }
+        text[size++] = (char)c;
+    }
+    text[size] = 0;
+    fclose(file);
+    return text;
+}
 
 static void ParseInput(const char* text) {
     static const char* const names[] = { "a", "b", "select", "start", "right", "left", "up", "down", "r", "l" };
-    char buffer[1024];
+    char* buffer = text[0] == '@' ? ReadInputFile(text + 1) : strdup(text);
     char* item;
     char* rest;
+    uint64_t previous = 0;
 
-    snprintf(buffer, sizeof(buffer), "%s", text);
-    for (item = strtok_r(buffer, ",", &rest); item != NULL && sInputCount < 64; item = strtok_r(NULL, ",", &rest)) {
+    for (item = strtok_r(buffer, ",", &rest); item != NULL; item = strtok_r(NULL, ",", &rest)) {
         unsigned long long frame = 0, duration = 1;
         char keys[128] = { 0 };
         uint16_t mask = 0;
         char* name;
         char* keysRest;
+        int relative = item[0] == '+';
 
-        if (sscanf(item, "%llu:%127[^:]:%llu", &frame, keys, &duration) < 2) {
+        if (sInputCount == MAX_INPUTS) {
+            fprintf(stderr, "TMC_INPUT: more than %d items\n", MAX_INPUTS);
+            exit(1);
+        }
+        if (sscanf(item + relative, "%llu:%127[^:]:%llu", &frame, keys, &duration) < 2) {
             fprintf(stderr, "TMC_INPUT: cannot parse '%s'\n", item);
             exit(1);
         }
@@ -68,8 +107,13 @@ static void ParseInput(const char* text) {
                 exit(1);
             }
         }
+        if (relative) {
+            frame += previous;
+        }
+        previous = frame;
         sInputs[sInputCount++] = (ScriptedInput){ frame, frame + duration, mask };
     }
+    free(buffer);
 }
 
 static uint16_t ScriptedKeys(void) {
@@ -84,6 +128,7 @@ static uint16_t ScriptedKeys(void) {
 
 static int sTraceTask;
 static int sTraceEntities;
+static uint64_t sTracePlayer;
 
 // TMC_SCREENSHOT="frame,frame,..." or "every:n" saves PNGs to TMC_SCREENSHOT_DIR
 // (default: screenshots).
@@ -156,6 +201,9 @@ void PlatformVBlank(void) {
     if (sTraceEntities && gPlatformFrame % 100 == 0) {
         TraceEntities(gPlatformFrame);
     }
+    if (sTracePlayer != 0 && gPlatformFrame % sTracePlayer == 0) {
+        TracePlayer(gPlatformFrame);
+    }
     // The picture shown during this frame: registers as the last VBlank left them.
     MaybeScreenshot();
 
@@ -216,12 +264,17 @@ _Noreturn void PlatformSoftReset(void) {
 int main(void) {
     const char* frames = getenv("TMC_FRAMES");
     sFrameLimit = frames != NULL ? strtoull(frames, NULL, 10) : 0;
+    setvbuf(stdout, NULL, _IOLBF, 0);
     InstallDiagnostics();
     if (getenv("TMC_INPUT") != NULL) {
         ParseInput(getenv("TMC_INPUT"));
     }
     sTraceTask = getenv("TMC_TRACE_TASK") != NULL;
     sTraceEntities = getenv("TMC_TRACE_ENTITIES") != NULL;
+    if (getenv("TMC_TRACE_PLAYER") != NULL) {
+        sTracePlayer = strtoull(getenv("TMC_TRACE_PLAYER"), NULL, 10);
+        sTracePlayer = sTracePlayer != 0 ? sTracePlayer : 60;
+    }
     if (getenv("TMC_SCREENSHOT") != NULL) {
         ParseScreenshots(getenv("TMC_SCREENSHOT"));
         if (getenv("TMC_SCREENSHOT_DIR") != NULL) {

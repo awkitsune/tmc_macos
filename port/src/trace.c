@@ -51,3 +51,19 @@ void TraceEntities(u64 frame) {
     printf(" | buckets %d %d %d %d | oam updated %d\n", gDrawBuckets[0].count, gDrawBuckets[1].count,
            gDrawBuckets[2].count, gDrawBuckets[3].count, gOAMControls.updated);
 }
+
+#include "player.h"
+#include "room.h"
+#include "save.h"
+#include "message.h"
+
+// TMC_TRACE_PLAYER=n: every n frames, where the player is and what it is doing.
+void TracePlayer(u64 frame) {
+    Entity* p = &gPlayerEntity.base;
+    printf("frame %llu: task %d.%d.%d area %02x room %02x pos %d,%d (room %d,%d) z %d dir %d action %d/%d "
+           "player state %x/%x hp %d msg %d\n",
+           (unsigned long long)frame, gMain.task, gMain.state, gMain.substate, gRoomControls.area,
+           gRoomControls.room, p->x.HALF.HI, p->y.HALF.HI, p->x.HALF.HI - gRoomControls.origin_x,
+           p->y.HALF.HI - gRoomControls.origin_y, p->z.HALF.HI, p->direction, p->action, p->subAction,
+           gPlayerState.framestate, gPlayerState.flags, gSave.stats.health, gMessage.state);
+}
