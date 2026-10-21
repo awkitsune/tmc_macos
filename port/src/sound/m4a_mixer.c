@@ -18,6 +18,7 @@
  */
 
 #include <math.h>
+#include <stdatomic.h>
 
 #include "global.h"
 #include "gba/m4a.h"
@@ -35,9 +36,10 @@
 
 static SoundSink sSink;
 static void* sSinkContext;
-static SoundQuality sQuality = SOUND_QUALITY_AUTHENTIC;
+// Set from the app's main thread, applied by the game thread at the next frame.
+static _Atomic SoundQuality sQuality = SOUND_QUALITY_AUTHENTIC;
 static SoundQuality sAppliedQuality = SOUND_QUALITY_AUTHENTIC;
-static int sHqRate = 48000;
+static _Atomic int sHqRate = 48000;
 
 static float sMono[MAX_FRAME];
 static float sStereo[2 * MAX_FRAME];

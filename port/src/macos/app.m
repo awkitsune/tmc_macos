@@ -10,10 +10,13 @@
 #import "renderer.h"
 #import "selftest.h"
 
+#include "audio.h"
 #include "frontend.h"
 
 static NSString* const kFilterDefault = @"Filter";
 static NSString* const kIntegerScalingDefault = @"IntegerScaling";
+static NSString* const kMutedDefault = @"Muted";
+static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 
 // The game view takes the keyboard: game keys go to Input, everything else
 // (menu shortcuts, Escape) goes up the responder chain.
@@ -76,7 +79,12 @@ static NSString* const kIntegerScalingDefault = @"IntegerScaling";
 
 - (void)applicationDidFinishLaunching:(NSNotification*)note {
     NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
-    [defaults registerDefaults:@{ kFilterDefault : @(FilterModeSharpBilinear), kIntegerScalingDefault : @YES }];
+    [defaults registerDefaults:@{
+        kFilterDefault : @(FilterModeSharpBilinear),
+        kIntegerScalingDefault : @YES,
+        kMutedDefault : @NO,
+        kHighQualityAudioDefault : @NO,
+    }];
 
     [self buildMenus];
 
@@ -126,6 +134,9 @@ static NSString* const kIntegerScalingDefault = @"IntegerScaling";
     [_window makeKeyAndOrderFront:nil];
 
     FrontendSetSavePath(self.savePath.fileSystemRepresentation);
+    AudioSetMuted([defaults boolForKey:kMutedDefault]);
+    AudioSetHighQuality([defaults boolForKey:kHighQualityAudioDefault]);
+    AudioStart(); // without an output device the game just runs silently
     FrontendStartGame();
     [NSApp activateIgnoringOtherApps:YES];
 
@@ -149,6 +160,7 @@ static NSString* const kIntegerScalingDefault = @"IntegerScaling";
 
 - (void)applicationWillTerminate:(NSNotification*)note {
     FrontendStopGame();
+    AudioStop();
 }
 
 - (void)applicationDidResignActive:(NSNotification*)note {
@@ -186,6 +198,12 @@ static NSString* const kIntegerScalingDefault = @"IntegerScaling";
     help.enabled = NO;
     [self addSubmenu:game toBar:bar];
 
+    NSMenu* sound = [[NSMenu alloc] initWithTitle:@"Sound"];
+    NSMenuItem* mute = [sound addItemWithTitle:@"Mute" action:@selector(toggleMute:) keyEquivalent:@"m"];
+    mute.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
+    [sound addItemWithTitle:@"High-Quality Audio" action:@selector(toggleHighQualityAudio:) keyEquivalent:@""];
+    [self addSubmenu:sound toBar:bar];
+
     NSMenu* view = [[NSMenu alloc] initWithTitle:@"View"];
     for (NSUInteger mode = 0; mode < FilterModeCount; mode++) {
         NSString* key = [NSString stringWithFormat:@"%lu", (unsigned long)mode + 1];
@@ -218,6 +236,10 @@ static NSString* const kIntegerScalingDefault = @"IntegerScaling";
         item.state = (NSUInteger)item.tag == _renderer.filter ? NSControlStateValueOn : NSControlStateValueOff;
     } else if (item.action == @selector(toggleIntegerScaling:)) {
         item.state = _renderer.integerScaling ? NSControlStateValueOn : NSControlStateValueOff;
+    } else if (item.action == @selector(toggleMute:)) {
+        item.state = AudioIsMuted() ? NSControlStateValueOn : NSControlStateValueOff;
+    } else if (item.action == @selector(toggleHighQualityAudio:)) {
+        item.state = AudioIsHighQuality() ? NSControlStateValueOn : NSControlStateValueOff;
     } else if (item.action == @selector(togglePause:)) {
         item.title = FrontendIsPaused() ? @"Resume" : @"Pause";
     }
@@ -232,6 +254,16 @@ static NSString* const kIntegerScalingDefault = @"IntegerScaling";
 - (void)toggleIntegerScaling:(id)sender {
     _renderer.integerScaling = !_renderer.integerScaling;
     [NSUserDefaults.standardUserDefaults setBool:_renderer.integerScaling forKey:kIntegerScalingDefault];
+}
+
+- (void)toggleMute:(id)sender {
+    AudioSetMuted(!AudioIsMuted());
+    [NSUserDefaults.standardUserDefaults setBool:AudioIsMuted() forKey:kMutedDefault];
+}
+
+- (void)toggleHighQualityAudio:(id)sender {
+    AudioSetHighQuality(!AudioIsHighQuality());
+    [NSUserDefaults.standardUserDefaults setBool:AudioIsHighQuality() forKey:kHighQualityAudioDefault];
 }
 
 - (void)togglePause:(id)sender {

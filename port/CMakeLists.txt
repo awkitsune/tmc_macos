@@ -118,10 +118,11 @@ add_executable(tmc src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tm
 target_link_libraries(tmc PRIVATE tmc_port z)
 
 # The macOS app: a window with the Metal renderer, keyboard and gamepad input,
-# running the game at 59.73 Hz. Builds build/native/TMC.app.
+# Core Audio sound, running the game at 59.73 Hz. Builds build/native/TMC.app.
 set(TMC_APP_SHADERS src/macos/shaders.metal)
 add_executable(tmc_app MACOSX_BUNDLE
     src/macos/app.m
+    src/macos/audio.c
     src/macos/game.c
     src/macos/input.m
     src/macos/renderer.m
@@ -147,6 +148,7 @@ target_link_libraries(tmc_app PRIVATE
     tmc_port z
     "-framework Cocoa" "-framework Metal" "-framework MetalKit"
     "-framework GameController" "-framework QuartzCore"
+    "-framework AudioToolbox" "-framework CoreAudio"
 )
 # Ad-hoc sign the whole bundle so macOS treats it as one app (Gatekeeper,
 # controller and window permissions).
