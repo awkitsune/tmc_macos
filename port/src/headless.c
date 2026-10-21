@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "port/headless_state.h"
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
@@ -29,18 +30,37 @@ uint64_t gPlatformFrame;
 static uint64_t sFrameLimit;
 static jmp_buf sResetPoint;
 
-// TMC_INPUT="frame:keys:duration,...": hold buttons (a b select start right left
-// up down r l, joined with +) for duration frames from the given frame.
-// TMC_INPUT=@path reads the same items from a file, separated by commas or
-// whitespace; '#' starts a comment. A frame of +n means n frames after the
-// previous item's start.
+// TMC_INPUT="step,step,...": scripted buttons (a b select start right left up
+// down r l, joined with +). TMC_INPUT=@path reads the steps from a file,
+// separated by commas or whitespace; '#' starts a comment. Steps run in order:
+//
+//   F:keys:D          hold keys for D frames (default 1) from frame F
+//   +N:keys:D         the same, N frames after the previous step started or
+//                     the previous wait or walk finished
+//   wait:COND[:T[:S]] wait until COND has held for S frames (default 20); fails
+//                     after T frames (default 3000)
+//   mash:COND[:T[:S]] the same, tapping A meanwhile (to get through dialogue)
+//   gox:X  goy:Y      walk until the player's room-relative x (y) is X (Y),
+//                     tapping A through any message on the way; fails when
+//                     the player stops moving short of it
+//
+// COND is control (gameplay running, player free to move, no message or fade),
+// room=AA.RR (hex area and room, with control), in=AA.RR (the same without
+// control), msg (a message is shown) or nomsg. A failed step prints why and exits with status 3.
+typedef enum { STEP_KEYS, STEP_WAIT, STEP_MASH, STEP_GOX, STEP_GOY } StepKind;
+typedef enum { COND_CONTROL, COND_ROOM, COND_IN, COND_MSG, COND_NOMSG } StepCond;
 typedef struct {
-    uint64_t start, end;
+    StepKind kind;
+    int relative;
+    uint64_t frame, duration;
     uint16_t keys;
-} ScriptedInput;
-#define MAX_INPUTS 8192
-static ScriptedInput sInputs[MAX_INPUTS];
-static int sInputCount;
+    StepCond cond;
+    int area, room, target, stable;
+    char text[48];
+} ScriptStep;
+#define MAX_STEPS 8192
+static ScriptStep sSteps[MAX_STEPS];
+static int sStepCount;
 
 static char* ReadInputFile(const char* path) {
     FILE* file = fopen(path, "r");
@@ -71,56 +91,202 @@ static char* ReadInputFile(const char* path) {
     return text;
 }
 
-static void ParseInput(const char* text) {
+static uint16_t ParseKeys(const char* item, char* keys) {
     static const char* const names[] = { "a", "b", "select", "start", "right", "left", "up", "down", "r", "l" };
-    char* buffer = text[0] == '@' ? ReadInputFile(text + 1) : strdup(text);
-    char* item;
+    uint16_t mask = 0;
     char* rest;
-    uint64_t previous = 0;
 
-    for (item = strtok_r(buffer, ",", &rest); item != NULL; item = strtok_r(NULL, ",", &rest)) {
-        unsigned long long frame = 0, duration = 1;
-        char keys[128] = { 0 };
-        uint16_t mask = 0;
-        char* name;
-        char* keysRest;
-        int relative = item[0] == '+';
-
-        if (sInputCount == MAX_INPUTS) {
-            fprintf(stderr, "TMC_INPUT: more than %d items\n", MAX_INPUTS);
+    for (char* name = strtok_r(keys, "+", &rest); name != NULL; name = strtok_r(NULL, "+", &rest)) {
+        int found = 0;
+        for (int i = 0; i < 10; i++) {
+            if (strcmp(name, names[i]) == 0) {
+                mask |= 1 << i;
+                found = 1;
+            }
+        }
+        if (!found) {
+            fprintf(stderr, "TMC_INPUT: unknown button '%s' in '%s'\n", name, item);
             exit(1);
         }
-        if (sscanf(item + relative, "%llu:%127[^:]:%llu", &frame, keys, &duration) < 2) {
+    }
+    return mask;
+}
+
+static void ParseStep(const char* item) {
+    ScriptStep* step = &sSteps[sStepCount];
+    char word[16] = { 0 }, arg[64] = { 0 };
+    unsigned long long timeout = 3000;
+    int stable = 20;
+
+    if (sStepCount == MAX_STEPS) {
+        fprintf(stderr, "TMC_INPUT: more than %d steps\n", MAX_STEPS);
+        exit(1);
+    }
+    memset(step, 0, sizeof(*step));
+    snprintf(step->text, sizeof(step->text), "%s", item);
+    if (sscanf(item, "%15[a-z]:%63[^:]:%llu:%d", word, arg, &timeout, &stable) >= 2) {
+        step->stable = stable;
+        if (strcmp(word, "wait") == 0 || strcmp(word, "mash") == 0) {
+            step->kind = word[0] == 'w' ? STEP_WAIT : STEP_MASH;
+            step->duration = timeout;
+            if (strcmp(arg, "control") == 0) {
+                step->cond = COND_CONTROL;
+            } else if (strcmp(arg, "msg") == 0) {
+                step->cond = COND_MSG;
+            } else if (strcmp(arg, "nomsg") == 0) {
+                step->cond = COND_NOMSG;
+            } else if (sscanf(arg, "room=%x.%x", &step->area, &step->room) == 2) {
+                step->cond = COND_ROOM;
+            } else if (sscanf(arg, "in=%x.%x", &step->area, &step->room) == 2) {
+                step->cond = COND_IN;
+            } else {
+                fprintf(stderr, "TMC_INPUT: unknown condition in '%s'\n", item);
+                exit(1);
+            }
+        } else if (strcmp(word, "gox") == 0 || strcmp(word, "goy") == 0) {
+            step->kind = word[2] == 'x' ? STEP_GOX : STEP_GOY;
+            step->target = atoi(arg);
+        } else {
+            fprintf(stderr, "TMC_INPUT: unknown step '%s'\n", item);
+            exit(1);
+        }
+    } else {
+        unsigned long long frame = 0, duration = 1;
+        char keys[128] = { 0 };
+
+        step->relative = item[0] == '+';
+        if (sscanf(item + step->relative, "%llu:%127[^:]:%llu", &frame, keys, &duration) < 2) {
             fprintf(stderr, "TMC_INPUT: cannot parse '%s'\n", item);
             exit(1);
         }
-        for (name = strtok_r(keys, "+", &keysRest); name != NULL; name = strtok_r(NULL, "+", &keysRest)) {
-            int found = 0;
-            for (int i = 0; i < 10; i++) {
-                if (strcmp(name, names[i]) == 0) {
-                    mask |= 1 << i;
-                    found = 1;
-                }
-            }
-            if (!found) {
-                fprintf(stderr, "TMC_INPUT: unknown button '%s'\n", name);
-                exit(1);
-            }
-        }
-        if (relative) {
-            frame += previous;
-        }
-        previous = frame;
-        sInputs[sInputCount++] = (ScriptedInput){ frame, frame + duration, mask };
+        step->kind = STEP_KEYS;
+        step->frame = frame;
+        step->duration = duration;
+        step->keys = ParseKeys(item, keys);
+    }
+    sStepCount++;
+}
+
+static void ParseInput(const char* text) {
+    char* buffer = text[0] == '@' ? ReadInputFile(text + 1) : strdup(text);
+    char* rest;
+
+    for (char* item = strtok_r(buffer, ",", &rest); item != NULL; item = strtok_r(NULL, ",", &rest)) {
+        ParseStep(item);
     }
     free(buffer);
 }
 
+// Key windows that have started; the steps run one after another.
+typedef struct {
+    uint64_t start, end;
+    uint16_t keys;
+} KeyWindow;
+static KeyWindow sWindows[64];
+static int sStep;
+static uint64_t sBase;     // start of the previous step, or end of the previous wait/walk
+static uint64_t sStepSince; // when the current wait/walk began
+static int sLastPos, sStillFrames, sCondFrames;
+
+static void StepFailed(const ScriptStep* step, const char* why) {
+    HeadlessState s;
+    HeadlessGetState(&s);
+    fprintf(stderr,
+            "TMC_INPUT: step %d '%s' %s at frame %llu (task %d.%d.%d area %02x room %02x pos %d,%d control %d)\n",
+            sStep, step->text, why, (unsigned long long)gPlatformFrame, s.task, s.state, s.substate, s.area, s.room,
+            s.x, s.y, s.control);
+    printf("headless: input script failed\n");
+    exit(3);
+}
+
+static int CondHolds(const ScriptStep* step, const HeadlessState* s) {
+    switch (step->cond) {
+        case COND_CONTROL:
+            return s->control;
+        case COND_ROOM:
+            return s->control && s->area == step->area && s->room == step->room;
+        case COND_IN:
+            return s->area == step->area && s->room == step->room;
+        case COND_MSG:
+            return s->message;
+        case COND_NOMSG:
+            return !s->message;
+    }
+    return 0;
+}
+
+static void AddWindow(uint64_t start, uint64_t duration, uint16_t keys) {
+    for (int i = 0; i < 64; i++) {
+        if (sWindows[i].end <= gPlatformFrame) {
+            sWindows[i] = (KeyWindow){ start, start + duration, keys };
+            return;
+        }
+    }
+}
+
 static uint16_t ScriptedKeys(void) {
     uint16_t held = 0;
-    for (int i = 0; i < sInputCount; i++) {
-        if (gPlatformFrame >= sInputs[i].start && gPlatformFrame < sInputs[i].end) {
-            held |= sInputs[i].keys;
+    HeadlessState s;
+
+    HeadlessGetState(&s);
+    while (sStep < sStepCount) {
+        const ScriptStep* step = &sSteps[sStep];
+        if (step->kind == STEP_KEYS) {
+            uint64_t start = step->relative ? sBase + step->frame : step->frame;
+            if (start > gPlatformFrame) {
+                break;
+            }
+            AddWindow(start, step->duration, step->keys);
+            sBase = start;
+            sStep++;
+            continue;
+        }
+        if (sStepSince == 0) {
+            sStepSince = gPlatformFrame;
+            sLastPos = -100000;
+            sStillFrames = 0;
+            sCondFrames = 0;
+        }
+        if (step->kind == STEP_WAIT || step->kind == STEP_MASH) {
+            sCondFrames = CondHolds(step, &s) ? sCondFrames + 1 : 0;
+            if (sCondFrames >= step->stable) {
+                printf("frame %llu: step %d '%s' done\n", (unsigned long long)gPlatformFrame, sStep, step->text);
+            } else if (gPlatformFrame - sStepSince >= step->duration) {
+                StepFailed(step, "timed out");
+            } else {
+                if (step->kind == STEP_MASH && (gPlatformFrame - sStepSince) % 8 < 2) {
+                    held |= 1; // A
+                }
+                break;
+            }
+        } else {
+            int pos = step->kind == STEP_GOX ? s.x : s.y;
+            int delta = step->target - pos;
+            if (delta >= -1 && delta <= 1 && s.control) {
+                printf("frame %llu: step %d '%s' done\n", (unsigned long long)gPlatformFrame, sStep, step->text);
+            } else {
+                if (s.control) {
+                    sStillFrames = pos == sLastPos ? sStillFrames + 1 : 0;
+                    if (sStillFrames > 60) {
+                        StepFailed(step, "is stuck");
+                    }
+                    held |= step->kind == STEP_GOX ? (delta > 0 ? 0x10 : 0x20) : (delta > 0 ? 0x80 : 0x40);
+                } else if (gPlatformFrame - sStepSince > 3000) {
+                    StepFailed(step, "lost control");
+                } else if (s.message && (gPlatformFrame - sStepSince) % 8 < 2) {
+                    held |= 1; // A: get through dialogue on the way
+                }
+                sLastPos = pos;
+                break;
+            }
+        }
+        sBase = gPlatformFrame;
+        sStepSince = 0;
+        sStep++;
+    }
+    for (int i = 0; i < 64; i++) {
+        if (gPlatformFrame >= sWindows[i].start && gPlatformFrame < sWindows[i].end) {
+            held |= sWindows[i].keys;
         }
     }
     return held;

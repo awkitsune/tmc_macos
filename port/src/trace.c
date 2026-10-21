@@ -8,6 +8,7 @@
 #include "global.h"
 #include "main.h"
 #include "fade.h"
+#include "game.h"
 
 void TraceGameTask(u64 frame) {
     static int sLast = -1;
@@ -66,4 +67,24 @@ void TracePlayer(u64 frame) {
            gRoomControls.room, p->x.HALF.HI, p->y.HALF.HI, p->x.HALF.HI - gRoomControls.origin_x,
            p->y.HALF.HI - gRoomControls.origin_y, p->z.HALF.HI, p->direction, p->action, p->subAction,
            gPlayerState.framestate, gPlayerState.flags, gSave.stats.health, gMessage.state);
+}
+
+#include "port/headless_state.h"
+
+// Game state for event-driven TMC_INPUT steps (headless.c).
+void HeadlessGetState(HeadlessState* s) {
+    Entity* p = &gPlayerEntity.base;
+    s->task = gMain.task;
+    s->state = gMain.state;
+    s->substate = gMain.substate;
+    s->area = gRoomControls.area;
+    s->room = gRoomControls.room;
+    s->x = p->x.HALF.HI - gRoomControls.origin_x;
+    s->y = p->y.HALF.HI - gRoomControls.origin_y;
+    s->message = gMessage.state != 0;
+    s->fade = gFadeControl.active != 0;
+    // The player can be steered: gameplay running, nothing scripted or shown.
+    s->control = gMain.task == TASK_GAME && gMain.state == GAMETASK_MAIN && gMain.substate == GAMEMAIN_UPDATE &&
+                 !s->fade && !s->message && gPlayerState.controlMode == CONTROL_ENABLED &&
+                 p->action == PLAYER_NORMAL;
 }
