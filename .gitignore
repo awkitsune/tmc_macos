@@ -89,3 +89,6 @@ __pycache__
 Info.plist
 ctx.c
 !doxygen_config.py
+
+# python venv for the GBA build (port/README.md setup)
+.venv/

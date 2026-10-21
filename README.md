@@ -1,5 +1,7 @@
 # The Legend of Zelda: The Minish Cap
 
+> **This fork adds a native arm64 macOS port.** Setup, build steps and status are in [port/README.md](port/README.md).
+
 
 [![Build Status][jenkins-badge]][jenkins] [![Decompilation Progress][progress-badge]][progress] [![Contributors][contributors-badge]][contributors] [![Discord Channel][discord-badge]][discord]
 

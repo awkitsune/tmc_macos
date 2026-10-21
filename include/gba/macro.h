@@ -28,6 +28,10 @@
 
 #define CpuFastCopy(src, dest, size) CpuFastSet(src, dest, ((size) / (32 / 8) & 0x1FFFFF))
 
+#ifdef PLATFORM_NATIVE
+#define DmaSet(dmaNum, src, dest, control) \
+    { HwDmaSet(dmaNum, (const void*)(src), (void*)(dest), (u32)(control)); }
+#else
 #define DmaSet(dmaNum, src, dest, control)           \
     {                                                \
         vu32* dmaRegs = (vu32*)REG_ADDR_DMA##dmaNum; \
@@ -36,6 +40,7 @@
         dmaRegs[2] = (vu32)(control);                \
         dmaRegs[2];                                  \
     }
+#endif
 
 #define DMA_FILL(dmaNum, value, dest, size, bit)                                                    \
     {                                                                                               \
@@ -70,6 +75,10 @@
 #define DmaCopy16(dmaNum, src, dest, size) DMA_COPY(dmaNum, src, dest, size, 16)
 #define DmaCopy32(dmaNum, src, dest, size) DMA_COPY(dmaNum, src, dest, size, 32)
 
+#ifdef PLATFORM_NATIVE
+#define DmaStop(dmaNum) \
+    { HwDmaStop(dmaNum); }
+#else
 #define DmaStop(dmaNum)                                             \
     {                                                               \
         vu16* dmaRegs = (vu16*)REG_ADDR_DMA##dmaNum;                \
@@ -77,6 +86,7 @@
         dmaRegs[5] &= ~DMA_ENABLE;                                  \
         dmaRegs[5];                                                 \
     }
+#endif
 
 #define DmaCopyLarge(dmaNum, src, dest, size, block, bit) \
     {                                                     \
@@ -167,12 +177,18 @@
 #define DmaClear16Defvars(dmaNum, dest, size) DmaClearDefvars(dmaNum, dest, size, 16)
 #define DmaClear32Defvars(dmaNum, dest, size) DmaClearDefvars(dmaNum, dest, size, 32)
 
+#ifdef PLATFORM_NATIVE
+// Immediate host DMA has always finished by the time DmaSet returns.
+#define DmaWait(DmaNo) \
+    {}
+#else
 #define DmaWait(DmaNo)                               \
     {                                                \
         vu32*(DmaCntp) = (vu32*)REG_ADDR_DMA##DmaNo; \
         while (DmaCntp[2] & (DMA_ENABLE << 16))      \
             ;                                        \
     }
+#endif
 
 #define IntrEnable(flags)  \
     {                      \

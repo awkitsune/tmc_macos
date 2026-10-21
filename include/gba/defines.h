@@ -24,16 +24,28 @@
 #define ALIGNED(n) __attribute__((aligned(n)))
 #endif
 
+#ifdef PLATFORM_NATIVE
+#include "port/hw.h"
+
+#define SOUND_INFO_PTR gHwSoundInfoPtr
+#define INTR_CHECK gHwIntrCheck
+#define INTR_VECTOR gHwIntrVector
+#else
 #define SOUND_INFO_PTR (*(struct SoundInfo**)0x3007FF0)
 #define INTR_CHECK (*(u16*)0x3007FF8)
 #define INTR_VECTOR (*(void**)0x3007FFC)
+#endif
 
 #define EWRAM_START 0x02000000
 #define EWRAM_END (EWRAM_START + 0x40000)
 #define IWRAM_START 0x03000000
 #define IWRAM_END (IWRAM_START + 0x8000)
 
+#ifdef PLATFORM_NATIVE
+#define PLTT ((uintptr_t)gHwPltt)
+#else
 #define PLTT 0x5000000
+#endif
 #define PLTT_SIZE 0x400
 #define PAL_RAM ((u8*)(PLTT))
 
@@ -43,7 +55,11 @@
 #define OBJ_PLTT (PLTT + 0x200)
 #define OBJ_PLTT_SIZE 0x200
 
+#ifdef PLATFORM_NATIVE
+#define VRAM ((uintptr_t)gHwVram)
+#else
 #define VRAM 0x6000000
+#endif
 #define VRAM_SIZE 0x18000
 
 #define BG_VRAM VRAM
@@ -65,7 +81,11 @@
 #define OBJ_VRAM1 (void*)(VRAM + 0x14000)
 #define OBJ_VRAM1_SIZE 0x4000
 
+#ifdef PLATFORM_NATIVE
+#define OAM ((uintptr_t)gHwOam)
+#else
 #define OAM 0x7000000
+#endif
 #define OAM_SIZE 0x400
 
 #define ROM_HEADER_SIZE 0xC0

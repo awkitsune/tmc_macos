@@ -73,8 +73,8 @@ u16 EEPROMRead(u16 address, u16* data) {
     } else {
         ptr = buffer;
         // setup address
-        (u8*)ptr += (gEEPROMConfig->address_width << 1) + 1;
-        ((u8*)ptr)++;
+        ptr = (u16*)(((gEEPROMConfig->address_width << 1) + 1) + (u8*)ptr);
+        ptr = (u16*)((u8*)ptr + 1);
         for (t1 = 0; t1 < gEEPROMConfig->address_width; t1++) {
             *(ptr--) = address;
             address >>= 1;

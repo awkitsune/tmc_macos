@@ -13,8 +13,13 @@
 #define RESET_REGS 0x80
 #define RESET_ALL 0xFF
 
+#ifdef PLATFORM_NATIVE
+#define SystemCall(x) \
+    { HwSystemCall(x); }
+#else
 #define SystemCall(x) \
     { asm("svc " #x); }
+#endif
 
 extern void SoundBiasReset();
 extern void SoundBiasSet();

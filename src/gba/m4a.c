@@ -553,7 +553,11 @@ void MPlayExtender(CgbChannel* cgbChans) {
 }
 
 void MusicPlayerJumpTableCopy(void) {
+#ifdef PLATFORM_NATIVE
+    SystemCall(0x2A);
+#else
     asm("swi 0x2A");
+#endif
 }
 
 void ClearChain(void* x) {

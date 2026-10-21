@@ -1,7 +1,11 @@
 #ifndef GUARD_GBA_IO_REG_H
 #define GUARD_GBA_IO_REG_H
 
+#ifdef PLATFORM_NATIVE
+#define REG_BASE ((uintptr_t)gHwIo) // host buffer, see port/hw.h
+#else
 #define REG_BASE 0x4000000 // I/O register base address
+#endif
 
 // I/O register offsets
 

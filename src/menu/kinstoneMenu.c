@@ -357,7 +357,7 @@ void KinstoneMenu_Type5_Overlay2(void) {
 
 void KinstoneMenu_Type5_Overlay3(void) {
     // TODO figure out why in some place s16 is needed and u16 in others
-    if (--(s16)gMenu.transitionTimer < 0) {
+    if ((s16)--gMenu.transitionTimer < 0) {
         SetMenuType(2);
     }
 }
