@@ -86,7 +86,11 @@ void CrenelBeanSprout_Init(CrenelBeanSproutEntity* this) {
             if (CheckGlobalFlag(WATERBEAN_OUT)) {
                 if (CheckGlobalFlag(WATERBEAN_PUT) == 0) {
                     super->spritePriority.b0 = gPlayerEntity.base.spritePriority.b0 - 1;
+#ifdef PLATFORM_NATIVE
+                    gPlayerEntity.unk_79 = tmp;
+#else
                     *(((u8*)&gPlayerEntity.base) + 0x79) = tmp;
+#endif
                     PositionRelative(&gPlayerEntity.base, super, 0, -0x180000);
                 } else {
                     DeleteThisEntity();

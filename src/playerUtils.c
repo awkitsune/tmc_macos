@@ -569,7 +569,11 @@ void DeleteItemBehavior(ItemBehavior* this, u32 index) {
 
     if (index == 0) {
         if (gPlayerState.item != NULL) {
+#ifdef PLATFORM_NATIVE
+            gPlayerState.item->updatePriority = 6; // GBA byte offset 0x11
+#else
             ((Unk_bitfield*)gPlayerState.item)[0x11].b0 = 6;
+#endif
             gPlayerState.item = NULL;
         } else {
             gPlayerState.item = NULL;
