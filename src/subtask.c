@@ -120,7 +120,7 @@ void sub_080A7040(u32 param_1) {
 }
 
 void sub_080A70AC(const KeyButtonLayout* layout) {
-    MemClear(&gHUD.elements, 0x300);
+    MemClear(&gHUD.elements, sizeof(gHUD.elements));
     gHUD.unk_13 = 0x7f;
     gHUD.unk_14 = 0x7f;
     gHUD.buttonX[0] = layout->aButtonX;
