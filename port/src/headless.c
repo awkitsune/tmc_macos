@@ -19,6 +19,7 @@
 #include "port/ppu.h"
 
 void TraceGameTask(uint64_t frame); // trace.c (kept apart: game headers clash with libc)
+void TraceEntities(uint64_t frame);
 
 #define REG16(offset) (*(volatile uint16_t*)(gHwIo + (offset)))
 #define REG_DISPSTAT REG16(0x004)
@@ -92,6 +93,7 @@ static uint16_t ScriptedKeys(void) {
 }
 
 static int sTraceTask;
+static int sTraceEntities;
 
 // TMC_SCREENSHOT="frame,frame,..." or "every:n" saves PNGs to TMC_SCREENSHOT_DIR
 // (default: screenshots).
@@ -160,6 +162,9 @@ void PlatformVBlank(void) {
     REG_KEYINPUT = 0x03FF & ~ScriptedKeys(); // active low
     if (sTraceTask) {
         TraceGameTask(gPlatformFrame);
+    }
+    if (sTraceEntities && gPlatformFrame % 100 == 0) {
+        TraceEntities(gPlatformFrame);
     }
     // The picture shown during this frame: registers as the last VBlank left them.
     MaybeScreenshot();
@@ -236,6 +241,7 @@ int main(void) {
         ParseInput(getenv("TMC_INPUT"));
     }
     sTraceTask = getenv("TMC_TRACE_TASK") != NULL;
+    sTraceEntities = getenv("TMC_TRACE_ENTITIES") != NULL;
     if (getenv("TMC_SCREENSHOT") != NULL) {
         ParseScreenshots(getenv("TMC_SCREENSHOT"));
         if (getenv("TMC_SCREENSHOT_DIR") != NULL) {

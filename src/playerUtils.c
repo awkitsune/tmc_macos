@@ -4252,7 +4252,7 @@ void sub_0807C8B0(u16* data, u32 width, u32 height) {
         src_ptr_cpy = src_ptr; //[index * -width];
         dst_ptr_cpy = dst_ptr; //[index * -0x40];
         for (innerIndex = 0; innerIndex < width; innerIndex++) {
-            dst_ptr_cpy[-innerIndex] = src_ptr_cpy[-innerIndex];
+            dst_ptr_cpy[-(s32)innerIndex] = src_ptr_cpy[-(s32)innerIndex];
         }
         dst_ptr -= 0x40;
         src_ptr -= width;
@@ -4260,7 +4260,7 @@ void sub_0807C8B0(u16* data, u32 width, u32 height) {
 
     diff = 0x40 - width;
     for (index = 0; index < 0x40; index++) {
-        dst_ptr = data + width - index * -0x40;
+        dst_ptr = data + width - (s32)(index * -0x40);
 
         for (innerIndex = 0; innerIndex < diff; innerIndex++) {
             dst_ptr[innerIndex] = 0;

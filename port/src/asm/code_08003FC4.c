@@ -246,9 +246,16 @@ static void FrameZero(Entity* this) {
     this->animPtr = (void*)p;
 }
 
+// Some scripted objects (e.g. the cutscene orchestrator) animate with sprite 0,
+// which has no animation table. The GBA reads open bus there; natively use an
+// inert looping animation: no frame gfx (0xFF), long duration, loop to itself.
+static const u8 sNullAnimation[] = { 0xFF, 0xFF, 0, 0x80, 1, 0, 0, 0 };
+
 void InitializeAnimation(Entity* this, u32 animIndex) {
+    const void* const* anims = gSpritePtrs[(u16)this->spriteIndex].animations;
+
     this->animIndex = animIndex;
-    this->animPtr = ((void* const*)gSpritePtrs[(u16)this->spriteIndex].animations)[animIndex];
+    this->animPtr = (anims != NULL && anims[animIndex] != NULL) ? (void*)anims[animIndex] : (void*)sNullAnimation;
     FrameZero(this);
 }
 

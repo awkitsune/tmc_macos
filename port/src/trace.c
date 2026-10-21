@@ -28,3 +28,26 @@ void TraceGameTask(u64 frame) {
         sLastFade = fade;
     }
 }
+
+#include "entity.h"
+#include "vram.h"
+
+typedef struct {
+    u8 count;
+    Entity* entities[80];
+} DrawBucket;
+extern DrawBucket gDrawBuckets[4];
+
+// TMC_TRACE_ENTITIES: live entities per list and what was queued for drawing.
+void TraceEntities(u64 frame) {
+    printf("frame %llu entities:", (unsigned long long)frame);
+    for (int i = 0; i < 9; i++) {
+        int n = 0;
+        for (Entity* e = gEntityLists[i].first; e && e != (Entity*)&gEntityLists[i] && n < 200; e = e->next) {
+            n++;
+        }
+        printf(" %d", n);
+    }
+    printf(" | buckets %d %d %d %d | oam updated %d\n", gDrawBuckets[0].count, gDrawBuckets[1].count,
+           gDrawBuckets[2].count, gDrawBuckets[3].count, gOAMControls.updated);
+}

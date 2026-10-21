@@ -810,6 +810,13 @@ static void DrawBucketEntities(DrawBucket* bucket) {
     }
 }
 
+// The GBA buckets overlap gOAMControls.unk, and CopyOAM clears their counts there.
+void NativeClearDrawBuckets(void) {
+    for (int i = 0; i < 4; i++) {
+        gDrawBuckets[i].count = 0;
+    }
+}
+
 void ram_DrawEntities(void) {
     if (gOAMControls.updated >= 0x80) {
         return;
