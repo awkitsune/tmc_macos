@@ -3,7 +3,8 @@
 Symbols at the same address share one block (they overlay each other on GBA).
 A block is as large as the biggest native type declared for it, and at least as
 large as its GBA region (up to the next fixed symbol), since decomp code often
-indexes past a variable's declared type into the rest of its region.
+indexes past a variable's declared type into the rest of its region. Symbols with
+no C declaration get twice their region, enough if it holds only pointers.
 """
 
 import re
@@ -44,8 +45,10 @@ def emit_ram(linker_script: Path, linked: dict, types: TypeDB, out: Path) -> Pat
         region_end = (addr & 0xFF000000) + REGION_SIZE["ewram" if addr >> 24 == 2 else "iwram"]
         following = [b for b in bounds if addr < b < region_end]
         size = (following[0] if following else region_end) - addr
-        for name in names:
-            t = types.decls.get(name)
+        declared = [types.decls.get(name) for name in names]
+        if all(t is None for t in declared):
+            size *= 2  # no C type: allow for every word being a widened pointer
+        for t in declared:
             if t is not None and not (t[0] == "array" and t[2] is None) and t[0] not in ("func", "void"):
                 size = max(size, types.layout(t, "native").size)
         lines.append("\t.p2align 4")

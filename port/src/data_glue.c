@@ -18,3 +18,7 @@ const u8 gUnk_089FD1B4[1];
 const u8 gUnk_089FD2F4[1];
 const u8 gUnk_08A05751[1];
 const u8 gUnk_08A068BF[1];
+
+// The save header the GBA keeps at the start of EWRAM (gSaveHeader).
+#include "save.h"
+SaveHeader gNativeSaveHeader;

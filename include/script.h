@@ -44,8 +44,14 @@ void InitScriptForEntity(Entity*, ScriptExecutionContext*, u16*);
 void ExecuteScript(Entity* entity, ScriptExecutionContext* context);
 
 extern u32 GetNextScriptCommandHalfword(u16*);
+#ifdef PLATFORM_NATIVE
+// Word operands may be pointers, which need the full native width.
+extern uintptr_t GetNextScriptCommandWord(u16*);
+extern uintptr_t GetNextScriptCommandWordAfterCommandMetadata(u16*);
+#else
 extern u32 GetNextScriptCommandWord(u16*);
 extern u32 GetNextScriptCommandWordAfterCommandMetadata(u16*);
+#endif
 extern u32 GetNextScriptCommandHalfwordAfterCommandMetadata(u16*);
 
 void UnloadCutsceneData(Entity* entity);

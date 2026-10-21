@@ -86,14 +86,16 @@ add_custom_target(datagen
 
 add_library(tmc_data OBJECT ${TMC_DATA_SOURCES})
 
+file(GLOB TMC_PORT_ASM_SOURCES CONFIGURE_DEPENDS src/asm/*.c)
 add_library(tmc_port STATIC
     src/hw.c
     src/bios.c
     src/interrupts.c
     src/data_glue.c
+    ${TMC_PORT_ASM_SOURCES}
 )
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_include_directories(tmc_port PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR})
+target_include_directories(tmc_port PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR} ${TMC_DATA_DIR})
 target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
 
 # The executable cannot link until the asm-only code, data tables and BIOS calls

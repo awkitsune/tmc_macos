@@ -107,6 +107,9 @@ static void InitOverlays(void) {
     RegisterRamReset(RESET_ALL & ~RESET_EWRAM);
     *(vu16*)BG_PLTT = 0x7FFF;
     REG_WAITCNT = WAITCNT_PREFETCH_ENABLE | WAITCNT_WS0_S_1 | WAITCNT_WS0_N_3;
+#ifndef PLATFORM_NATIVE
+    // Natively RAM is ordinary zero-initialized globals and the IWRAM routines are
+    // plain functions, so there is nothing to clear or copy.
     size = 0x3FFD0;
     MemClear(gUnk_02000030, size);
     size = (u32)RAMFUNCS_END - (u32)sub_080B197C;
@@ -118,6 +121,7 @@ static void InitOverlays(void) {
     if (size != 0) {
         MemCopy(gCopyToEndOfEwram_Start, gEndOfEwram, size);
     }
+#endif
 
     DispReset(0);
     EnableVBlankIntr();

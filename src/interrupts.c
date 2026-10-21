@@ -156,6 +156,30 @@ void DispCtrlSet(void) {
 }
 
 // Load any resources that were requested with LoadResourceAsync
+#ifdef PLATFORM_NATIVE
+#include "port/resources.h"
+
+void LoadResources(void) {
+    s32 i;
+    s32 count = gUnk_03003DE0;
+
+    gUnk_03003DE0 = 0;
+    for (i = 0; i < count; i++) {
+        ResourceRequest* request = &gResourceQueue[i];
+        switch (request->type) {
+            case 0:
+                DmaCopy32(3, request->src, request->dest, request->size);
+                break;
+            case 1:
+                LZ77UnCompVram(request->src, request->dest);
+                break;
+            case 2:
+                DmaFill32(3, (u32)(uintptr_t)request->src, request->dest, request->size);
+                break;
+        }
+    }
+}
+#else
 void LoadResources(void) {
     if (gUnk_03003DE0 != 0) {
         u8* buf = &gUnk_03000C30;
@@ -178,6 +202,7 @@ void LoadResources(void) {
         } while (0 < i);
     }
 }
+#endif
 
 void WaitForNextFrame(void) {
     gMain.interruptFlag = 0;

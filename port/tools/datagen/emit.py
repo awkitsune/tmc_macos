@@ -371,7 +371,8 @@ class Emitter:
                 for info in relaid:
                     lines += self._relaid(obj, info)
         if script_ptrs:
-            lines += ["", "\t.section __DATA,__const", "\t.p2align 3", f"{self._script_table(obj)}:"]
+            table = self._script_table(obj)
+            lines += ["", "\t.section __DATA,__const", "\t.p2align 3", f"\t.globl {table}", f"{table}:"]
             lines += [f"\t.quad {expr}" for expr in script_ptrs]
         out = self.out_dir / f"{obj.rel}.s"
         out.write_text("\n".join(lines) + "\n")
