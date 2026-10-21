@@ -981,7 +981,11 @@ static void sub_08043440(VaatiArmEntity* this) {
     i = 0;
     iVar4 = 0;
     zero = 0;
+#ifdef PLATFORM_NATIVE
+    offset = offsetof(VaatiArm_HeapStruct, s1); // 0x18 on GBA
+#else
     offset = 0x18;
+#endif
     do {
         ptr = ((u8*)super->myHeap) + offset;
         if (ptr[5] >= 0x11) {
@@ -1391,7 +1395,11 @@ static void sub_08043C40(VaatiArmEntity* this, VaatiArm_HeapStruct1* heapStruct)
             }
         }
     }
+#ifdef PLATFORM_NATIVE
+    for (i = 0, offset = offsetof(VaatiArm_HeapStruct, s1[1]); i < 3; offset += 0x10, i++) {
+#else
     for (i = 0, offset = 0x28; i < 3; offset += 0x10, i++) {
+#endif
         iVar3 = (u8*)(intptr_t)((VaatiArm_HeapStruct*)super->myHeap) + offset;
         if (puVar6[i] != iVar3[0xc]) {
             if (puVar6[i] < iVar3[0xc]) {

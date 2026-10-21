@@ -223,7 +223,11 @@ void sub_08053758(void) {
     gMenu.overlayType = 1;
     gMenu.transitionTimer = 120;
     gMenu.field_0xa = 0x1e;
+#ifdef PLATFORM_NATIVE
+    gGenericMenu.unk10.a[0] = 0; // GBA byte offset 0x10
+#else
     *((u8*)&gMenu + 0x10) = 0; // TODO
+#endif
     gUI.loadGfxOnRestore = TRUE;
     gMapBottom.bgSettings = NULL;
     gMapTop.bgSettings = NULL;
