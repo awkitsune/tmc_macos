@@ -15,7 +15,11 @@
 
 extern Screen gUnk_03001020;
 extern u8 gPaletteBufferBackup[];
+#ifdef PLATFORM_NATIVE
+#define gUnk_03000420 ((u8*)gOAMControls.unk) // a linker alias on GBA
+#else
 extern u8 gUnk_03000420[];
+#endif
 
 void sub_080A70AC(const KeyButtonLayout* layout);
 void sub_080A5F48(u32, u32);

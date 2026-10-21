@@ -20,7 +20,12 @@ typedef struct {
     u8 spawnedCount; /**< Count of entities spawned by this manager */
 } DelayedEntityLoadManager;
 
+#ifdef PLATFORM_NATIVE
+#include "area.h"
+#define gUnk_020342F8 gArea.filler6 // a linker alias on GBA
+#else
 extern u8 gUnk_020342F8[];
+#endif
 
 void DelayedEntityLoadManager_Main(DelayedEntityLoadManager* this) {
     NPCStruct* properties;

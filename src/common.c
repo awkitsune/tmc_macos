@@ -21,7 +21,11 @@
 
 extern u8 gUnk_03003DE0;
 extern u8 gzHeap[0x1000];
+#ifdef PLATFORM_NATIVE
+#define gUnk_02035542 (gzHeap + 2) // a linker alias on GBA
+#else
 extern u8 gUnk_02035542[];
+#endif
 extern u32 gDungeonMap[0x800];
 extern s16 gUnk_02018EE0[];
 

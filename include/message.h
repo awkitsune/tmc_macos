@@ -125,6 +125,10 @@ typedef struct {
     u16 _a6;
 } TextRender;
 extern TextRender gTextRender;
+#ifdef PLATFORM_NATIVE
+// On GBA a linker alias for gTextRender._68 (followed by _70, _78, _80).
+#define gUnk_020227E8 (&gTextRender._68)
+#endif
 static_assert(sizeof(TextRender) == 0xa8);
 
 typedef struct {

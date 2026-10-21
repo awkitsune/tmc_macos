@@ -4,7 +4,12 @@
 #include "npc.h"
 #include "flags.h"
 
+#ifdef PLATFORM_NATIVE
+#include "area.h"
+#define gUnk_020342F8 gArea.filler6 // a linker alias on GBA
+#else
 extern u32 gUnk_020342F8;
+#endif
 
 extern void InitNPC(Entity*);
 

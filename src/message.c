@@ -220,10 +220,18 @@ static u32 MsgIdle(void) {
     return 0;
 }
 
+#ifdef PLATFORM_NATIVE
+// On GBA these are linker aliases for gTextRender fields.
+u8* const gUnk_08107BE0[] = {
+    (u8*)gTextRender.player_name, (u8*)&gTextRender._68, (u8*)&gTextRender._70,
+    (u8*)&gTextRender._78,        (u8*)&gTextRender._80,
+};
+#else
 extern u8 gUnk_020227DC, gUnk_020227F0, gUnk_020227F8, gUnk_02022800;
 u8* const gUnk_08107BE0[] = {
     &gUnk_020227DC, (void*)&gUnk_020227E8, &gUnk_020227F0, &gUnk_020227F8, &gUnk_02022800,
 };
+#endif
 
 u32 MsgInit(void) {
     char* dest;

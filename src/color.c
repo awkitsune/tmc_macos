@@ -7,7 +7,11 @@
 #include "gfx.h"
 #include "fade.h"
 
+#ifdef PLATFORM_NATIVE
+#define gUnk_02001A3C gPaletteList[15] // a linker alias on GBA
+#else
 extern Palette gUnk_02001A3C;
+#endif
 
 void LoadObjPaletteAtIndex(u32 a1, u32 paletteIndex);
 void CleanUpObjPalettes();

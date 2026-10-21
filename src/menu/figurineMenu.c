@@ -53,7 +53,11 @@ const KeyButtonLayout gUnk_0812813C = {
     },
 };
 
+#ifdef PLATFORM_NATIVE
+#define gUnk_020344A0 (*(u8(*)[8]) & gPauseMenuOptions.unk2[0xe]) // a linker alias on GBA
+#else
 extern u8 gUnk_020344A0[8];
+#endif
 
 extern const struct_08128AD8 gUnk_08128AD8[];
 

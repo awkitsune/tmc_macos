@@ -17,7 +17,12 @@ typedef struct {
 static const u16 gPinwheelFlags[] = {
     KUMOUE_02_AWASE_01, KUMOUE_02_AWASE_02, KUMOUE_02_AWASE_03, KUMOUE_02_AWASE_04, KUMOUE_02_AWASE_05, BEGIN_1,
 };
+#ifdef PLATFORM_NATIVE
+#include "area.h"
+#define gUnk_020342F8 gArea.filler6 // a linker alias on GBA
+#else
 extern u32 gUnk_020342F8;
+#endif
 
 void Pinwheel_Init(PinwheelEntity* this);
 void Pinwheel_Action1(PinwheelEntity* this);

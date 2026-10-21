@@ -58,7 +58,11 @@ void Subtask_PauseMenu(void) {
     }
 }
 
+#ifdef PLATFORM_NATIVE
+#define gUnk_02034492 gPauseMenuOptions.unk2 // a linker alias on GBA
+#else
 extern u8 gUnk_02034492[];
+#endif
 void UpdateVisibleFusionMapMarkers(void);
 s32 sub_080A50A0(s32);
 
