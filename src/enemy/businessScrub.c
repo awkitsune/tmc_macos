@@ -37,11 +37,19 @@ typedef struct {
     /*0x76*/ u16 unk_76;
     /*0x78*/ u16 unk_78;
     /*0x7a*/ u16 unk_7a;
+#ifdef PLATFORM_NATIVE
+    /*0x7c*/ u32 unk_7cSlot; // natively the pointer follows the generic fields
+#else
     /*0x7c*/ const struct SalesOffering* unk_7c;
+#endif
     /*0x80*/ u8 unk_80;
     /*0x81*/ u8 unk_81;
     /*0x82*/ u8 unused2[4];
-    /*0x86*/ u16 flag;
+    /*0x86*/ u16 flag; // room data
+#ifdef PLATFORM_NATIVE
+    void* nativeScriptContext; // GenericEntity's
+    const struct SalesOffering* unk_7c;
+#endif
 } BusinessScrubEntity;
 
 void sub_08028E9C(BusinessScrubEntity*);

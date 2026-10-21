@@ -18,9 +18,17 @@
 
 typedef struct {
     /*0x00*/ Entity base;
+#ifdef PLATFORM_NATIVE
+    /*0x68*/ u32 unk_68Slot; // natively the pointer follows the generic fields
+#else
     /*0x68*/ EntityData* unk_68;
+#endif
     /*0x6c*/ u8 unused[26];
-    /*0x86*/ u16 unk_86;
+    /*0x86*/ u16 unk_86; // room data
+#ifdef PLATFORM_NATIVE
+    void* nativeScriptContext; // GenericEntity's
+    EntityData* unk_68;
+#endif
 } RemovableDustEntity;
 
 extern void (*const RemovableDust_Functions[])(RemovableDustEntity*);

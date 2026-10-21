@@ -39,7 +39,11 @@ static_assert(sizeof(Helper) == 0x10);
 
 typedef struct _ChuchuBossEntity {
     Entity base;
+#ifdef PLATFORM_NATIVE
+    u32 unk_68Slot; // the Enemy child pointer, which natively is at the end of the slot
+#else
     struct _ChuchuBossEntity* unk_68;
+#endif
     u8 unk_6c;
     struct {
         u8 unk0 : 1;
@@ -56,7 +60,16 @@ typedef struct _ChuchuBossEntity {
     u8 unk_81;
     union SplitHWord unk_82;
     Helper* unk_84;
+#ifdef PLATFORM_NATIVE
+    u8 nativePad[offsetof(Enemy, child) - offsetof(Enemy, nativeScriptContext) - sizeof(void*)];
+    struct _ChuchuBossEntity* unk_68; // Enemy.child
+#endif
 } ChuchuBossEntity;
+#ifdef PLATFORM_NATIVE
+static_assert(offsetof(ChuchuBossEntity, unk_6d) == offsetof(Enemy, enemyFlags));
+static_assert(offsetof(ChuchuBossEntity, unk_84) == offsetof(Enemy, nativeScriptContext));
+static_assert(offsetof(ChuchuBossEntity, unk_68) == offsetof(Enemy, child));
+#endif
 
 // Some code uses unk_84..0x87 as raw storage (bytes at 0x84 and 0x85, a u16 at
 // 0x86) rather than as the Helper pointer. Natively the struct layout differs, so
