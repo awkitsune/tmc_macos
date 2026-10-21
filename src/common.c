@@ -127,7 +127,11 @@ u32 WriteBit(void* src, u32 bit) {
     u32 orig;
 
     // note that the following line relies on undefined behaviour; b is not initialised
+#ifdef PLATFORM_NATIVE
+    b = (uintptr_t)src + bit / 8;
+#else
     b += ((uintptr_t)src + bit / 8) - b;
+#endif
     mask = 0x7;
     mask = 1 << (bit & mask);
 
@@ -144,7 +148,11 @@ u32 ClearBit(void* src, u32 bit) {
     u32 orig;
 
     // note that the following line relies on undefined behaviour; b is not initialised
+#ifdef PLATFORM_NATIVE
+    b = (uintptr_t)src + bit / 8;
+#else
     b += ((uintptr_t)src + bit / 8) - b;
+#endif
     mask = 0x7;
     mask = 1 << (bit & mask);
 
