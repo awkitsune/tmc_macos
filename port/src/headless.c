@@ -1,7 +1,7 @@
 /*
- * Headless platform: runs game logic with no window, picture or sound. Used until
- * the Metal front end exists, and for automated runs (TMC_FRAMES=n stops after n
- * frames).
+ * Headless platform: runs game logic with no window or sound, as fast as it can.
+ * Used for automated runs (TMC_FRAMES=n stops after n frames, TMC_INPUT scripts
+ * buttons, TMC_SCREENSHOT saves frames); the app is in port/src/macos.
  */
 
 #include <execinfo.h>
@@ -21,18 +21,7 @@
 void TraceGameTask(uint64_t frame); // trace.c (kept apart: game headers clash with libc)
 void TraceEntities(uint64_t frame);
 
-#define REG16(offset) (*(volatile uint16_t*)(gHwIo + (offset)))
-#define REG_DISPSTAT REG16(0x004)
-#define REG_VCOUNT REG16(0x006)
-#define REG_KEYINPUT REG16(0x130)
-
-#define DISPSTAT_VBLANK 0x0001
-#define DISPSTAT_VCOUNT 0x0004
-#define INTR_VBLANK 0x0001
-#define INTR_VCOUNT 0x0004
-
 void AgbMain(void);
-void HwRaiseInterrupt(uint16_t flag);
 
 uint64_t gPlatformFrame;
 static uint64_t sFrameLimit;
@@ -159,7 +148,7 @@ static void MaybeScreenshot(void) {
 }
 
 void PlatformVBlank(void) {
-    REG_KEYINPUT = 0x03FF & ~ScriptedKeys(); // active low
+    HwSetKeys(ScriptedKeys());
     if (sTraceTask) {
         TraceGameTask(gPlatformFrame);
     }
@@ -169,17 +158,7 @@ void PlatformVBlank(void) {
     // The picture shown during this frame: registers as the last VBlank left them.
     MaybeScreenshot();
 
-    // Mid-frame VCOUNT match (line 80 is where the game asks for it): sound mixing.
-    REG_VCOUNT = REG_DISPSTAT >> 8;
-    REG_DISPSTAT |= DISPSTAT_VCOUNT;
-    HwRaiseInterrupt(INTR_VCOUNT);
-    REG_DISPSTAT &= ~DISPSTAT_VCOUNT;
-
-    REG_VCOUNT = 160;
-    REG_DISPSTAT |= DISPSTAT_VBLANK;
-    HwRaiseInterrupt(INTR_VBLANK);
-    REG_DISPSTAT &= ~DISPSTAT_VBLANK;
-    REG_VCOUNT = 0;
+    HwFrameInterrupts();
 
     gPlatformFrame++;
     if (sFrameLimit != 0 && gPlatformFrame >= sFrameLimit) {
@@ -250,7 +229,7 @@ int main(void) {
         mkdir(sShotDir, 0755);
     }
 
-    REG_KEYINPUT = 0x03FF; // all buttons released (active low)
+    HwSetKeys(0);
     setjmp(sResetPoint);
     AgbMain();
     return 0;

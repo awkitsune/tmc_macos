@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(tmc_native LANGUAGES C ASM)
+project(tmc_native VERSION 0.1 LANGUAGES C OBJC ASM)
 
 # Native (arm64 macOS) build of the decompiled game code. The GBA build in the
 # repository root is unaffected; everything here is opt-in via PLATFORM_NATIVE.
@@ -106,6 +106,7 @@ add_library(tmc_port STATIC
     src/eeprom.c
     src/trace.c
     src/ppu.c
+    src/frame.c
     ${TMC_PORT_ASM_SOURCES}
 )
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -115,6 +116,44 @@ target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${T
 # `link-report` lists unresolved symbols if the link ever breaks again.
 add_executable(tmc src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
 target_link_libraries(tmc PRIVATE tmc_port z)
+
+# The macOS app: a window with the Metal renderer, keyboard and gamepad input,
+# running the game at 59.73 Hz. Builds build/native/TMC.app.
+set(TMC_APP_SHADERS src/macos/shaders.metal)
+add_executable(tmc_app MACOSX_BUNDLE
+    src/macos/app.m
+    src/macos/game.c
+    src/macos/input.m
+    src/macos/renderer.m
+    src/macos/selftest.m
+    ${TMC_APP_SHADERS}
+    $<TARGET_OBJECTS:tmc_game>
+    $<TARGET_OBJECTS:tmc_data>
+)
+# Shaders ship as source and are compiled at launch, so building needs no
+# separately installed Metal toolchain.
+set_source_files_properties(${TMC_APP_SHADERS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+set_target_properties(tmc_app PROPERTIES
+    OUTPUT_NAME TMC
+    MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/src/macos/Info.plist.in
+    MACOSX_BUNDLE_BUNDLE_NAME "The Minish Cap"
+    MACOSX_BUNDLE_GUI_IDENTIFIER io.github.awkitsune.tmc-macos
+    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+)
+target_compile_options(tmc_app PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>)
+target_compile_options(tmc_app PRIVATE -Wall -Wno-unused-parameter)
+target_link_libraries(tmc_app PRIVATE
+    tmc_port z
+    "-framework Cocoa" "-framework Metal" "-framework MetalKit"
+    "-framework GameController" "-framework QuartzCore"
+)
+# Ad-hoc sign the whole bundle so macOS treats it as one app (Gatekeeper,
+# controller and window permissions).
+add_custom_command(TARGET tmc_app POST_BUILD
+    COMMAND codesign --force --sign - $<TARGET_BUNDLE_DIR:tmc_app>
+    COMMENT "Signing TMC.app (ad hoc)"
+)
 
 
 add_custom_target(link-report

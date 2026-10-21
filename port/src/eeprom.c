@@ -3,8 +3,8 @@
  * through DMA). Blocks are 8 bytes, addressed by index, as the game sees them.
  *
  * The contents live in memory; with TMC_SAVE=path they are loaded from and
- * written through to that file. Where saves live by default, and compatibility
- * with emulator .sav files, is decided with the macOS front end.
+ * written through to that file. The app sets TMC_SAVE to its save in
+ * ~/Library/Application Support/tmc_macos unless it is already set.
  */
 
 #include <stdio.h>

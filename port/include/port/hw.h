@@ -44,4 +44,23 @@ void* HwGbaPtr(uint32_t address);
 /* BIOS calls issued through SystemCall(n) rather than a named wrapper. */
 void HwSystemCall(int number);
 
+/* GBA key bits (KEYINPUT order), as held by the player. */
+#define HW_KEY_A 0x0001
+#define HW_KEY_B 0x0002
+#define HW_KEY_SELECT 0x0004
+#define HW_KEY_START 0x0008
+#define HW_KEY_RIGHT 0x0010
+#define HW_KEY_LEFT 0x0020
+#define HW_KEY_UP 0x0040
+#define HW_KEY_DOWN 0x0080
+#define HW_KEY_R 0x0100
+#define HW_KEY_L 0x0200
+
+/*
+ * Frame boundary helpers for platform layers (frame.c): latch the held keys into
+ * KEYINPUT, then raise the mid-frame VCOUNT and the VBLANK interrupts.
+ */
+void HwSetKeys(uint16_t held);
+void HwFrameInterrupts(void);
+
 #endif // PORT_HW_H

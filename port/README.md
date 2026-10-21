@@ -1,7 +1,7 @@
 # Native macOS port
 
-Native arm64 macOS build of the decompiled game code, with a Metal renderer and
-GameController input planned. The GBA build in the repository root stays
+Native arm64 macOS build of the decompiled game code: a Metal app with keyboard
+and gamepad input, plus a headless runner for automated testing. The GBA build in the repository root stays
 byte-matching: every port change is either under `port/` or behind
 `#ifdef PLATFORM_NATIVE`.
 
@@ -86,9 +86,53 @@ cmake -S port -B build/native
 cmake --build build/native -j
 ```
 
-This builds `build/native/tmc`, which runs the game headless (no window, picture
-or sound yet). If the link ever breaks, `cmake --build build/native --target
+This builds two programs from the same game code:
+
+- `build/native/TMC.app`, the macOS app (see [Playing](#playing)).
+- `build/native/tmc`, the headless runner for automated runs (see below).
+
+Build just one with `--target tmc_app` or `--target tmc`. If the link ever breaks, `cmake --build build/native --target
 link-report` groups the unresolved symbols by where the GBA build defines them.
+
+### Playing
+
+```bash
+open build/native/TMC.app
+```
+
+The app runs the game at the GBA's 59.73 Hz and shows it scaled by a whole
+number (or, with integer scaling off, as large as the 3:2 shape allows).
+There is no sound yet (phase 4).
+
+| Keyboard | GBA | Gamepad |
+|---|---|---|
+| Arrow keys | D-pad | D-pad or left stick |
+| X | A | Right face button (B on Xbox, ○ on PlayStation), or top |
+| Z | B | Bottom face button (A on Xbox, ✕ on PlayStation), or left |
+| A / S | L / R | Shoulders or triggers |
+| Return | Start | Menu |
+| Backspace or `\` | Select | Options |
+| Tab (hold) | Fast-forward (4×) | Right stick click |
+
+Keys are matched by position, so other keyboard layouts use the same physical
+keys. Any extended gamepad (Xbox, PlayStation, Switch Pro, MFi) works and can be
+connected or disconnected while the game runs.
+
+Menu shortcuts: ⌘1–⌘5 pick the filter (nearest neighbour, sharp bilinear,
+smooth bilinear, LCD grid, CRT scanlines), ⌘I toggles integer scaling, ⌃⌘F
+toggles full screen (Escape leaves it), ⌘P pauses, ⌘R resets (the game's own
+A+B+Select+Start reset). The filter and scaling choice are remembered.
+
+The save is `~/Library/Application Support/tmc_macos/tmc.sav`, an 8 KB EEPROM
+image (*The Minish Cap* menu → Show Save Folder). `TMC_SAVE=path` overrides it.
+
+`TMC_SELFTEST=dir` makes the app play itself through the title screen with
+synthesized key presses, saving what it presented with each filter and in full
+screen as PNGs in `dir`, then quit; it needs no screen-recording permission:
+
+```bash
+TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest build/native/TMC.app/Contents/MacOS/TMC
+```
 
 ### Running headless
 
@@ -135,6 +179,12 @@ permission prompt.)
 | `port/src/bios.c` | BIOS calls in C (copies, decompression, division, affine, VBlankIntrWait) |
 | `port/src/interrupts.c` | `IntrMain` replacement dispatching through the game's handler table |
 | `port/src/headless.c` | Headless platform and process entry; `TMC_FRAMES=n` stops after n frames |
+| `port/src/frame.c` | Frame boundary shared by both platforms: latch keys, raise VCOUNT and VBLANK |
+| `port/src/macos/game.c` | App platform layer: game thread, 59.73 Hz pacing, frame hand-off |
+| `port/src/macos/app.m` | Window, menus, full screen, save location |
+| `port/src/macos/renderer.m`, `shaders.metal` | Metal presentation and filters (shaders compiled at launch) |
+| `port/src/macos/input.m` | Keyboard and GameController input |
+| `port/src/macos/selftest.m` | `TMC_SELFTEST` scripted run with PNG captures |
 | `port/src/data_glue.c` | Code embedded in data, demo-only symbols, the save header |
 | `port/src/asm/` | C versions of every function in `asm/src/*.s` |
 | `port/src/eeprom.c` | Emulated save EEPROM (replaces `src/eeprom.c`) |
@@ -211,8 +261,8 @@ that need a pointer type natively (e.g. pointer tables declared as `u32[]`).
 
 ## Status
 
-The native build links with no unresolved symbols and runs headless: through the
-Nintendo/Capcom logos and title screen into file select, and for tens of
+The native build links with no unresolved symbols and runs, in the app or
+headless: through the Nintendo/Capcom logos and title screen into file select, and for tens of
 thousands of frames when left alone. The software renderer draws these screens
 correctly (screenshots via `TMC_SCREENSHOT`); mid-frame effects are not modelled
 yet. Every function in `asm/src` has a C
