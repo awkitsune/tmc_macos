@@ -1,0 +1,25 @@
+# New game from an empty save: title, file "AAA", intro, Smith's house, out
+# the front door. Run with an empty save:
+#   port/scripts/play.sh port/scripts/play/01_new_game.txt 20000 /tmp/run
+400:start:5 600:a:5 700:a:5 800:a:5 900:a:5 1000:a:5   # title, file select, name AAA
+1100:start:5                                           # END on the name screen
++100:a:5                                               # start the file
+mash:room=22.15:9000         # intro and wake-up, until Link stands in his bedroom
+gox:89 +0:up:30              # up the stairs (top left)
+wait:room=22.10              # entrance room
+goy:90 gox:220 +0:right:30   # right door: the workshop
+mash:room=22.11:8000         # Smith and Zelda talk; Smith hands over the sword
+gox:20 +0:left:30            # back to the entrance room
+wait:room=22.10
+gox:118 +0:down:60           # front door
+wait:in=03.01 mash:control:3000:200   # outside (Hyrule Field, area 03 room 01): Zelda calls
+# Out of the yard (south stairs), west to the path, north to Hyrule Town
+goy:440 gox:653 goy:530 gox:480 goy:45 +0:up:40
+wait:in=15.00 mash:control:3000:60   # Festival Town (area 0x15) intro pan, Zelda: "Here we are"
+# Zelda waits at four spots to be talked to (script_ZeldaIntroTown)
+goy:640 gox:160 goy:628 +0:a:2 mash:control    # 1: storyteller (160,608)
+gox:115 goy:444 gox:120 +0:up:2 +4:a:2 mash:control   # 2: (120,424)
+goy:440 gox:262 goy:456 +0:right:2 +4:a:2 mash:control   # 3: (280,456)
+goy:644 gox:249 +0:up:2 +4:a:2 mash:control:9000   # 4: Pina's stall; Zelda buys Link the shield
+gox:200 goy:20 +0:up:60   # north exit through the arch
+wait:in=03.06 mash:control:6000:120   # business scrub on the way to the castle
