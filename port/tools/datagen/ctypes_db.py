@@ -162,8 +162,9 @@ class TypeDB:
                     if name not in decls or _specificity(t) > _specificity(decls[name]):
                         decls[name] = t
                 for key, rec in _to_json(r).items():
-                    if rec is not None:
-                        records.setdefault(key, rec)
+                    # A file that only sees a forward declaration has no fields.
+                    if rec is not None and (key not in records or (rec["fields"] and not records[key]["fields"])):
+                        records[key] = rec
         return cls(decls, records)
 
     def save(self, path: Path):
