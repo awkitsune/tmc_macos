@@ -13,7 +13,11 @@
 
 typedef struct {
     /*0x00*/ Entity base;
+#ifdef PLATFORM_NATIVE
+    /*0x68*/ u32 unk_68Slot; // the Enemy child pointer, which natively is elsewhere
+#else
     /*0x68*/ Entity* unk_68;
+#endif
     /*0x6c*/ u8 unused1[6];
     /*0x72*/ u8 unk_72;
     /*0x73*/ u8 unused2[13];
@@ -22,6 +26,12 @@ typedef struct {
     /*0x82*/ u8 unk_82;
     /*0x83*/ u8 unk_83;
 } ChuchuEntity;
+
+#ifdef PLATFORM_NATIVE
+#define CHUCHU_CHILD(this) (((Enemy*)(this))->child)
+#else
+#define CHUCHU_CHILD(this) ((this)->unk_68)
+#endif
 
 void sub_0801F328(ChuchuEntity* this);
 void sub_0801F340(ChuchuEntity* this);
@@ -81,7 +91,7 @@ void Chuchu(ChuchuEntity* this) {
     }
     this->unk_81 = index;
     Chuchu_Functions[GetNextFunction(super)](this);
-    if (this->unk_68->type == 0x1c) {
+    if (CHUCHU_CHILD(this)->type == 0x1c) {
         EnemySetFXOffset(super, 0, 1, -0x10);
     } else if (super->type == 2) {
         sub_0801FB34(this);
@@ -688,9 +698,9 @@ void sub_0801FB14(ChuchuEntity* this) {
 }
 
 void sub_0801FB34(ChuchuEntity* this) {
-    if (this->unk_68) {
-        sub_0806FA90(super, this->unk_68, gUnk_080CA2B4[super->frame & 0xf], 1);
-        (this->unk_68)->spriteOffsetY--;
+    if (CHUCHU_CHILD(this)) {
+        sub_0806FA90(super, CHUCHU_CHILD(this), gUnk_080CA2B4[super->frame & 0xf], 1);
+        (CHUCHU_CHILD(this))->spriteOffsetY--;
     }
 }
 

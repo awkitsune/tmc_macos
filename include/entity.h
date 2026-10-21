@@ -149,13 +149,15 @@ typedef struct {
     u8 b3 : 1; // 0x80
 } PACKED SpritePriority;
 
-// Native-only layout adjustments for the per-entity fields. GBA code stores a
-// ScriptExecutionContext* over cutsceneBeh/field_0x86; natively that pointer needs
-// 8 aligned bytes, at the offset where subtypes declaring a pointer at 0x84 have it.
+// Native-only layout adjustment for the per-entity fields. GBA code stores a
+// ScriptExecutionContext* over cutsceneBeh/field_0x86. Natively those two halfwords
+// stay where subtypes declaring data at 0x84/0x86 have them (right after 0x82), and
+// the pointer gets its own 8 aligned bytes after them, where subtypes declaring a
+// pointer at 0x84 have it (see ENTITY_SCRIPT_CONTEXT).
 #ifdef PLATFORM_NATIVE
-#define NATIVE_CONTEXT_ALIGN u32 nativeContextAlign;
+#define NATIVE_SCRIPT_CONTEXT void* nativeScriptContext;
 #else
-#define NATIVE_CONTEXT_ALIGN
+#define NATIVE_SCRIPT_CONTEXT
 #endif
 
 #define GENERIC_ENTITY_FIELDS \
@@ -171,9 +173,9 @@ typedef struct {
     /*0x7c*/ union SplitWord field_0x7c;   \
     /*0x80*/ union SplitHWord field_0x80;  \
     /*0x82*/ union SplitHWord field_0x82;  \
-    NATIVE_CONTEXT_ALIGN                    \
     /*0x84*/ union SplitHWord cutsceneBeh; \
-    /*0x86*/ union SplitHWord field_0x86;
+    /*0x86*/ union SplitHWord field_0x86;  \
+    NATIVE_SCRIPT_CONTEXT
 
 /**
  * Container for instantiable behavior.

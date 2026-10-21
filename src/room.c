@@ -101,7 +101,9 @@ Entity* LoadRoomEntity(const EntityData* dat) {
 void RegisterRoomEntity(Entity* ent, const EntityData* dat) {
     u32 list;
     u32 kind;
+#ifndef PLATFORM_NATIVE
     void* offset;
+#endif
 
     list = dat->flags & 0xF;
     kind = dat->kind & 0xF;
@@ -114,10 +116,25 @@ void RegisterRoomEntity(Entity* ent, const EntityData* dat) {
             AppendEntityToList(ent, list);
         }
     }
+#ifdef PLATFORM_NATIVE
+    // The GBA copies the 16-byte EntityData over an entity's 0x78..0x87 or a
+    // manager's 0x30..0x3f, where subtypes read it as data, and spritePtr
+    // (paramC) at 0x84 / 0x3c also as a pointer. Natively the fields after the
+    // common header sit at the GBA offset minus 0x68 (entities) or 0x20
+    // (managers) past it, and a pointer declared at 0x84 / 0x3c is 8-aligned 4
+    // bytes later: lay the data out that way.
+    {
+        u8* fields = kind == MANAGER ? (u8*)ent + sizeof(Manager) + 0x10 : (u8*)&((GenericEntity*)ent)->field_0x78;
+        MemCopy(dat, fields, 12);              // kind .. yPos
+        *(u32*)(fields + 12) = (u32)dat->spritePtr; // paramC as data
+        *(uintptr_t*)(fields + 16) = dat->spritePtr; // paramC as a pointer
+    }
+#else
     offset = &((GenericEntity*)ent)->field_0x78;
     if (kind == MANAGER)
         offset = &ent->y;
     MemCopy(dat, offset, sizeof(EntityData));
+#endif
 }
 
 void sub_0804AF0C(Entity* ent, const EntityData* dat) {

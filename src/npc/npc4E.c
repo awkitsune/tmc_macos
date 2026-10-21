@@ -154,13 +154,13 @@ void sub_0806DB84(Entity* this, ScriptExecutionContext* context) {
     ent = (GenericEntity*)CreateObject(MINISH_VILLAGE_OBJECT, 4, 0);
     if (ent != NULL) {
         PositionRelative(this, &ent->base, Q_16_16(-8.0), 0);
-        *(ScriptExecutionContext**)&ent->cutsceneBeh =
+        ENTITY_SCRIPT_CONTEXT(ent) =
             StartCutscene(&ent->base, &script_MinishVillageObjectLeftStoneOpening);
     }
     ent = (GenericEntity*)CreateObject(MINISH_VILLAGE_OBJECT, 5, 0);
     if (ent != NULL) {
         PositionRelative(this, &ent->base, Q_16_16(8.0), 0);
-        *(ScriptExecutionContext**)&ent->cutsceneBeh =
+        ENTITY_SCRIPT_CONTEXT(ent) =
             StartCutscene(&ent->base, &script_MinishVillageObjectRightStoneOpening);
     }
 }

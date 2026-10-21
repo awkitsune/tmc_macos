@@ -208,15 +208,15 @@ ScriptExecutionContext* StartCutscene(Entity* entity, Script* script) {
 
 void InitScriptForEntity(Entity* entity, ScriptExecutionContext* context, Script* script) {
     entity->flags |= ENT_SCRIPTED;
-    *(ScriptExecutionContext**)&((GenericEntity*)entity)->cutsceneBeh = context;
+    ENTITY_SCRIPT_CONTEXT(entity) = context;
     InitScriptExecutionContext(context, script);
 }
 
 void UnloadCutsceneData(Entity* entity) {
     if (entity->flags & ENT_SCRIPTED) {
         entity->flags &= ~ENT_SCRIPTED;
-        DestroyScriptExecutionContext(*(ScriptExecutionContext**)&((GenericEntity*)entity)->cutsceneBeh);
-        *(ScriptExecutionContext**)&((GenericEntity*)entity)->cutsceneBeh = NULL;
+        DestroyScriptExecutionContext(ENTITY_SCRIPT_CONTEXT(entity));
+        ENTITY_SCRIPT_CONTEXT(entity) = NULL;
     }
 }
 
@@ -226,7 +226,7 @@ void StartPlayerScript(Script* script) {
     MemClear(&gPlayerScriptExecutionContext, sizeof(gPlayerScriptExecutionContext));
     gPlayerScriptExecutionContext.scriptInstructionPointer = script;
     player = &gPlayerEntity.base;
-    *(ScriptExecutionContext**)&((GenericEntity*)player)->cutsceneBeh = &gPlayerScriptExecutionContext;
+    ENTITY_SCRIPT_CONTEXT(player) = &gPlayerScriptExecutionContext;
     gPlayerState.queued_action = PLAYER_SLEEP;
     gPlayerState.field_0x3a = 0;
     gPlayerState.field_0x39 = 0;
@@ -338,7 +338,7 @@ void sub_0807DD64(Entity* entity) {
 }
 
 void sub_0807DD80(Entity* entity, Script* script) {
-    InitScriptExecutionContext(*(ScriptExecutionContext**)&((GenericEntity*)entity)->cutsceneBeh, script);
+    InitScriptExecutionContext(ENTITY_SCRIPT_CONTEXT(entity), script);
     sub_0807DD64(entity);
 }
 
@@ -351,7 +351,7 @@ void ExecuteScriptAndHandleAnimation(Entity* entity, void (*postScriptCallback)(
 void ExecuteScriptForEntity(Entity* entity, void (*postScriptCallback)(Entity*, ScriptExecutionContext*)) {
     ScriptExecutionContext** piVar1;
 
-    piVar1 = (ScriptExecutionContext**)&((GenericEntity*)entity)->cutsceneBeh;
+    piVar1 = &ENTITY_SCRIPT_CONTEXT(entity);
     if (*piVar1) {
         ExecuteScript(entity, *piVar1);
         if (postScriptCallback) {

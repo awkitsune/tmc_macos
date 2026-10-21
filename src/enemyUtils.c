@@ -145,7 +145,11 @@ void sub_0804A720(Entity* parent) {
     }
 
     pbVar3 = &gUnk_080D3D94[super->id];
+#ifdef PLATFORM_NATIVE
+    ptr = (GenericEntityData*)&this->childSlot;
+#else
     ptr = (GenericEntityData*)&this->child;
+#endif
     if (ptr->field_0x7c.BYTES.byte2 == 0) {
         this->rangeX = pbVar3->unk_0;
     } else {

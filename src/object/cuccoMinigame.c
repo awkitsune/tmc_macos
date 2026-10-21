@@ -332,7 +332,7 @@ void CuccoMinigame_Init(Entity* this, ScriptExecutionContext* context) {
         if (pEnt->myHeap == NULL) {
             DeleteEntityAny(pEnt);
         } else {
-            *(ScriptExecutionContext**)&((GenericEntity*)pEnt)->cutsceneBeh =
+            ENTITY_SCRIPT_CONTEXT(pEnt) =
                 (ScriptExecutionContext*)StartCutscene(pEnt, (u16*)context->intVariable);
             pCuccoMinigameDef = pCuccoMinigame_MinigameCuccoDefs[CuccoMinigame_GetLevel()];
             ppEVar5 = (Entity**)pEnt->myHeap;
