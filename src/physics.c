@@ -640,9 +640,15 @@ void sub_0807000C(Entity* this) {
     val |= sub_0807007C(ptr, 3);
 
     if (val) {
+#ifdef PLATFORM_NATIVE
+        GfxSlot* slot = &gGFXSlots.slots[this->spriteAnimation[0]];
+        slot->unk_3 = this->spriteAnimation[2];
+        slot->vramStatus = GFX_VRAM_3;
+#else
         u8* ptr2 = (u8*)&gGFXSlots;
         ptr2[this->spriteAnimation[0] * 12 + 7] = this->spriteAnimation[2];
         ptr2[this->spriteAnimation[0] * 12 + 4] = (ptr2[this->spriteAnimation[0] * 12 + 4] & 0xf) | 0x30;
+#endif
     }
 }
 
