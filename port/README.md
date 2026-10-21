@@ -86,12 +86,13 @@ cmake -S port -B build/native
 cmake --build build/native -j
 ```
 
-This builds two programs from the same game code:
+This builds three programs from the same game code:
 
 - `build/native/TMC.app`, the macOS app (see [Playing](#playing)).
 - `build/native/tmc`, the headless runner for automated runs (see below).
+- `build/native/tmc-songs`, the song exporter (see [Exporting the music](#exporting-the-music)).
 
-Build just one with `--target tmc_app` or `--target tmc`. If the link ever breaks, `cmake --build build/native --target
+Build just one with `--target tmc_app`, `--target tmc` or `--target tmc_songs`. If the link ever breaks, `cmake --build build/native --target
 link-report` groups the unresolved symbols by where the GBA build defines them.
 
 ### Playing
@@ -102,7 +103,9 @@ open build/native/TMC.app
 
 The app runs the game at the GBA's 59.73 Hz and shows it scaled by a whole
 number (or, with integer scaling off, as large as the 3:2 shape allows).
-There is no sound yet (phase 4).
+Sound comes from the game's own m4a engine (see [Sound](#sound)). The Sound
+menu has Mute (⌥⌘M) and High-Quality Audio, which mixes at 48 kHz in floating
+point instead of the GBA's 15.7 kHz 8-bit mix; both are remembered.
 
 | Keyboard | GBA | Gamepad |
 |---|---|---|
@@ -149,6 +152,7 @@ Environment variables control the headless runner:
 | `TMC_SCREENSHOT="frame,frame,..."` or `"every:n"` | Save PNG screenshots, rendered by the software renderer |
 | `TMC_SCREENSHOT_DIR=path` | Where screenshots go (default `screenshots`) |
 | `TMC_DUMP_IO=1` | Print display and interrupt registers with each screenshot |
+| `TMC_WAV=path` | Record the run's sound to a WAV file (15768 Hz, or 48 kHz with `TMC_SOUND_QUALITY=hq`) |
 
 To see the logos, title screen and file select (Start, then A to leave the title
 screen):
@@ -169,6 +173,44 @@ atos -o build/native-asan/tmc -arch arm64 0x100026464
 (Attaching lldb or letting ASan symbolize may wait on a macOS developer-tools
 permission prompt.)
 
+### Exporting the music
+
+`tmc-songs` renders the game's songs to WAV files with the same engine, without
+running the game. `list` shows every song with its number, constant (from
+`include/sound.h`), data label and music player:
+
+```bash
+build/native/tmc-songs list
+```
+
+`render` takes `all`, `bgm`, `sfx`, song numbers, ranges (`1-20`), constants
+(`BGM_HYRULE_FIELD`) or labels (`bgmHyruleField`):
+
+```bash
+build/native/tmc-songs render bgm
+```
+
+```bash
+build/native/tmc-songs render --hq BGM_HYRULE_FIELD 23 0x10A
+```
+
+Each song plays on its own music player until it ends. A song that loops plays
+its loop twice (`--loops N`) and then fades out over 8 seconds (`--fade
+SECONDS`), the way the game fades music. A song's loop is counted per track (a
+backward GOTO), and the song has looped when its least-looped running track has.
+Songs that neither end nor loop stop at `--max` seconds (600; SFX at 60).
+
+Files land in `songs/authentic/` or `songs/hq/` under the current directory
+(`--out DIR` to change), named by number and constant, e.g.
+`025-BGM_HYRULE_FIELD.wav`, with title, album, track number and a comment in a
+LIST/INFO chunk. Silent entries (the unused BGM slots) are skipped; `render all`
+writes about 500 files (240 MB authentic) in about ten seconds.
+
+| Mode | Output |
+|---|---|
+| default (authentic) | What the GBA plays: the engine's 8-bit mono DirectSound mix at 15768 Hz with its linear interpolation and 8-bit wraparound, plus the CGB channels, as 16-bit stereo at 15768 Hz |
+| `--hq` | The same engine, envelopes and reverb, mixed in floating point at 48 kHz (`--rate HZ`) with cubic interpolation and per-frame volume ramps |
+
 ## Layout
 
 | Path | Purpose |
@@ -188,7 +230,9 @@ permission prompt.)
 | `port/src/data_glue.c` | Code embedded in data, demo-only symbols, the save header |
 | `port/src/asm/` | C versions of every function in `asm/src/*.s` |
 | `port/src/eeprom.c` | Emulated save EEPROM (replaces `src/eeprom.c`) |
-| `port/src/sound_stub.c` | Silent m4a API until the native sound engine (replaces `src/gba/m4a.c`) |
+| `port/src/sound/` | Native sound: `asm/lib/m4a_asm.s` in C, the mixer, CGB channels, WAV output (see [Sound](#sound)) |
+| `port/src/macos/audio.c` | Core Audio output with drift control |
+| `port/src/tools/tmc_songs.c` | The song exporter |
 | `port/src/trace.c` | Game-state tracing for the headless runner |
 | `port/src/ppu.c` | Software GBA renderer (BG modes 0-2, sprites, windows, blending) and PNG output |
 | `port/tools/datagen/` | GBA data objects → native arm64 assembly (see below) |
@@ -252,8 +296,11 @@ in `build/native/data`:
   into a per-object table of native pointers (`script_tag.h` has the tag).
 - **RAM variables** placed by `linker.ld` become native storage (`ram.s`),
   with shared addresses kept as aliases.
-- **Songs** stay raw for now: their track data holds absolute ROM addresses
-  without relocations, which the native sound engine will translate (phase 4).
+- **Songs** stay raw: their track data holds absolute ROM addresses without
+  relocations. `sound_map.s` (`gSoundRomMap`) maps every GBA address in the
+  sound data to its native counterpart, linearly for byte-for-byte data and by
+  element for the re-laid-out voicegroups, and the sound engine translates
+  addresses through it.
 
 About 1,100 tables have no C declaration; `hints.txt` types them, mostly by the
 data macro they start with. `build/native/data/notes.txt` lists C declarations
@@ -278,5 +325,42 @@ Remaining for phase 1, so that gameplay runs:
   declared as `u32[]`).
 - Callers that declare `DoTileInteraction`'s returned pointer as `s32`.
 
-Sound is silent until phase 4: the m4a engine reads raw GBA addresses from song
-data, so `src/gba/m4a.c` is replaced by a stub for now.
+## Sound
+
+The game's m4a engine runs natively: `src/gba/m4a.c` as it is (with
+`PLATFORM_NATIVE` fixes for 64-bit pointers, hardware setup and GBA addresses in
+song headers) and `asm/lib/m4a_asm.s` rewritten in C in `port/src/sound`:
+
+| File | Contents |
+|---|---|
+| `m4a_engine.c` | The sequencer (`MPlayMain`), song commands (`ply_*`), note allocation, channel chains |
+| `m4a_mixer.c` | `SoundMain` and the DirectSound mixer (`SoundMainRAM`), authentic and HQ |
+| `psg.c` | The CGB channels (two squares, wave, noise) synthesised from the sound registers `CgbSound` writes |
+| `m4a_addr.c` | `M4aGbaPtr`: GBA addresses in song data to native pointers through `gSoundRomMap` |
+| `wav.c` | WAV writer and `TMC_WAV` |
+
+Once per frame (the mid-frame VCOUNT interrupt, as on the GBA) `SoundMain` runs
+the music players and `CgbSound`, mixes the DirectSound channels, synthesises the
+CGB channels for the same frame and hands 264 stereo samples (at the engine's
+15768 Hz) to the platform: the app's Core Audio output, `TMC_WAV`, or the song
+exporter. TMC's engine mixes DirectSound in mono; only the CGB channels are
+panned.
+
+In the app the samples go through a lock-free ring to an output unit whose
+render callback resamples them to the device rate. The game keeps its own
+59.73 Hz timer; the resampling ratio follows the ring's fill level (about 50 ms)
+by at most 0.5%, so the two clocks never drift apart. Fast-forward drops audio
+once a quarter second is buffered; pausing fades out. `TMC_AUDIO_WAV=path`
+records what the app actually sent to the device and prints underrun, drop and
+drift statistics on quit.
+
+Known differences from hardware:
+
+- The CGB channels are synthesised from the registers' state once per frame
+  (as `CgbSound` leaves it), not from each write; m4a only writes them once per
+  frame, so this matters only for the order of writes within a frame.
+- CGB output is box-filtered (oversampled to ~96 kHz) rather than produced by
+  the GBA's PWM DAC; the authentic mode does not model the DAC's 9-bit
+  resampling at 65.5 kHz or the speaker's response.
+- The final mix is DC-blocked (5 Hz high-pass), like the GBA's output coupling.
+- Key-split voices (`voice_keysplit`) pick the note's key directly; TMC has none.
