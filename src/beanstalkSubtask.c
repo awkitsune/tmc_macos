@@ -52,7 +52,7 @@ extern const s16 gUnk_080B4488[];
 extern const s16 gUnk_080B4490[]; // TODO struct xy
 extern const u16 gUnk_080B44A0[];
 extern const s16 gUnk_080B44A8[]; // TODO struct xy
-extern const u32 gUnk_080B44B8[]; // TODO actually function pointers?
+extern const PtrU32 gUnk_080B44B8[]; // TODO actually function pointers?
 extern const Data gUnk_080B44C0[];
 extern const Data gUnk_080B44C2[];
 
@@ -147,7 +147,7 @@ void LoadMapData(MapDataDefinition* dataDefinition) {
         if (dest != NULL) {
             src = &gMapData + (dataDefinition->src & 0x7fffffff);
             if ((dataDefinition->size & MAP_COMPRESSED) != 0) {
-                if ((u32)dest >> 0x18 == 6) {
+                if ((uintptr_t)dest >> 0x18 == 6) {
                     LZ77UnCompVram(src, dest);
                 } else {
                     LZ77UnCompWram(src, dest);
@@ -1193,7 +1193,7 @@ u32 sub_0801AE34(void) {
 
 void sub_0801AE44(bool32 loadGfx) {
     void (*func)(void);
-    gRoomControls.tileSet = (u32)NULL;
+    gRoomControls.tileSet = (uintptr_t)NULL;
     LoadRoomTileSet();
     if (loadGfx != 0) {
         LoadRoomGfx();

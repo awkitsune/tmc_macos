@@ -122,12 +122,12 @@ u32 ReadBit(void* src, u32 bit) {
 }
 
 u32 WriteBit(void* src, u32 bit) {
-    u32 b;
+    PtrU32 b;
     u32 mask;
     u32 orig;
 
     // note that the following line relies on undefined behaviour; b is not initialised
-    b += ((u32)src + bit / 8) - b;
+    b += ((uintptr_t)src + bit / 8) - b;
     mask = 0x7;
     mask = 1 << (bit & mask);
 
@@ -139,12 +139,12 @@ u32 WriteBit(void* src, u32 bit) {
 }
 
 u32 ClearBit(void* src, u32 bit) {
-    u32 b;
+    PtrU32 b;
     u32 mask;
     u32 orig;
 
     // note that the following line relies on undefined behaviour; b is not initialised
-    b += ((u32)src + bit / 8) - b;
+    b += ((uintptr_t)src + bit / 8) - b;
     mask = 0x7;
     mask = 1 << (bit & mask);
 
@@ -406,7 +406,7 @@ void* zMalloc(u32 size) {
             slotFound = FALSE;
 
             // Ensure that the candidate slot doesn't collide with heap offsets section
-            if (candidateSlotStartOffset >= (u8*)(2 + (u32)heapStartOffset + (numEntries << 2) + 4)) {
+            if (candidateSlotStartOffset >= (u8*)(2 + (uintptr_t)heapStartOffset + (numEntries << 2) + 4)) {
                 slotFound = TRUE;
 
                 // Check if there is overlap with already allocated slots
@@ -459,7 +459,7 @@ void zFree(void* ptr) {
     s32 numEntries;
     u16* lastEntryPtr;
 
-    uVar1 = (int)ptr - (int)gzHeap;
+    uVar1 = (intptr_t)ptr - (intptr_t)gzHeap;
     if (uVar1 < 0x1000) {
         entryPtr = (u16*)gzHeap;
         numEntries = *entryPtr++;
@@ -1247,7 +1247,7 @@ KinstoneId GetFusionToOffer(Entity* entity) {
     }
     offeredFusion = gSave.kinstones.fuserOffers[fuserId];
     fuserProgress = gSave.kinstones.fuserProgress[fuserId];
-    fuserFusionData = (u8*)(fuserProgress + (u32)fuserData);
+    fuserFusionData = (u8*)(fuserProgress + (uintptr_t)fuserData);
     while (TRUE) { // loop through fusions for this fuser
         switch (offeredFusion) {
             case KINSTONE_NEEDS_REPLACEMENT: // offered fusion completed with someone else

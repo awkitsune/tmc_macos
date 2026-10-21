@@ -19,7 +19,7 @@ typedef struct {
 
 void sub_0805F820(WStruct* r0, u32* r1);
 bool32 sub_0805EF40(Token* tok, const u8*);
-void InitToken(Token* token, u32 textIndexOrPtr);
+void InitToken(Token* token, PtrU32 textIndexOrPtr);
 u32 sub_0805F6A4(Token*, WStruct*);
 u32 GetCharacter(Token* tok);
 u32 GetFontStrWith(Token*, u32);
@@ -75,7 +75,7 @@ void sub_0805EEB4(Token* token, u32 textIndex) {
     }
     puVar2 = gTranslations[langIndex];
     iVar3 = puVar2[(u8)(textIndex >> 8)];
-    puVar2 = (u32*)((s32)puVar2 + iVar3);
+    puVar2 = (u32*)((intptr_t)puVar2 + iVar3);
     iVar3 = puVar2[(u8)textIndex];
     uVar6 = *(gTranslations[langIndex]) >> 2;
     uVar7 = *puVar2 >> 2;
@@ -83,7 +83,7 @@ void sub_0805EEB4(Token* token, u32 textIndex) {
     if (((token->textIndex >> 8) >= uVar6) || ((u8)token->textIndex >= uVar7)) {
         uVar4 = 1;
     } else {
-        if (*(char*)((s32)puVar2 + iVar3) == 0) {
+        if (*(char*)((intptr_t)puVar2 + iVar3) == 0) {
             uVar4 = 2;
         }
     }
@@ -94,7 +94,7 @@ void sub_0805EEB4(Token* token, u32 textIndex) {
             iVar3 = 0;
             break;
     }
-    puVar2 = (u32*)((s32)puVar2 + iVar3);
+    puVar2 = (u32*)((intptr_t)puVar2 + iVar3);
     sub_0805EF40(token, (u8*)puVar2);
 }
 
@@ -423,7 +423,7 @@ u32 GetFontStrWith(Token* param_1, u32 param_2) {
     return rv;
 }
 
-void InitToken(Token* token, u32 textIndexOrPtr) {
+void InitToken(Token* token, PtrU32 textIndexOrPtr) {
     MemClear(token, sizeof(Token));
     if (textIndexOrPtr >= 0x10000) {
         sub_0805EF40(token, (u8*)textIndexOrPtr);
@@ -432,7 +432,7 @@ void InitToken(Token* token, u32 textIndexOrPtr) {
     }
 }
 
-u32 ShowTextBox(u32 textIndexOrPtr, const Font* paramFont) {
+u32 ShowTextBox(PtrU32 textIndexOrPtr, const Font* paramFont) {
     u32 uVar1;
     WStruct* pWVar4;
     u32 uVar5;
@@ -459,7 +459,7 @@ u32 ShowTextBox(u32 textIndexOrPtr, const Font* paramFont) {
         pWVar4->bgColor = font.fill_type;
         if (font.draw_border) {
             sub_0805F918(font.border_type, font.fill_type, font.gfx_dest);
-            font.gfx_dest = (void*)((s32)font.gfx_dest + 0xe0);
+            font.gfx_dest = (void*)((intptr_t)font.gfx_dest + 0xe0);
             fontStr = GetFontStrWith(&token, 1);
             iVar10 = (fontStr >> 0x18) * (u32)font._16 + ((u8)((s32)fontStr >> 0x10) << 1);
             uVar8 = (u16)fontStr;
@@ -524,7 +524,7 @@ bool32 sub_0805F5CC(Font* param_1, Token* param_2, WStruct* param_3) {
         param_1->dest += 0x40;
         iVar4 *= 0x40;
         MemCopy(param_1->buffer_loc, param_1->gfx_dest, iVar4);
-        param_1->gfx_dest = (void*)((s32)param_1->gfx_dest + iVar4);
+        param_1->gfx_dest = (void*)((intptr_t)param_1->gfx_dest + iVar4);
     } else {
         if (param_2->code == 10) {
             param_1->dest += param_1->_16 * 0x20;
@@ -601,7 +601,7 @@ u32 sub_0805F6A4(Token* param_1, WStruct* param_2) {
     return iVar4;
 }
 
-u32 sub_0805F76C(u32 textIdOrPtr, WStruct* param_2) {
+u32 sub_0805F76C(PtrU32 textIdOrPtr, WStruct* param_2) {
     Token stackToken;
 
     InitToken(&stackToken, textIdOrPtr);

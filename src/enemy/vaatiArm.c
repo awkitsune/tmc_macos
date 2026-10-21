@@ -1392,7 +1392,7 @@ static void sub_08043C40(VaatiArmEntity* this, VaatiArm_HeapStruct1* heapStruct)
         }
     }
     for (i = 0, offset = 0x28; i < 3; offset += 0x10, i++) {
-        iVar3 = (u8*)(int)((VaatiArm_HeapStruct*)super->myHeap) + offset;
+        iVar3 = (u8*)(intptr_t)((VaatiArm_HeapStruct*)super->myHeap) + offset;
         if (puVar6[i] != iVar3[0xc]) {
             if (puVar6[i] < iVar3[0xc]) {
                 iVar3[0xc]--;
@@ -1491,7 +1491,11 @@ static void sub_08043DB0(VaatiArmEntity* this) {
                 gRoomTransition.field_0x44 = gRoomControls.origin_x + 0x110;
                 gRoomTransition.field_0x46 = gRoomControls.origin_y + 0x60;
             }
+#ifdef PLATFORM_NATIVE
+            pEVar4 = *(Entity**)((VaatiArm_HeapStruct*)pEVar2->myHeap)->s1;
+#else
             pEVar4 = (Entity*)(*(int*)((VaatiArm_HeapStruct*)pEVar2->myHeap)->s1);
+#endif
             if (pEVar4 != NULL) {
                 gRoomTransition.field_0x48 = pEVar4->x.HALF.HI;
                 gRoomTransition.field_0x4a = pEVar4->y.HALF.HI;

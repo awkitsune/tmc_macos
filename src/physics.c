@@ -670,12 +670,12 @@ static bool32 sub_0807007C(struct_gUnk_020000C0* this, u32 param_2) {
 }
 
 u8* GetSpriteSubEntryOffsetDataPointer(u32 param_1, u32 param_2) {
-    u32 val;
-    u32 val2;
+    PtrU32 val;
+    PtrU32 val2;
     val = ((u16*)(((u8*)gExtraFrameOffsets) + 0x10))[param_1];
-    val += (u32)gExtraFrameOffsets;
+    val += (uintptr_t)gExtraFrameOffsets;
     val2 = *(u8*)(val + param_2) * 4;
-    val2 += (u32)gExtraFrameOffsets;
+    val2 += (uintptr_t)gExtraFrameOffsets;
     val = *((u32*)gExtraFrameOffsets) + val2;
     return (u8*)val;
 }

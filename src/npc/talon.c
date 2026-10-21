@@ -143,7 +143,11 @@ void sub_080656D4(TalonEntity* this) {
                 this->unk_69 = super->action;
                 super->action = 3;
                 super->interactType = INTERACTION_NONE;
+#ifdef PLATFORM_NATIVE
+                MessageNoOverlap(ENTITY_SCRIPT_CONTEXT(super)->intVariable, super);
+#else
                 MessageNoOverlap(*(u32*)(*(u32*)&this->unk_84 + 4), super);
+#endif
                 sub_0806574C(this);
                 return;
             }

@@ -149,6 +149,15 @@ typedef struct {
     u8 b3 : 1; // 0x80
 } PACKED SpritePriority;
 
+// Native-only layout adjustments for the per-entity fields. GBA code stores a
+// ScriptExecutionContext* over cutsceneBeh/field_0x86; natively that pointer needs
+// 8 aligned bytes, at the offset where subtypes declaring a pointer at 0x84 have it.
+#ifdef PLATFORM_NATIVE
+#define NATIVE_CONTEXT_ALIGN u32 nativeContextAlign;
+#else
+#define NATIVE_CONTEXT_ALIGN
+#endif
+
 #define GENERIC_ENTITY_FIELDS \
     /*0x68*/ union SplitHWord field_0x68; \
     /*0x6a*/ union SplitHWord field_0x6a;  \
@@ -162,6 +171,7 @@ typedef struct {
     /*0x7c*/ union SplitWord field_0x7c;   \
     /*0x80*/ union SplitHWord field_0x80;  \
     /*0x82*/ union SplitHWord field_0x82;  \
+    NATIVE_CONTEXT_ALIGN                    \
     /*0x84*/ union SplitHWord cutsceneBeh; \
     /*0x86*/ union SplitHWord field_0x86;
 
@@ -262,6 +272,11 @@ typedef struct {
 typedef struct {
     /*0x00*/ Entity base;
     GENERIC_ENTITY_FIELDS
+#ifdef PLATFORM_NATIVE
+    // Entity slots are GenericEntity-sized, but subtypes with pointer fields grow
+    // natively (up to 192 bytes); keep every slot large enough for any of them.
+    u8 nativeSlack[256 - 184];
+#endif
 } GenericEntity;
 
 /**

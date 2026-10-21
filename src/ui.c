@@ -20,7 +20,7 @@ extern const u16 gUnk_080C8F2C[];
 extern u32 gUnk_085C4620[];
 extern Frame* gSpriteAnimations_322[];
 extern u16 gUnk_080C8F54[];
-extern u32 gUnk_080C8F7C[];
+extern PtrU32 gUnk_080C8F7C[];
 
 typedef struct {
     u16 unk_0; // -> gOamCmd._4

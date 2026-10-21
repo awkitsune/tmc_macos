@@ -72,7 +72,7 @@ void PlayerItemHeldObject_SubAction0(PlayerItemHeldObjectEntity* this) {
         ptr = gUnk_081320B8;
         super->palette.b.b0 = temp = ptr[super->subtimer].unk1;
         super->spriteSettings.draw = 1;
-        super->carryFlags = (int)child2;
+        super->carryFlags = (intptr_t)child2;
         super->spriteVramOffset = ptr[super->subtimer].unk2;
         InitializeAnimation(super, ptr[super->subtimer].unk0);
         sub_08078D60();

@@ -3821,7 +3821,7 @@ void LoadRoomTileSet(void) {
     gMapTop.tileTypes[0] = 0;
 
     if ((void*)gRoomControls.tileSet != gArea.pCurrentRoomInfo->tileSet) {
-        gRoomControls.tileSet = (u32)gArea.pCurrentRoomInfo->tileSet;
+        gRoomControls.tileSet = (uintptr_t)gArea.pCurrentRoomInfo->tileSet;
         LoadMapData(gArea.pCurrentRoomInfo->tileSet);
     }
 
@@ -4004,8 +4004,12 @@ void sub_0807C4F8(void) {
         do {
             ptr2 += 1;
             // TODO why does this not match with ptr2->dest?
+#ifdef PLATFORM_NATIVE
+            if ((u16*)ptr2->dest == gMapDataBottomSpecial || (u16*)ptr2->dest == (u16*)&gMapDataTopSpecial) {
+#else
             if (((u16*)((u32*)ptr2)[1] == gMapDataBottomSpecial) ||
                 ((u16*)((u32*)ptr2)[1] == (u16*)&gMapDataTopSpecial)) {
+#endif
                 // only load the map data definitions for bitmap backgrounds?
                 ptr1->src = ptr2->src & 0x7fffffff;
                 ptr1->dest = ptr2->dest;
@@ -4276,7 +4280,7 @@ void LoadCompressedMapData(void* dest, u32 offset) {
 
     if (offset != -1) {
         src = &gMapData + (offset & 0x7fffffff);
-        if ((u32)dest >> 0x18 == 6) {
+        if ((uintptr_t)dest >> 0x18 == 6) {
             LZ77UnCompVram(src, (void*)dest);
         } else {
             LZ77UnCompWram(src, (void*)dest);

@@ -4299,7 +4299,7 @@ u32 sub_unk3_DarkHyruleCastle_B2Dropdown(void) {
 void sub_StateChange_Ruins_Beanstalk4(void) {
 }
 
-extern u32 Area_HyruleTown[];
+extern PtrU32 Area_HyruleTown[];
 
 u32 sub_unk3_HyruleTown_0(void) {
     u32 uVar1;

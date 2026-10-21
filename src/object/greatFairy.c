@@ -564,9 +564,9 @@ void sub_08087424(GreatFairyEntity* this, ScriptExecutionContext* context) {
 }
 
 void sub_0808747C(GreatFairyEntity* this, ScriptExecutionContext* context) {
-    u32 iVar1 = 0;
+    PtrU32 iVar1 = 0;
 
-    iVar1 = (u32)FindEntity(OBJECT, SPECIAL_FX, 0x6, 0xb, 0x0);
+    iVar1 = (uintptr_t)FindEntity(OBJECT, SPECIAL_FX, 0x6, 0xb, 0x0);
     if (iVar1 != 0) {
         iVar1 = 1;
     }

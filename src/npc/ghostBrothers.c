@@ -20,7 +20,7 @@ typedef struct {
     /*0x6c*/ const u16* unk_6c;
 } GhostBrothersEntity;
 
-extern u32 gSpriteAnimations_GhostBrothers[];
+extern PtrU32 gSpriteAnimations_GhostBrothers[];
 
 void sub_08065C0C(GhostBrothersEntity* this);
 void sub_08065BF4(GhostBrothersEntity* this);

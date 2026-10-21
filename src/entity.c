@@ -282,7 +282,7 @@ Entity* GetEmptyEntity() {
     currentEnt = (GenericEntity*)&gPlayerEntity.base;
 
     do {
-        if ((s32)currentEnt->base.prev < 0 && (currentEnt->base.flags & (ENT_UNUSED1 | ENT_UNUSED2)) &&
+        if ((intptr_t)currentEnt->base.prev < 0 && (currentEnt->base.flags & (ENT_UNUSED1 | ENT_UNUSED2)) &&
             (Entity*)currentEnt != gUpdateContext.current_entity) {
             ClearDeletedEntity(&currentEnt->base);
             return &currentEnt->base;
@@ -297,7 +297,7 @@ Entity* GetEmptyEntity() {
     do {
         currentEnt = (GenericEntity*)listPtr->first;
         nextList = listPtr + 1;
-        while ((u32)currentEnt != (u32)listPtr) {
+        while ((uintptr_t)currentEnt != (uintptr_t)listPtr) {
             if (currentEnt->base.kind != MANAGER &&
                 flags_ip < (currentEnt->base.flags & (ENT_UNUSED1 | ENT_UNUSED2 | ENT_DELETED)) &&
                 gUpdateContext.current_entity != &currentEnt->base) {
@@ -394,7 +394,7 @@ void ClearAllDeletedEntities(void) {
     GenericEntity* ent = (GenericEntity*)&gPlayerEntity.base;
     do {
         //! @bug if prev pointed to a VALID location higher than a signed int, would still be deleted
-        if ((int)ent->base.prev < 0) {
+        if ((intptr_t)ent->base.prev < 0) {
             ClearDeletedEntity(&ent->base);
         }
     } while (ent++, ent < (((GenericEntity*)&gPlayerEntity.base) + 80));
@@ -413,7 +413,7 @@ void DeleteAllEntities(void) {
     it = &gEntityLists[0];
     if (it->first) {
         do {
-            for (ent = it->first; (u32)ent != (u32)it; ent = next) {
+            for (ent = it->first; (uintptr_t)ent != (uintptr_t)it; ent = next) {
                 next = ent->next;
                 DeleteEntityAny(ent);
             }
@@ -479,7 +479,7 @@ void RecycleEntities(void) {
 
     list = &gEntityLists[0];
     do {
-        for (i = list->first; (u32)i != (u32)list; i = i->next) {
+        for (i = list->first; (uintptr_t)i != (uintptr_t)list; i = i->next) {
             i->flags &= ~ENT_SCRIPTED;
             if ((i->flags & ENT_PERSIST) == 0) {
                 i->flags |= ENT_DELETED;
@@ -545,8 +545,8 @@ bool32 EntityHasDuplicateID(Entity* ent) {
 
     list = &gEntityLists[0];
     do {
-        for (i = list->first; (u32)i != (u32)list; i = i->next) {
-            if ((u32)i != (u32)ent && i->kind == ent->kind && i->id == ent->id) {
+        for (i = list->first; (uintptr_t)i != (uintptr_t)list; i = i->next) {
+            if ((uintptr_t)i != (uintptr_t)ent && i->kind == ent->kind && i->id == ent->id) {
                 return TRUE;
             }
         }
@@ -560,7 +560,7 @@ Entity* FindEntityByID(u32 kind, u32 id, u32 listIndex) {
     LinkedList* list;
 
     list = &gEntityLists[listIndex];
-    for (it = list->first; (u32)it != (u32)list; it = it->next) {
+    for (it = list->first; (uintptr_t)it != (uintptr_t)list; it = it->next) {
         if (kind == it->kind && id == it->id)
             return it;
     }
@@ -572,7 +572,7 @@ Entity* FindEntity(u32 kind, u32 id, u32 listIndex, u32 type, u32 type2) {
     LinkedList* list;
 
     list = &gEntityLists[listIndex];
-    for (i = list->first; (u32)i != (u32)list; i = i->next) {
+    for (i = list->first; (uintptr_t)i != (uintptr_t)list; i = i->next) {
         if (kind == i->kind && id == i->id && type == i->type && type2 == i->type2)
             return i;
     }
@@ -584,7 +584,7 @@ Entity* FindNextDuplicateID(Entity* ent, int listIndex) {
     LinkedList* list;
 
     list = &gEntityLists[listIndex];
-    for (i = ent->next; (u32)i != (u32)list; i = i->next) {
+    for (i = ent->next; (uintptr_t)i != (uintptr_t)list; i = i->next) {
         if (i->kind == ent->kind && i->id == ent->id)
             return i;
     }
@@ -597,7 +597,7 @@ Entity* DeepFindEntityByID(u32 kind, u32 id) {
 
     list = &gEntityLists[0];
     do {
-        for (i = (Entity*)list->first; (u32)i != (u32)list; i = i->next) {
+        for (i = (Entity*)list->first; (uintptr_t)i != (uintptr_t)list; i = i->next) {
             if (kind == i->kind && (id == i->id))
                 return i;
         }
@@ -613,7 +613,7 @@ void DeleteAllEnemies(void) {
 
     list = &gEntityLists[0];
     do {
-        for (ent = list->first; (u32)ent != (u32)list; ent = next) {
+        for (ent = list->first; (uintptr_t)ent != (uintptr_t)list; ent = next) {
             next = ent->next;
             if (ent->kind == ENEMY)
                 DeleteEntity(ent);

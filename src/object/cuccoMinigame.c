@@ -253,8 +253,8 @@ void CuccoMinigame_WinRupees(CuccoMinigameEntity* this) {
     for (index = 9; index >= 0; index--) { // Only first 10 count?
         // Weird register addition
         // rupeeValues[*cuccoTypes] translates to add r0,r3,r0 but should be add r0,r3
-        u32 temp = *cuccoTypes;
-        temp += (int)rupeeValues;
+        PtrU32 temp = *cuccoTypes;
+        temp += (intptr_t)rupeeValues;
         rupees += *(u8*)temp;
         cuccoTypes++;
     }

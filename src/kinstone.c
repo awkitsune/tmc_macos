@@ -208,12 +208,12 @@ void ShuffleEzloHints(int count, u16* basePtr) {
 
     uVar4 = count - 1;
     if (uVar4 != 0) {
-        puVar5 = (u16*)(uVar4 * 2 + (int)basePtr);
+        puVar5 = (u16*)(uVar4 * 2 + (intptr_t)basePtr);
         do {
             uVar2 = Random();
             iVar3 = uVar2 % (uVar4 + 1);
             uVar1 = *puVar5;
-            puVar4 = (u16*)(iVar3 * 2 + (int)basePtr);
+            puVar4 = (u16*)(iVar3 * 2 + (intptr_t)basePtr);
             *puVar5 = *puVar4;
             *puVar4 = uVar1;
             puVar5--;

@@ -98,7 +98,7 @@ u32 sub_0805ACC0(Entity* param_1) {
 
     for (entity = gEntityLists[6].first; entity != list; entity = entity->next) {
         if ((entity->kind == 9 && entity->id == 0x16) && entity->type2 <= tmp &&
-            (entity->type2 + *(u8*)((u32)&entity->zVelocity + 1)) > tmp) {
+            (entity->type2 + *(u8*)((uintptr_t)&entity->zVelocity + 1)) > tmp) {
 
             ptr = (u16*)GetCurrentRoomProperty(entity->type);
             if (ptr != NULL) {

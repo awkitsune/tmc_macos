@@ -3823,7 +3823,7 @@ static void PlayerSleep(PlayerEntity* this) {
 static void sub_08074C68(PlayerEntity* this) {
     this->unk_68.BYTES.byte0 = 0;
     if (gPlayerState.field_0x38 != 1) {
-        if (*(ScriptExecutionContext**)&this->unk_84.WORD == &gPlayerScriptExecutionContext) {
+        if (ENTITY_SCRIPT_CONTEXT(this) == &gPlayerScriptExecutionContext) {
             super->subAction = 1;
             sub_0807DD64(super);
             sub_08074CF8(this);
@@ -3847,8 +3847,8 @@ static void sub_08074CF8(PlayerEntity* this) {
     u32 v3;
 
     v3 = super->animationState;
-    ExecuteScript(super, *(ScriptExecutionContext**)&this->unk_84.WORD);
-    sub_08074D34(this, *(ScriptExecutionContext**)&this->unk_84.WORD);
+    ExecuteScript(super, ENTITY_SCRIPT_CONTEXT(this));
+    sub_08074D34(this, ENTITY_SCRIPT_CONTEXT(this));
     if ((this->unk_80.HALF.HI & 1) != 0)
         super->animationState = v3;
     GravityUpdate(super, kGravityRate);
@@ -3939,8 +3939,8 @@ void sub_08074F1C(PlayerEntity* this) {
 }
 
 void sub_08074F2C(PlayerEntity* this) {
-    ExecuteScript(super, *(ScriptExecutionContext**)&this->unk_84.WORD);
-    sub_08074D34(this, *(ScriptExecutionContext**)&this->unk_84.WORD);
+    ExecuteScript(super, ENTITY_SCRIPT_CONTEXT(this));
+    sub_08074D34(this, ENTITY_SCRIPT_CONTEXT(this));
 }
 
 void sub_08074F44(PlayerEntity* this) {

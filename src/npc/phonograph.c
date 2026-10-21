@@ -180,7 +180,7 @@ void sub_0806E964(PhonographEntity* this, ScriptExecutionContext* context) {
             this->unk_6a = this->unk_68;
             field_0x68 = this->unk_68 * 4;
             ptr2++;
-            this->unk_6c = *(s16*)((((s32)ptr2 + field_0x68)));
+            this->unk_6c = *(s16*)((((intptr_t)ptr2 + field_0x68)));
         } else {
             SoundReq(SONG_STOP_ALL);
             this->unk_6a = 0;

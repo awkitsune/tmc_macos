@@ -120,7 +120,7 @@ void sub_080ADE74(u32 index) {
                     ptr1->unk_00.unk3 = 0;
                     palIndex = ptr1->unk_08.BYTES.byte1 << 5;
                     if (palIndex != 0) {
-                        dest = (void*)(*(u16*)((s32)&ptr1->unk_08 + 2) * 0x20 + OBJ_VRAM0);
+                        dest = (void*)(*(u16*)((intptr_t)&ptr1->unk_08 + 2) * 0x20 + OBJ_VRAM0);
                         DmaCopy32(3, ptr1->unk_0C, dest, palIndex);
                     }
                 }

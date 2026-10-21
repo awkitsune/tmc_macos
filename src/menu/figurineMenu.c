@@ -464,7 +464,7 @@ const struct_08128184 gUnk_08128184 = {
     0xffu,
 };
 
-extern void ShowTextBox(u32, const struct_0812816C*);
+extern void ShowTextBox(PtrU32, const struct_0812816C*);
 
 void sub_080A4BA0(u32 arg1, u32 arg2) {
     int r0, r5, r6;
@@ -517,7 +517,7 @@ void sub_080A4BA0(u32 arg1, u32 arg2) {
             s2.unk9 = r5;
             s0.unk0 += 0xb;
             if (gSaveHeader->language == 0) {
-                ShowTextBox((u32)&s2, &s0);
+                ShowTextBox((uintptr_t)&s2, &s0);
             } else {
                 ShowTextBox(r5, &s0);
             }

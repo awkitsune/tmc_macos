@@ -133,6 +133,20 @@ static void MaybeScreenshot(void) {
         }
         fprintf(stderr, " IE=%04x IF=%04x IME=%04x vector=%p", gHwIo[0x200] | (gHwIo[0x201] << 8),
                 gHwIo[0x202] | (gHwIo[0x203] << 8), gHwIo[0x208] | (gHwIo[0x209] << 8), gHwIntrVector);
+        {
+            int shown = 0;
+            for (int i = 0; i < 128; i++) {
+                uint16_t attr0 = gHwOam[i * 8] | (gHwOam[i * 8 + 1] << 8);
+                if ((attr0 & 0x300) != 0x200) {
+                    shown++;
+                }
+            }
+            fprintf(stderr, " visible OBJs=%d\n", shown);
+            for (int i = 0; i < 12; i++) {
+                const uint8_t* o = &gHwOam[i * 8];
+                fprintf(stderr, "  obj%-3d %04x %04x %04x\n", i, o[0] | (o[1] << 8), o[2] | (o[3] << 8), o[4] | (o[5] << 8));
+            }
+        }
         fprintf(stderr, "\n");
     }
     PpuRenderFrame(sFrame);
