@@ -24,6 +24,14 @@ typedef volatile s64 vs64;
 typedef float f32;
 typedef double f64;
 
+// An integer field that holds a pointer in GBA data. Pointer-sized natively so
+// the address survives; plain u32 on GBA so generated code does not change.
+#ifdef PLATFORM_NATIVE
+typedef uintptr_t PtrU32;
+#else
+typedef u32 PtrU32;
+#endif
+
 typedef u8 bool8;
 typedef u16 bool16;
 typedef u32 bool32;

@@ -16,7 +16,7 @@ extern void sub_08055B70(u32, u32, u32, u32);
 extern u8 gUpdateVisibleTiles;
 extern Script script_StampKinstone;
 const EntityData gUnk_080FF400[] = {
-    { NPC, 79, STAMP, 0, 0, 0x48, 0x38, (u32)&script_StampKinstone },
+    { NPC, 79, STAMP, 0, 0, 0x48, 0x38, (PtrU32)&script_StampKinstone },
     { 0xff, 0, 0, 0, 0, 0x0, 0x0, 0 },
 };
 void WorldEvent_22_0(void);

@@ -13,7 +13,7 @@
 
 extern Script script_SyrupKinstone;
 const EntityData gUnk_080FF308[] = {
-    { NPC, 79, SYRUP, 0, 0, 0x78, 0x38, (u32)&script_SyrupKinstone },
+    { NPC, 79, SYRUP, 0, 0, 0x78, 0x38, (PtrU32)&script_SyrupKinstone },
     { 0xff, 0, 0, 0, 0, 0x0, 0x0, 0 },
 };
 void WorldEvent_20_0(void);

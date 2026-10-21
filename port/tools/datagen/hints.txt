@@ -1,0 +1,46 @@
+# C types for data labels whose type the game sources do not state.
+# Types are only needed for data that holds pointers; see port/README.md.
+#
+#   <regex>    <C type> [object]   the regex matches the whole label name;
+#                                  optionally only in that data object
+#   @<macro>   <C type>    the label's first statement is this data macro
+
+# Data macros (asm/macros/*.inc)
+@object_raw             EntityData
+@npc_raw                EntityData
+@enemy_raw              EntityData
+@manager                EntityData
+@projectile_raw         EntityData
+@entity_raw             EntityData
+@entity_list_end        EntityData
+@object_item            EntityData
+@object_minish_lilypad  EntityData
+@enemy_octorok          EntityData
+@enemy_chuchu           EntityData
+@enemy_tree_item        EntityData
+@ezlo_hint              EntityData
+@delayed_entity_raw     NPCStruct
+@map_data               MapDataDefinition
+@map_bottom             MapDataDefinition
+@map_top                MapDataDefinition
+@map_top_special        MapDataDefinition
+@map_bottom_special     MapDataDefinition
+@collision_bottom       MapDataDefinition
+@tiles_bottom           MapDataDefinition
+@tiles_top              MapDataDefinition
+@tile_types_bottom      MapDataDefinition
+@tile_types_top         MapDataDefinition
+@tileSet_tiles          MapDataDefinition
+@tileSet_palette_set    MapDataDefinition
+
+# By name
+voicegroup\d+           ToneData
+gAreaRoomMap_\w+        MapDataDefinition    data/map/map_headers
+gUnk_additional_c_HyruleTown_0                unk_DoorProperty
+gUnk_additional_11_HyruleField_LonLonRanch    unk_DoorProperty
+gUnk_additional_8_CaveOfFlames_(Rollobite|BossDoor)    LavaPlatformEntry
+gUnk_080E4C08                                           EntityData
+
+# Songs are raw ROM bytes with absolute addresses baked in (no relocations); the
+# native sound engine translates them at runtime (phase 4).
+\w+                     raw                  data/sound/sounds

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(tmc_native LANGUAGES C)
+project(tmc_native LANGUAGES C ASM)
 
 # Native (arm64 macOS) build of the decompiled game code. The GBA build in the
 # repository root is unaffected; everything here is opt-in via PLATFORM_NATIVE.
@@ -24,21 +24,8 @@ set(CMAKE_OSX_ARCHITECTURES arm64)
 
 file(GLOB_RECURSE TMC_GAME_SOURCES CONFIGURE_DEPENDS ${TMC_ROOT}/src/*.c)
 
-# Static tables that store pointers in u32 fields (EntityData.spritePtr). These
-# cannot be constant-initialized with 64-bit pointers; Phase 1 decides how data
-# pointers are represented natively.
+# Game C files that cannot be built natively yet (none at the moment).
 set(TMC_NATIVE_PENDING
-    src/cutscene.c
-    src/worldEvent/worldEvent12.c
-    src/worldEvent/worldEvent13.c
-    src/worldEvent/worldEvent14.c
-    src/worldEvent/worldEvent16.c
-    src/worldEvent/worldEvent17.c
-    src/worldEvent/worldEvent19.c
-    src/worldEvent/worldEvent20.c
-    src/worldEvent/worldEvent21.c
-    src/worldEvent/worldEvent22.c
-    src/worldEvent/worldEvent25.c
 )
 foreach(pending ${TMC_NATIVE_PENDING})
     list(REMOVE_ITEM TMC_GAME_SOURCES ${TMC_ROOT}/${pending})
@@ -73,21 +60,50 @@ target_compile_options(tmc_game PRIVATE
     -Wcast-function-type-mismatch
 )
 
+# Game data: the GBA data objects converted to native assembly by port/tools/datagen.
+# This needs the GBA build (build/<version>/data/*.o and tmc.elf) and the Python
+# environment from port/README.md.
+set(TMC_PYTHON ${TMC_ROOT}/.venv/bin/python CACHE FILEPATH "Python with port/requirements.txt installed")
+set(TMC_DATA_DIR ${CMAKE_BINARY_DIR}/data)
+set(TMC_DATAGEN_COMMAND
+    ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/tools
+    ${TMC_PYTHON} -m datagen --root ${TMC_ROOT} --gba-build ${TMC_ASSETS_BUILD_DIR} --out ${TMC_DATA_DIR}
+)
+if(NOT EXISTS ${TMC_DATA_DIR}/sources.txt)
+    message(STATUS "Converting GBA data (datagen)")
+    execute_process(COMMAND ${TMC_DATAGEN_COMMAND} RESULT_VARIABLE datagen_result)
+    if(NOT datagen_result EQUAL 0)
+        message(FATAL_ERROR "datagen failed; see the output above")
+    endif()
+endif()
+file(STRINGS ${TMC_DATA_DIR}/sources.txt TMC_DATA_SOURCES)
+add_custom_target(datagen
+    COMMAND ${TMC_DATAGEN_COMMAND}
+    COMMAND ${CMAKE_COMMAND} ${CMAKE_BINARY_DIR}
+    USES_TERMINAL
+    COMMENT "Regenerating native game data"
+)
+
+add_library(tmc_data OBJECT ${TMC_DATA_SOURCES})
+
 add_library(tmc_port STATIC
     src/hw.c
+    src/data_glue.c
 )
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(tmc_port PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR})
+target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
 
 # The executable cannot link until the asm-only code, data tables and BIOS calls
 # exist natively, so it is not part of the default build. Build `tmc` explicitly,
 # or run `link-report` for the list of unresolved symbols.
-add_executable(tmc EXCLUDE_FROM_ALL src/main.c $<TARGET_OBJECTS:tmc_game>)
+add_executable(tmc EXCLUDE_FROM_ALL src/main.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
 target_link_libraries(tmc PRIVATE tmc_port)
 
 add_custom_target(link-report
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target tmc > ${CMAKE_BINARY_DIR}/link.log 2>&1 || true
     COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/link_report.py ${CMAKE_BINARY_DIR}/link.log ${TMC_ROOT} ${TMC_ASSETS_BUILD_DIR}
-    DEPENDS tmc_game tmc_port
+    DEPENDS tmc_game tmc_data tmc_port
     USES_TERMINAL
     COMMENT "Linking tmc and summarizing unresolved symbols"
 )

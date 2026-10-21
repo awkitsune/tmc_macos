@@ -13,7 +13,7 @@
 
 extern Script script_CarlovKinstone;
 const EntityData gUnk_080FF264[] = {
-    { NPC, 79, CARLOV, 1, 0, 0x78, 0x48, (u32)&script_CarlovKinstone },
+    { NPC, 79, CARLOV, 1, 0, 0x78, 0x48, (PtrU32)&script_CarlovKinstone },
     { 0xff, 0, 0, 0, 0, 0x0, 0x0, 0 },
 };
 void WorldEvent_21_0(void);
