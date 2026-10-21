@@ -102,9 +102,15 @@ Environment variables control the headless runner:
 | `TMC_TRACE_DMA=1` | Log every DMA transfer |
 | `TMC_WATCHDOG=n` | After n seconds, print a backtrace and exit (finds hangs) |
 | `TMC_SAVE=path` | Back the emulated EEPROM with this file |
+| `TMC_SCREENSHOT="frame,frame,..."` or `"every:n"` | Save PNG screenshots, rendered by the software renderer |
+| `TMC_SCREENSHOT_DIR=path` | Where screenshots go (default `screenshots`) |
+| `TMC_DUMP_IO=1` | Print display and interrupt registers with each screenshot |
+
+To see the logos, title screen and file select (Start, then A to leave the title
+screen):
 
 ```bash
-TMC_FRAMES=3000 TMC_TRACE_TASK=1 TMC_INPUT="600:a:3" build/native/tmc
+TMC_FRAMES=900 TMC_INPUT="400:start:5,600:a:5" TMC_SCREENSHOT="every:30" build/native/tmc
 ```
 
 Crashes print a backtrace with the load address. Without debug info, macOS crash
@@ -134,6 +140,7 @@ permission prompt.)
 | `port/src/eeprom.c` | Emulated save EEPROM (replaces `src/eeprom.c`) |
 | `port/src/sound_stub.c` | Silent m4a API until the native sound engine (replaces `src/gba/m4a.c`) |
 | `port/src/trace.c` | Game-state tracing for the headless runner |
+| `port/src/ppu.c` | Software GBA renderer (BG modes 0-2, sprites, windows, blending) and PNG output |
 | `port/tools/datagen/` | GBA data objects → native arm64 assembly (see below) |
 | `port/scripts/link_report.py` | Classifies unresolved symbols into the remaining worklist |
 
@@ -206,7 +213,9 @@ that need a pointer type natively (e.g. pointer tables declared as `u32[]`).
 
 The native build links with no unresolved symbols and runs headless: through the
 Nintendo/Capcom logos and title screen into file select, and for tens of
-thousands of frames when left alone. Every function in `asm/src` has a C
+thousands of frames when left alone. The software renderer draws these screens
+correctly (screenshots via `TMC_SCREENSHOT`); mid-frame effects are not modelled
+yet. Every function in `asm/src` has a C
 version, the BIOS calls are in C, and the save EEPROM is emulated.
 
 Remaining for phase 1, so that gameplay runs:

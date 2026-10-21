@@ -105,6 +105,7 @@ add_library(tmc_port STATIC
     src/sound_stub.c
     src/eeprom.c
     src/trace.c
+    src/ppu.c
     ${TMC_PORT_ASM_SOURCES}
 )
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -113,7 +114,7 @@ target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${T
 
 # `link-report` lists unresolved symbols if the link ever breaks again.
 add_executable(tmc src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
-target_link_libraries(tmc PRIVATE tmc_port)
+target_link_libraries(tmc PRIVATE tmc_port z)
 
 
 add_custom_target(link-report

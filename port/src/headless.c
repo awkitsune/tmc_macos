@@ -11,10 +11,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "port/hw.h"
 #include "port/platform.h"
+#include "port/ppu.h"
 
 void TraceGameTask(uint64_t frame); // trace.c (kept apart: game headers clash with libc)
 
@@ -91,11 +93,62 @@ static uint16_t ScriptedKeys(void) {
 
 static int sTraceTask;
 
+// TMC_SCREENSHOT="frame,frame,..." or "every:n" saves PNGs to TMC_SCREENSHOT_DIR
+// (default: screenshots).
+static uint64_t sShotFrames[256];
+static int sShotCount;
+static uint64_t sShotEvery;
+static const char* sShotDir = "screenshots";
+
+static void ParseScreenshots(const char* text) {
+    if (strncmp(text, "every:", 6) == 0) {
+        sShotEvery = strtoull(text + 6, NULL, 10);
+        return;
+    }
+    while (*text && sShotCount < 256) {
+        char* end;
+        sShotFrames[sShotCount++] = strtoull(text, &end, 10);
+        text = *end == ',' ? end + 1 : end;
+        if (end == text && *text) {
+            break;
+        }
+    }
+}
+
+static void MaybeScreenshot(void) {
+    static uint16_t sFrame[PPU_WIDTH * PPU_HEIGHT];
+    int take = sShotEvery != 0 && gPlatformFrame % sShotEvery == 0;
+    char path[1024];
+
+    for (int i = 0; i < sShotCount && !take; i++) {
+        take = sShotFrames[i] == gPlatformFrame;
+    }
+    if (!take) {
+        return;
+    }
+    if (getenv("TMC_DUMP_IO") != NULL) {
+        fprintf(stderr, "frame %llu io:", (unsigned long long)gPlatformFrame);
+        for (int i = 0; i < 0x56; i += 2) {
+            fprintf(stderr, " %02x=%04x", i, gHwIo[i] | (gHwIo[i + 1] << 8));
+        }
+        fprintf(stderr, " IE=%04x IF=%04x IME=%04x vector=%p", gHwIo[0x200] | (gHwIo[0x201] << 8),
+                gHwIo[0x202] | (gHwIo[0x203] << 8), gHwIo[0x208] | (gHwIo[0x209] << 8), gHwIntrVector);
+        fprintf(stderr, "\n");
+    }
+    PpuRenderFrame(sFrame);
+    snprintf(path, sizeof(path), "%s/frame_%06llu.png", sShotDir, (unsigned long long)gPlatformFrame);
+    if (PpuWritePng(sFrame, path) != 0) {
+        fprintf(stderr, "screenshot: cannot write %s\n", path);
+    }
+}
+
 void PlatformVBlank(void) {
     REG_KEYINPUT = 0x03FF & ~ScriptedKeys(); // active low
     if (sTraceTask) {
         TraceGameTask(gPlatformFrame);
     }
+    // The picture shown during this frame: registers as the last VBlank left them.
+    MaybeScreenshot();
 
     // Mid-frame VCOUNT match (line 80 is where the game asks for it): sound mixing.
     REG_VCOUNT = REG_DISPSTAT >> 8;
@@ -169,6 +222,13 @@ int main(void) {
         ParseInput(getenv("TMC_INPUT"));
     }
     sTraceTask = getenv("TMC_TRACE_TASK") != NULL;
+    if (getenv("TMC_SCREENSHOT") != NULL) {
+        ParseScreenshots(getenv("TMC_SCREENSHOT"));
+        if (getenv("TMC_SCREENSHOT_DIR") != NULL) {
+            sShotDir = getenv("TMC_SCREENSHOT_DIR");
+        }
+        mkdir(sShotDir, 0755);
+    }
 
     REG_KEYINPUT = 0x03FF; // all buttons released (active low)
     setjmp(sResetPoint);

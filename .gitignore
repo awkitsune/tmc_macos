@@ -93,3 +93,6 @@ ctx.c
 
 # python venv for the GBA build (port/README.md setup)
 .venv/
+
+# headless screenshots (port/README.md)
+/screenshots/
