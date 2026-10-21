@@ -88,6 +88,8 @@ add_library(tmc_data OBJECT ${TMC_DATA_SOURCES})
 
 add_library(tmc_port STATIC
     src/hw.c
+    src/bios.c
+    src/interrupts.c
     src/data_glue.c
 )
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -97,7 +99,7 @@ target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${T
 # The executable cannot link until the asm-only code, data tables and BIOS calls
 # exist natively, so it is not part of the default build. Build `tmc` explicitly,
 # or run `link-report` for the list of unresolved symbols.
-add_executable(tmc EXCLUDE_FROM_ALL src/main.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
+add_executable(tmc EXCLUDE_FROM_ALL src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
 target_link_libraries(tmc PRIVATE tmc_port)
 
 add_custom_target(link-report

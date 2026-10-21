@@ -141,11 +141,17 @@ extern void* gMPlayJumpTable[];
 
 extern CgbChannel gCgbChans[];
 
+#ifdef PLATFORM_NATIVE
+// Values of the linker.ld symbols below; a native binary cannot place symbols at them.
+#define NUM_MUSIC_PLAYERS 0x20
+#define MAX_LINES 0
+#else
 extern char gNumMusicPlayers[];
 extern char gMaxLines[];
 
 #define NUM_MUSIC_PLAYERS ((u16)gNumMusicPlayers)
 #define MAX_LINES ((u32)gMaxLines)
+#endif
 
 u32 umul3232H32(u32 multiplier, u32 multiplicand);
 void SoundMain(void);

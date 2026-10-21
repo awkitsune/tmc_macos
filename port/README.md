@@ -7,9 +7,8 @@ byte-matching: every port change is either under `port/` or behind
 
 ## Setup
 
-One-time machine setup. The native build only needs steps 1–3; steps 4–5 are
-for checking that the GBA build still matches, which every change to shared code
-should do.
+One-time machine setup. The native build reads the GBA build's data objects, so
+both toolchains are needed.
 
 1. **Tools:** Xcode Command Line Tools, CMake ≥ 3.24 and Python 3.
 
@@ -27,7 +26,7 @@ should do.
 
 3. **Host tools and assets:** see [Building](#building) below.
 
-4. **GBA toolchain** (matching check only): `arm-none-eabi-gcc` and agbcc.
+4. **GBA toolchain:** `arm-none-eabi-gcc` and agbcc.
    agbcc is cloned next to this repository and installs into `tools/agbcc`; its
    install also leaves untracked `tools/include/` and `tools/lib/`, which are not
    committed.
@@ -46,19 +45,13 @@ should do.
 
    Replace `../tmc_macos` with the path to this checkout if it lives elsewhere.
 
-5. **pycparser** (matching check only): the GBA `make` imports it. Homebrew's
-   Python refuses global installs, so use a venv and put it on `PATH` when
-   running `make`:
+5. **Python packages:** the GBA `make` needs `pycparser`, and the native data
+   converter needs `pyelftools` and `libclang`. Homebrew's Python refuses global
+   installs, so use the repository's `.venv` (gitignored):
 
    ```bash
-   python3 -m venv .venv && .venv/bin/pip install pycparser
+   python3 -m venv .venv && .venv/bin/pip install -r port/requirements.txt
    ```
-
-   ```bash
-   PATH="$PWD/.venv/bin:$PATH" make -j$(sysctl -n hw.ncpu)
-   ```
-
-   A matching build ends with `tmc.gba: OK`.
 
 ## Building
 
@@ -73,11 +66,17 @@ CMAKE_POLICY_VERSION_MINIMUM=3.5 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTAL
 cmake --build tools/cmake-build -j --target install
 ```
 
+Build the GBA ROM. This also extracts the assets, and its objects and `tmc.elf`
+are the input to the native data converter. A matching build ends with
+`tmc.gba: OK`:
+
 ```bash
-make extract_assets
+PATH="$PWD/.venv/bin:$PATH" make -j$(sysctl -n hw.ncpu)
 ```
 
-Configure and build the native game objects:
+Configure and build the native game. The first configure converts the game data
+(about a minute); `cmake --build build/native --target datagen` reruns it after
+data or hint changes:
 
 ```bash
 cmake -S port -B build/native
@@ -96,21 +95,25 @@ cmake --build build/native --target link-report
 This writes `build/native/link_report.txt`, grouping every unresolved symbol by
 where the GBA build defines it.
 
-To confirm the GBA build still matches, run `make` as in setup step 5.
-
 ## Layout
 
 | Path | Purpose |
 |---|---|
 | `port/include/port/hw.h` | Host buffers for I/O registers, palette, VRAM, OAM; DMA and BIOS entry points |
-| `port/src/hw.c` | Their implementation (immediate DMA works; timed DMA is latched for the renderer) |
-| `port/src/main.c` | Process entry, calls `AgbMain` |
+| `port/include/port/platform.h` | Frame boundary and soft reset, implemented by the platform layer |
+| `port/src/hw.c` | Hardware buffers and DMA (immediate DMA works; timed DMA is latched for the renderer) |
+| `port/src/bios.c` | BIOS calls in C (copies, decompression, division, affine, VBlankIntrWait) |
+| `port/src/interrupts.c` | `IntrMain` replacement dispatching through the game's handler table |
+| `port/src/headless.c` | Headless platform and process entry; `TMC_FRAMES=n` stops after n frames |
+| `port/src/data_glue.c` | Code embedded in data, and demo-only symbols |
+| `port/tools/datagen/` | GBA data objects → native arm64 assembly (see below) |
 | `port/scripts/link_report.py` | Classifies unresolved symbols into the remaining worklist |
 
 Header hooks (all `PLATFORM_NATIVE`-only): `gba/defines.h` and `gba/io_reg.h`
 point `PLTT`/`VRAM`/`OAM`/`REG_BASE` at the host buffers; `gba/macro.h` routes
 `DmaSet`/`DmaStop` to the port; `gba/syscall.h` routes `SystemCall`;
-`global.h` disables GBA struct-size asserts.
+`global.h` disables GBA struct-size asserts; `gba/types.h` adds `PtrU32`, an
+integer field that holds a pointer (`u32` on GBA, `uintptr_t` natively).
 
 ## Phase 0 results
 
@@ -144,20 +147,42 @@ Remaining asm functions by file: `code_08003FC4.s` 25, `veneer.s` 23,
 normal build output): 68 pointer→int casts, 46 int→pointer casts, 17 more via
 `void*`, plus 24 raw GBA address literals such as `(SaveHeader*)0x2000000`.
 
-## The Phase 1 decision: pointers in data
+## Game data (phase 1)
 
-The data in `data/*.s` holds about 13,800 `.4byte` words, many of them pointers,
-and the script bytecode embeds 32-bit pointers to functions and data (the `Call`
-macro emits `.4byte \function`). There are two ways to bring that to a 64-bit
-host:
+`port/tools/datagen` converts the assembled GBA data objects
+(`build/USA/data/**/*.o`, about 13.7 MB with 14k pointers) into arm64 assembly
+in `build/native/data`:
 
-1. **Convert data to C** so the compiler lays out real pointers. This is the
-   cleanest result and keeps the code natural, but it is the larger job:
-   structs with pointer fields change size, and script bytecode needs a pointer
-   table (scripts store an index or offset instead of an address).
-2. **Keep data 32-bit and translate at use.** Data stays in its GBA layout
-   inside a loaded image, every stored pointer is a GBA address, and accessors
-   map addresses to host memory or native functions. There is less to change up
-   front, but every pointer load in the C code has to go through the translator.
+- **Types** come from the game sources through libclang. GBA layouts follow
+  agbcc's rules (4-byte pointers, structs rounded up to 4 bytes) and match all
+  of the decomp's struct-size asserts.
+- **Pointer-free data** (98% of the bytes) is copied byte for byte: each section
+  is reproduced in one piece so labels keep their exact relative offsets.
+- **Data with pointers** is re-laid out in a separate section: pointer tables
+  are widened to 8 bytes, typed tables are converted field by field (bitfields
+  and unions included), and pointers into the middle of tables are remapped.
+- **Script bytecode** keeps its bytes; each pointer slot holds a tagged index
+  into a per-object table of native pointers (`script_tag.h` has the tag).
+- **RAM variables** placed by `linker.ld` become native storage (`ram.s`),
+  with shared addresses kept as aliases.
+- **Songs** stay raw for now: their track data holds absolute ROM addresses
+  without relocations, which the native sound engine will translate (phase 4).
 
-This needs deciding before Phase 1 work starts.
+About 1,100 tables have no C declaration; `hints.txt` types them, mostly by the
+data macro they start with. `build/native/data/notes.txt` lists C declarations
+that need a pointer type natively (e.g. pointer tables declared as `u32[]`).
+
+## Status
+
+All 619 game C files and all data build natively. 154 symbols are still
+unresolved:
+
+| Count | What | Plan |
+|---:|---|---|
+| 117 | functions in `asm/src/*.s` (~1,700 instructions) | Rewrite in C, phase 1 |
+| 29 | `asm/lib/m4a_asm.s` sound mixer | Phase 4; stubbed until then |
+| 8 | `ram_*` ARM code copied to IWRAM | Alias the functions they copy |
+
+Still to do for phase 1 besides the asm: the script interpreter must decode
+tagged pointers, the C declarations in `notes.txt`, the compiler's pointer-cast
+warnings, and the 24 raw GBA addresses in C such as `(SaveHeader*)0x2000000`.
