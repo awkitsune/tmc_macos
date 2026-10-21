@@ -76,8 +76,12 @@ void sub_080A2E40(void) {
     gScreen.controls.alphaBlend = 0xb04;
     {
         // TODO write to 0x2000004
+#ifdef PLATFORM_NATIVE
+        gSaveHeader->saveFileId = 0;
+#else
         u32 addr = (0x80 << 0x12);
         *(u8*)(addr + 4) = 0;
+#endif
     }
     sub_080A3198(0, 0);
     gMain.state = GAMETASK_INIT;
@@ -92,9 +96,14 @@ void sub_080A2F8C(void) {
                 gMain.substate = GAMEMAIN_CHANGEROOM;
                 {
                     // TODO write to 0x2000005
+#ifdef PLATFORM_NATIVE
+                    gSaveHeader->msg_speed = 1;
+                    gSaveHeader->brightness = 1;
+#else
                     u32 addr = (0x80 << 0x12);
                     *(u8*)(addr + 5) = 1;
                     *(u8*)(addr + 6) = 1;
+#endif
                 }
                 gMain.state = GAMETASK_MAIN;
                 SetFade(FADE_IN_OUT | FADE_INSTANT, 8);
