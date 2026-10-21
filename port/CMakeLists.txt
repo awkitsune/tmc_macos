@@ -155,6 +155,21 @@ add_custom_command(TARGET tmc_app POST_BUILD
     COMMENT "Signing TMC.app (ad hoc)"
 )
 
+# tmc-songs: lists the songs and renders them to WAV with the native m4a engine.
+set(TMC_SONG_NAMES ${CMAKE_BINARY_DIR}/song_names.c)
+add_custom_command(
+    OUTPUT ${TMC_SONG_NAMES}
+    COMMAND ${TMC_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/song_names.py
+        ${TMC_ROOT}/include/sound.h ${TMC_ROOT}/src/sound.c ${TMC_SONG_NAMES}
+    DEPENDS scripts/song_names.py ${TMC_ROOT}/include/sound.h ${TMC_ROOT}/src/sound.c
+    COMMENT "Generating the song name table"
+)
+add_executable(tmc_songs src/tools/tmc_songs.c ${TMC_SONG_NAMES} $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
+set_target_properties(tmc_songs PROPERTIES OUTPUT_NAME tmc-songs)
+target_include_directories(tmc_songs PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR} src/tools)
+target_compile_definitions(tmc_songs PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
+target_link_libraries(tmc_songs PRIVATE tmc_port z)
+
 
 add_custom_target(link-report
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target tmc > ${CMAKE_BINARY_DIR}/link.log 2>&1 || true
