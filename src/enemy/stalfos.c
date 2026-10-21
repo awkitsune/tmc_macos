@@ -232,7 +232,11 @@ void Stalfos_Action6(StalfosEntity* this) {
     } else {
         u16 tmp = super->z.HALF.HI += 4;
 
+#ifdef PLATFORM_NATIVE
+        if (-1 < (s16)tmp) {
+#else
         if (-1 < (tmp * 0x10000)) {
+#endif
             super->action = 7;
             super->timer = 10;
             super->z.HALF.HI = 0;

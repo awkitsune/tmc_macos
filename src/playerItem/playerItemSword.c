@@ -209,7 +209,11 @@ void PlayerItemSword_Action1(PlayerItemSwordEntity* this) {
                     ptr = &gUnk_081292E2[super->frameIndex * 2];
                     effect->y.HALF.HI = super->y.HALF.HI + ptr[1];
                     tmp = ptr[0];
+#ifdef PLATFORM_NATIVE
+                    if (*(u8*)&super->spriteSettings & 0x40) { // TODO
+#else
                     if ((*(u8*)&super->spriteSettings * 0x2000000) < 0) { // TODO
+#endif
                         tmp = -tmp;
                     }
                     effect->x.HALF.HI = super->x.HALF.HI + tmp;
@@ -332,7 +336,11 @@ void sub_080A78B8(PlayerItemSwordEntity* this, Entity* param_2) {
         }
     }
     sub_080A7A54(this);
+#ifdef PLATFORM_NATIVE
+    if (*(u8*)&super->spriteSettings & 0x40) {
+#else
     if ((*(u8*)&super->spriteSettings * 0x2000000) < 0) { // TODO
+#endif
         super->hitbox->offset_x = -super->hitbox->offset_x;
     }
 }

@@ -136,7 +136,11 @@ void EvilSpirit_Action1(EvilSpiritEntity* this) {
         return;
     }
 
+#ifdef PLATFORM_NATIVE
+    if ((s8)(super->direction + 0x40) >= 0) {
+#else
     if ((super->direction + 0x40) * 0x1000000 >= 0) {
+#endif
         sVar3 = this->unk76;
         if ((short)this->unk76 >= 1) {
             this->unk76 = -sVar3;

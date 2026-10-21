@@ -198,7 +198,11 @@ void sub_08069AA8(GormanEntity* this) {
 }
 
 void sub_08069ACC(GormanEntity* this, ScriptExecutionContext* context) {
+#ifdef PLATFORM_NATIVE
+    if ((s8)--this->unk_68 < 1) {
+#else
     if (--this->unk_68 * 0x1000000 < 1) {
+#endif
         context->condition = 1;
     } else {
         context->condition = 0;
