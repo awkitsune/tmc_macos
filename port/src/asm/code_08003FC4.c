@@ -38,8 +38,15 @@ u32 GravityUpdate(Entity* this, u32 gravity) {
 // limit on that axis. Never true when both share layer 3.
 static bool32 CheckEntityPickup(Entity* a, Entity* b, u32 rx, u32 ry) {
     Hitbox* hitbox = b->hitbox;
-    s32 offsetX = hitbox->offset_x;
+    s32 offsetX;
     u32 bx, by;
+
+    // A deleted entity (no hitbox) can still be listed for a frame, e.g. in
+    // gCarriedEntity right after a subtask ends. The GBA reads BIOS bytes there.
+    if (hitbox == NULL) {
+        return FALSE;
+    }
+    offsetX = hitbox->offset_x;
 
     rx += hitbox->width;
     ry += hitbox->height;

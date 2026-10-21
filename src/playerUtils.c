@@ -132,7 +132,12 @@ extern const u8 gUnk_0811BFE0[];
 extern const u8 gUnk_08007DF4[];
 extern const u8 gUnk_080084BC[];
 
+#ifdef PLATFORM_NATIVE
+// On GBA a linker alias for gPossibleInteraction.candidates.
+#define gInteractableObjects gPossibleInteraction.candidates
+#else
 extern InteractableObject gInteractableObjects[];
+#endif
 
 u32 sub_0807A180(Entity*, Entity*, u32, u32);
 
@@ -1012,7 +1017,13 @@ void DetermineRButtonInteraction(void) {
                 rAction = gHUD.rActionInteractTile;
             } else {
                 interaction = sub_080784E4();
+#ifdef PLATFORM_NATIVE
+                // With no candidate the entity is NULL; the GBA reads a BIOS opcode byte
+                // there, which is never INTERACTION_NONE.
+                if (interaction->entity != NULL && interaction->entity->interactType == INTERACTION_NONE) {
+#else
                 if (interaction->entity->interactType == INTERACTION_NONE) {
+#endif
 
                     switch (interaction->type) {
                         case INTERACTION_TALK:

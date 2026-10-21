@@ -111,7 +111,12 @@ void ItemForSale_Action2(ItemForSaleEntity* this) {
         sub_080819B4(this);
     } else {
         ptr = sub_080784E4();
-        if (((*(int*)(ptr + 8) == 0) || ((*(u8*)(ptr + 1) != 1 || (gHUD.rActionPlayerState = R_ACTION_SPEAK,
+#ifdef PLATFORM_NATIVE
+        if (((((InteractableObject*)ptr)->entity == NULL) ||
+#else
+        if (((*(int*)(ptr + 8) == 0) ||
+#endif
+            ((*(u8*)(ptr + 1) != 1 || (gHUD.rActionPlayerState = R_ACTION_SPEAK,
                                                                    (gPlayerState.playerInput.newInput &
                                                                     (INPUT_ACTION | INPUT_INTERACT)) == 0)))) &&
             ((gPlayerState.playerInput.newInput & (INPUT_ACTION | INPUT_CANCEL | INPUT_INTERACT)) != 0)) {
