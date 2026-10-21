@@ -37,6 +37,8 @@
 voicegroup\d+           ToneData
 gAreaRoomMap_\w+        MapDataDefinition    data/map/map_headers
 gUnk_additional_c_HyruleTown_0                unk_DoorProperty
+# Festival Town's doors: no scripts, so no relocations show the 64-bit pointer field
+gUnk_additional_8_HyruleTown_1                unk_DoorProperty
 gUnk_additional_11_HyruleField_LonLonRanch    unk_DoorProperty
 gUnk_additional_8_CaveOfFlames_(Rollobite|BossDoor)    LavaPlatformEntry
 gUnk_080E4C08                                           EntityData
