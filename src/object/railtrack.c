@@ -15,14 +15,22 @@
 typedef struct {
     /*0x00*/ Entity base;
     /*0x68*/ u8 unused1[8];
+#ifdef PLATFORM_NATIVE
+    /*0x70*/ u32 unk_70Slot; // natively the pointer follows the generic fields
+#else
     /*0x70*/ u16* unk_70;
+#endif
     /*0x74*/ u16 unk_74;
     /*0x76*/ u16 unk_76;
     /*0x78*/ u16 unk_78;
     /*0x7a*/ u16 flagValue;
     /*0x7c*/ union SplitHWord unk_7c;
     /*0x7e*/ u8 unused2[8];
-    /*0x86*/ u16 flag;
+    /*0x86*/ u16 flag; // room data
+#ifdef PLATFORM_NATIVE
+    void* nativeScriptContext; // GenericEntity's
+    u16* unk_70;
+#endif
 } RailtrackEntity;
 
 void sub_08085394(RailtrackEntity* this);
