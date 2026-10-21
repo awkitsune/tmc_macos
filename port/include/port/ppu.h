@@ -15,5 +15,6 @@ void PpuRenderFrame(uint16_t* framebuffer);
 
 /* Write a framebuffer as an RGB PNG. Returns 0 on success. */
 int PpuWritePng(const uint16_t* framebuffer, const char* path);
+int PpuWritePngSize(const uint16_t* framebuffer, int width, int height, const char* path);
 
 #endif // PORT_PPU_H

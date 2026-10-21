@@ -13,7 +13,7 @@ save=${TMC_SAVE:-$out/tmc.sav}
 [ -n "$TMC_SAVE" ] || rm -f "$save"
 status=0
 TMC_SAVE=$save TMC_FRAMES=$frames TMC_INPUT=@$script TMC_SCREENSHOT=every:$every TMC_SCREENSHOT_DIR=$out/shots \
-    TMC_TRACE_PLAYER=${TMC_TRACE_PLAYER:-60} TMC_WATCHDOG=${TMC_WATCHDOG:-300} \
+    TMC_TRACE_PLAYER=${TMC_TRACE_PLAYER:-60} TMC_WATCHDOG=${TMC_WATCHDOG:-300} TMC_MAPDUMP=$out/maps \
     "${TMC_BIN:-$root/build/native/tmc}" > "$out/log.txt" 2>&1 || status=$?
 tail -3 "$out/log.txt"
 python3 "$here/contact_sheet.py" "$out/sheet.png" --cols 8 "$out"/shots/*.png

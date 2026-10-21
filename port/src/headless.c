@@ -22,11 +22,13 @@
 
 void TraceGameTask(uint64_t frame); // trace.c (kept apart: game headers clash with libc)
 void TraceEntities(uint64_t frame);
+void DumpRoomMap(const char* path); // mapdump.c
 void TracePlayer(uint64_t frame);
 
 void AgbMain(void);
 
 uint64_t gPlatformFrame;
+static const char* sMapDir; // TMC_MAPDUMP
 static uint64_t sFrameLimit;
 static jmp_buf sResetPoint;
 
@@ -195,6 +197,11 @@ static void StepFailed(const ScriptStep* step, const char* why) {
             "TMC_INPUT: step %d '%s' %s at frame %llu (task %d.%d.%d area %02x room %02x pos %d,%d control %d)\n",
             sStep, step->text, why, (unsigned long long)gPlatformFrame, s.task, s.state, s.substate, s.area, s.room,
             s.x, s.y, s.control);
+    if (sMapDir != NULL) {
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/map_failed.png", sMapDir);
+        DumpRoomMap(path);
+    }
     printf("headless: input script failed\n");
     exit(3);
 }
@@ -294,6 +301,24 @@ static uint16_t ScriptedKeys(void) {
 
 static int sTraceTask;
 static int sTraceEntities;
+
+// TMC_MAPDUMP=dir: the first time the player has had control in a room for 30
+// frames, save the whole room as dir/map_AA_RR.png (see mapdump.c).
+static void MaybeDumpMap(void) {
+    static uint8_t sDumped[256][64];
+    static int sStable;
+    HeadlessState s;
+    char path[1024];
+
+    HeadlessGetState(&s);
+    sStable = s.control ? sStable + 1 : 0;
+    if (sStable < 30 || s.area > 255 || s.room > 63 || sDumped[s.area][s.room]) {
+        return;
+    }
+    sDumped[s.area][s.room] = 1;
+    snprintf(path, sizeof(path), "%s/map_%02x_%02x.png", sMapDir, s.area, s.room);
+    DumpRoomMap(path);
+}
 static uint64_t sTracePlayer;
 
 // TMC_SCREENSHOT="frame,frame,..." or "every:n" saves PNGs to TMC_SCREENSHOT_DIR
@@ -370,6 +395,9 @@ void PlatformVBlank(void) {
     if (sTracePlayer != 0 && gPlatformFrame % sTracePlayer == 0) {
         TracePlayer(gPlatformFrame);
     }
+    if (sMapDir != NULL) {
+        MaybeDumpMap();
+    }
     // The picture shown during this frame: registers as the last VBlank left them.
     MaybeScreenshot();
 
@@ -440,6 +468,9 @@ int main(void) {
     if (getenv("TMC_TRACE_PLAYER") != NULL) {
         sTracePlayer = strtoull(getenv("TMC_TRACE_PLAYER"), NULL, 10);
         sTracePlayer = sTracePlayer != 0 ? sTracePlayer : 60;
+    }
+    if ((sMapDir = getenv("TMC_MAPDUMP")) != NULL) {
+        mkdir(sMapDir, 0755);
     }
     if (getenv("TMC_SCREENSHOT") != NULL) {
         ParseScreenshots(getenv("TMC_SCREENSHOT"));

@@ -104,6 +104,7 @@ add_library(tmc_port STATIC
     src/data_glue.c
     src/eeprom.c
     src/trace.c
+    src/mapdump.c
     src/ppu.c
     src/frame.c
     ${TMC_PORT_ASM_SOURCES}

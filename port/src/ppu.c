@@ -7,6 +7,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <zlib.h>
 
@@ -391,20 +392,21 @@ static int WriteChunk(FILE* f, const char* type, const uint8_t* data, uint32_t l
            fwrite(crcBytes, 1, 4, f) != 4;
 }
 
-int PpuWritePng(const uint16_t* framebuffer, const char* path) {
+int PpuWritePngSize(const uint16_t* framebuffer, int width, int height, const char* path) {
     static const uint8_t signature[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
-    static uint8_t raw[PPU_HEIGHT * (1 + PPU_WIDTH * 3)];
-    static uint8_t packed[sizeof(raw) + 1024];
+    size_t rawSize = (size_t)height * (1 + width * 3);
+    uint8_t* raw = malloc(rawSize);
+    uLongf packedSize = compressBound(rawSize);
+    uint8_t* packed = malloc(packedSize);
     uint8_t ihdr[13] = { 0 };
-    uLongf packedSize = sizeof(packed);
-    FILE* f;
-    int failed;
+    FILE* f = NULL;
+    int failed = -1;
 
-    for (int y = 0; y < PPU_HEIGHT; y++) {
-        uint8_t* row = &raw[y * (1 + PPU_WIDTH * 3)];
+    for (int y = 0; y < height; y++) {
+        uint8_t* row = &raw[y * (1 + width * 3)];
         row[0] = 0; // no filter
-        for (int x = 0; x < PPU_WIDTH; x++) {
-            uint16_t c = framebuffer[y * PPU_WIDTH + x];
+        for (int x = 0; x < width; x++) {
+            uint16_t c = framebuffer[y * width + x];
             // Expand 5-bit channels to 8 bits.
             for (int ch = 0; ch < 3; ch++) {
                 uint8_t v = (c >> (5 * ch)) & 0x1F;
@@ -412,18 +414,20 @@ int PpuWritePng(const uint16_t* framebuffer, const char* path) {
             }
         }
     }
-    if (compress2(packed, &packedSize, raw, sizeof(raw), 6) != Z_OK) {
-        return -1;
+    if (compress2(packed, &packedSize, raw, rawSize, 6) == Z_OK && (f = fopen(path, "wb")) != NULL) {
+        PutU32(ihdr, width);
+        PutU32(ihdr + 4, height);
+        ihdr[8] = 8; // bit depth
+        ihdr[9] = 2; // RGB
+        failed = fwrite(signature, 1, 8, f) != 8 || WriteChunk(f, "IHDR", ihdr, 13) ||
+                 WriteChunk(f, "IDAT", packed, packedSize) || WriteChunk(f, "IEND", NULL, 0);
+        fclose(f);
     }
-    PutU32(ihdr, PPU_WIDTH);
-    PutU32(ihdr + 4, PPU_HEIGHT);
-    ihdr[8] = 8; // bit depth
-    ihdr[9] = 2; // RGB
-    if ((f = fopen(path, "wb")) == NULL) {
-        return -1;
-    }
-    failed = fwrite(signature, 1, 8, f) != 8 || WriteChunk(f, "IHDR", ihdr, 13) ||
-             WriteChunk(f, "IDAT", packed, packedSize) || WriteChunk(f, "IEND", NULL, 0);
-    fclose(f);
+    free(raw);
+    free(packed);
     return failed ? -1 : 0;
+}
+
+int PpuWritePng(const uint16_t* framebuffer, const char* path) {
+    return PpuWritePngSize(framebuffer, PPU_WIDTH, PPU_HEIGHT, path);
 }
