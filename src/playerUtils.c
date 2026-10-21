@@ -4170,13 +4170,21 @@ void InitializeCamera() {
     roomControls = &gRoomControls;
     target = gRoomControls.camera_target;
     if (target != NULL) {
+#ifdef PLATFORM_NATIVE
+        if ((s16)target->x.HALF_U.HI < 0) { // bit 15 flags an absolute position
+#else
         if ((target->x.HALF_U.HI * 0x10000) < 0) {
+#endif
             tmp1 = (target->x.HALF.HI & 0x7fff);
             tmp1 -= gRoomControls.origin_x;
             target->x.HALF.HI = tmp1;
         }
         targetX = target->x.HALF.HI;
+#ifdef PLATFORM_NATIVE
+        if ((s16)target->y.HALF_U.HI < 0) { // bit 15 flags an absolute position
+#else
         if ((target->y.HALF_U.HI * 0x10000) < 0) {
+#endif
             tmp2 = (target->y.HALF.HI & 0x7fff);
             tmp2 -= gRoomControls.origin_y;
             target->y.HALF.HI = tmp2;
