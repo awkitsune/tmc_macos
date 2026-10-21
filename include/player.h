@@ -19,7 +19,16 @@ typedef struct {
     /*0x7c*/ union SplitWord unk_7c;
     /*0x80*/ union SplitWord unk_80;
     /*0x84*/ union SplitWord unk_84;
+#ifdef PLATFORM_NATIVE
+    Entity* sleepBubble; // the GBA keeps this pointer in unk_6c..unk_6f
+    // The player is slot 0 of the 80 entity slots that entity.c walks as one
+    // GenericEntity array, so it must be exactly one slot long.
+    u8 nativeSlack[64];
+#endif
 } PlayerEntity;
+#ifdef PLATFORM_NATIVE
+_Static_assert(sizeof(PlayerEntity) == sizeof(GenericEntity), "player entity must fill one entity slot");
+#endif
 
 enum PlayerActions {
     PLAYER_INIT,

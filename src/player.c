@@ -3950,8 +3950,13 @@ void sub_08074F44(PlayerEntity* this) {
     } fixme;
 
     this->unk_68.BYTES.byte0++;
+#ifdef PLATFORM_NATIVE
+    if (gPlayerEntity.sleepBubble)
+        DeleteEntity(gPlayerEntity.sleepBubble);
+#else
     if (((fixme*)&gPlayerEntity.base)->e)
         DeleteEntity(((fixme*)&gPlayerEntity.base)->e);
+#endif
     if (!gPlayerState.field_0x39) {
         gPlayerState.animation = ANIM_WAKEUP_NOCAP;
         gPlayerState.flags |= PL_NO_CAP;
@@ -4088,7 +4093,11 @@ void sub_080751E8(u32 a1, u32 a2, void* script) {
 
     MemClear(&gPlayerScriptExecutionContext, sizeof(ScriptExecutionContext));
     gPlayerScriptExecutionContext.scriptInstructionPointer = script;
+#ifdef PLATFORM_NATIVE
+    ENTITY_SCRIPT_CONTEXT(&gPlayerEntity.base) = &gPlayerScriptExecutionContext;
+#else
     ((fixme*)&gPlayerEntity.base)->ctx = &gPlayerScriptExecutionContext;
+#endif
     gPlayerState.queued_action = PLAYER_SLEEP;
     gPlayerState.field_0x38 = 1;
     gPlayerState.field_0x39 = 0;
@@ -4107,7 +4116,11 @@ void sub_080751E8(u32 a1, u32 a2, void* script) {
         StartCutscene(e, script);
     }
     e2 = CreateSpeechBubbleSleep(&gPlayerEntity.base, -14, -28);
+#ifdef PLATFORM_NATIVE
+    gPlayerEntity.sleepBubble = e2;
+#else
     *(Entity**)&gPlayerEntity.unk_6c = e2;
+#endif
     if (e2 != NULL) {
         SetEntityPriority(e2, PRIO_NO_BLOCK);
     }

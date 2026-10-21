@@ -14,12 +14,21 @@
 typedef struct Temp {
     void* prev;
     void* next;
+#ifdef PLATFORM_NATIVE
+    // Manager subtypes with pointer fields grow natively (up to 120 bytes).
+    u8 _0[0x80 - 2 * sizeof(void*)];
+#else
     u8 _0[0x38];
+#endif
 } Temp;
 #include "tiles.h"
 
 extern u8 gUpdateVisibleTiles;
+#ifdef PLATFORM_NATIVE
+extern Temp gUnk_02033290[32];
+#else
 extern Manager gUnk_02033290;
+#endif
 void UpdatePlayerInput(void);
 void ClearHitboxList(void);
 void sub_0805EE88(void);
@@ -248,8 +257,14 @@ void UpdateManagers(void) {
 void EraseAllEntities(void) {
     DeleteAllEntities();
     MemClear(&gPriorityHandler, sizeof(PriorityHandler));
+#ifdef PLATFORM_NATIVE
+    // gPlayerEntity, gAuxPlayerEntities and gEntities: 80 contiguous slots.
+    MemClear(&gPlayerEntity.base, sizeof(GenericEntity) * 80);
+    MemClear(&gUnk_02033290, sizeof(gUnk_02033290));
+#else
     MemClear(&gPlayerEntity.base, 10880);
     MemClear(&gUnk_02033290, 2048);
+#endif
     sub_0805E98C();
     gEntCount = 0;
     gManagerCount = 0;
@@ -386,7 +401,7 @@ void DeleteEntity(Entity* ent) {
         ent->health = 0;
         UnlinkEntity(ent);
         ent->next = NULL;
-        ent->prev = (Entity*)0xffffffff;
+        ent->prev = (Entity*)(intptr_t)-1; // 0xffffffff: marks a deleted slot (prev < 0)
     }
 }
 
@@ -453,15 +468,15 @@ void ReleaseTransitionManager(void* mgr) {
     }
 }
 
-extern LinkedList gEntityListsBackup;
+extern LinkedList gEntityListsBackup[9];
 
 void sub_0805E958(void) {
-    MemCopy(&gEntityLists, &gEntityListsBackup, 0x48);
+    MemCopy(&gEntityLists, &gEntityListsBackup, sizeof(gEntityLists));
     sub_0805E98C();
 }
 
 void sub_0805E974(void) {
-    MemCopy(&gEntityListsBackup, &gEntityLists, 0x48);
+    MemCopy(&gEntityListsBackup, &gEntityLists, sizeof(gEntityLists));
 }
 
 void sub_0805E98C(void) {
