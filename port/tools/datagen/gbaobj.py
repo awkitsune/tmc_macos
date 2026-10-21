@@ -120,8 +120,26 @@ def linked_symbols(elf_path: Path) -> dict:
         return {s.name: s["st_value"] for s in ELFFile(f).get_section_by_name(".symtab").iter_symbols() if s.name}
 
 
+def linked_globals(elf_path: Path) -> set:
+    """Names of the global, non-absolute symbols in the linked GBA ELF."""
+    with open(elf_path, "rb") as f:
+        return {
+            s.name
+            for s in ELFFile(f).get_section_by_name(".symtab").iter_symbols()
+            if s.name and s["st_info"]["bind"] == "STB_GLOBAL" and s["st_shndx"] != "SHN_ABS"
+        }
+
+
+# Data tables that live inside asm code objects: (object, first label, end label).
+ASM_DATA_REGIONS = [
+    ("asm/src/code_08001A7C", "gUnk_08001A7C", "GetFuserId"),
+    ("asm/src/code_08001A7C", "gUnk_0800275C", "GetNextFunction"),
+]
+
+
 def load_all(build_dir: Path, addrs: dict, subdir: str = "data") -> list:
     objects = [load_object(p, build_dir) for p in sorted((build_dir / subdir).rglob("*.o"))]
+    objects += [load_region(build_dir, *region) for region in ASM_DATA_REGIONS]
     _assign_bases(objects, addrs)
     return objects
 
@@ -136,3 +154,35 @@ def _assign_bases(objects: list, addrs: dict):
                     break
             else:
                 raise ValueError(f"{obj.rel}{sec.name}: no global label to locate it in the linked ELF")
+
+
+def load_region(build_dir: Path, obj_rel: str, start_label: str, end_label: str) -> DataObject:
+    """A data table embedded in an asm code object, as a standalone data object.
+
+    The labels from start_label up to (not including) end_label become a .rodata
+    section of their own, so they convert like any other data.
+    """
+    full = load_object(build_dir / f"{obj_rel}.o", build_dir, section_prefixes=(".text",))
+    for sec in full.sections:
+        names = {label.name: label for label in sec.labels}
+        if start_label in names and end_label in names:
+            start, end = names[start_label].offset, names[end_label].offset
+            break
+    else:
+        raise ValueError(f"{obj_rel}: labels {start_label}..{end_label} not found")
+    region = DataObject(path=full.path, rel=f"asm_data/{Path(obj_rel).name}_{start_label}", sections=[])
+    section = Section(
+        obj=region, name=".rodata", data=sec.data[start:end], align=4, labels=[], relocs={},
+    )
+    for label in sec.labels:
+        if start <= label.offset < end:
+            section.labels.append(Label(label.name, label.offset - start, min(label.end, end) - start, label.is_global, section))
+    for off, reloc in sec.relocs.items():
+        if start <= off < end:
+            if reloc.section:
+                raise ValueError(f"{obj_rel}: section-relative pointer in data region at {off:#x}")
+            reloc.offset = off - start
+            section.relocs[off - start] = reloc
+    region.sections.append(section)
+    region.region_start = start
+    return region
