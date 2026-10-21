@@ -17,6 +17,7 @@
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
+#include "port/sound.h"
 
 void TraceGameTask(uint64_t frame); // trace.c (kept apart: game headers clash with libc)
 void TraceEntities(uint64_t frame);
@@ -228,6 +229,7 @@ int main(void) {
         }
         mkdir(sShotDir, 0755);
     }
+    SoundWavFromEnv();
 
     HwSetKeys(0);
     setjmp(sResetPoint);

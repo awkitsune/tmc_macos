@@ -31,10 +31,8 @@ set(CMAKE_OSX_ARCHITECTURES arm64)
 file(GLOB_RECURSE TMC_GAME_SOURCES CONFIGURE_DEPENDS ${TMC_ROOT}/src/*.c)
 
 # Game C files left out of the native build. eeprom.c drives cartridge hardware
-# (port/src/eeprom.c emulates it). The m4a sound engine reads raw GBA
-# addresses from song data; port/src/sound_stub.c stands in until phase 4.
+# (port/src/eeprom.c emulates it).
 set(TMC_NATIVE_PENDING
-    src/gba/m4a.c
     src/eeprom.c
 )
 foreach(pending ${TMC_NATIVE_PENDING})
@@ -97,17 +95,19 @@ add_custom_target(datagen
 add_library(tmc_data OBJECT ${TMC_DATA_SOURCES})
 
 file(GLOB TMC_PORT_ASM_SOURCES CONFIGURE_DEPENDS src/asm/*.c)
+# The m4a engine's assembly in C, the CGB channels, WAV output (port/src/sound).
+file(GLOB TMC_PORT_SOUND_SOURCES CONFIGURE_DEPENDS src/sound/*.c)
 add_library(tmc_port STATIC
     src/hw.c
     src/bios.c
     src/interrupts.c
     src/data_glue.c
-    src/sound_stub.c
     src/eeprom.c
     src/trace.c
     src/ppu.c
     src/frame.c
     ${TMC_PORT_ASM_SOURCES}
+    ${TMC_PORT_SOUND_SOURCES}
 )
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tmc_port PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR} ${TMC_DATA_DIR})

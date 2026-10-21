@@ -1,145 +1,14 @@
 #include "global.h"
 #include "gba/m4a.h"
-
-// ASCII encoding of 'Smsh' in reverse
-// This is presumably short for SMASH, the developer of MKS4AGB.
-#define ID_NUMBER 'hsmS'
-
-#define C_V 0x40 // center value for PAN, BEND, and TUNE
-
-#define SOUND_MODE_REVERB_VAL 0x0000007F
-#define SOUND_MODE_REVERB_SET 0x00000080
-#define SOUND_MODE_MAXCHN 0x00000F00
-#define SOUND_MODE_MAXCHN_SHIFT 8
-#define SOUND_MODE_MASVOL 0x0000F000
-#define SOUND_MODE_MASVOL_SHIFT 12
-#define SOUND_MODE_FREQ_05734 0x00010000
-#define SOUND_MODE_FREQ_07884 0x00020000
-#define SOUND_MODE_FREQ_10512 0x00030000
-#define SOUND_MODE_FREQ_13379 0x00040000
-#define SOUND_MODE_FREQ_15768 0x00050000
-#define SOUND_MODE_FREQ_18157 0x00060000
-#define SOUND_MODE_FREQ_21024 0x00070000
-#define SOUND_MODE_FREQ_26758 0x00080000
-#define SOUND_MODE_FREQ_31536 0x00090000
-#define SOUND_MODE_FREQ_36314 0x000A0000
-#define SOUND_MODE_FREQ_40137 0x000B0000
-#define SOUND_MODE_FREQ_42048 0x000C0000
-#define SOUND_MODE_FREQ 0x000F0000
-#define SOUND_MODE_FREQ_SHIFT 16
-#define SOUND_MODE_DA_BIT_9 0x00800000
-#define SOUND_MODE_DA_BIT_8 0x00900000
-#define SOUND_MODE_DA_BIT_7 0x00A00000
-#define SOUND_MODE_DA_BIT_6 0x00B00000
-#define SOUND_MODE_DA_BIT 0x00B00000
-#define SOUND_MODE_DA_BIT_SHIFT 20
-
-typedef void (*MPlayFunc)();
-typedef void (*PlyNoteFunc)(u32, MusicPlayerInfo*, MusicPlayerTrack*);
-typedef void (*CgbSoundFunc)(void);
-typedef void (*CgbOscOffFunc)(u8);
-typedef u32 (*MidiKeyToCgbFreqFunc)(u8, u8, u8);
-typedef void (*ExtVolPitFunc)(void);
-typedef void (*XcmdFunc)(MusicPlayerInfo*, MusicPlayerTrack*);
-
-typedef struct CgbChannel {
-    u8 statusFlags;
-    u8 type;
-    u8 rightVolume;
-    u8 leftVolume;
-    u8 attack;
-    u8 decay;
-    u8 sustain;
-    u8 release;
-    u8 key;
-    u8 envelopeVolume;
-    u8 envelopeGoal;
-    u8 envelopeCounter;
-    u8 echoVolume;
-    u8 echoLength;
-    u8 unk0;
-    u8 unk1;
-    u8 gateTime;
-    u8 midiKey;
-    u8 velocity;
-    u8 priority;
-    u8 rhythmPan;
-    u8 unk2[3];
-    u8 unk3;
-    u8 sustainGoal;
-    u8 n4; // NR[1-4]4 register (initial, length bit)
-    u8 pan;
-    u8 panMask;
-    u8 modify;
-    u8 length;
-    u8 sweep;
-    u32 frequency;
-    u32* nextWave;
-    u32* currentWave;
-    u32 track;
-    u32 prev;
-    u32 next;
-    u8 unk4[8];
-} CgbChannel;
-
-#define MAX_DIRECTSOUND_CHANNELS 12
-
-#define PCM_DMA_BUF_SIZE 1584 // size of Direct Sound buffer
-
-typedef struct SoundInfo {
-    // This field is normally equal to ID_NUMBER but it is set to other
-    // values during sensitive operations for locking purposes.
-    // This field should be volatile but isn't. This could potentially cause
-    // race conditions.
-    u32 ident;
-
-    vu8 pcmDmaCounter;
-
-    // Direct Sound
-    u8 reverb;
-    u8 maxChannels;
-    u8 masterVolume;
-    u8 frequency;
-
-    u8 mode;
-    u8 c15;          // periodically counts from 14 down to 0 (15 states)
-    u8 pcmDmaPeriod; // number of V-blanks per PCM DMA
-    u8 maxLines;
-    u8 gap[3];
-    s32 pcmSamplesPerVBlank;
-    s32 pcmFreqency;
-    s32 divFreq;
-    CgbChannel* cgbChannels;
-    MPlayMainFunc MPlayMainHead;
-    void* intp;
-    void (*CgbSound)(void);
-    void (*CgbOscOff)(u8);
-    u32 (*MidiKeyToCgbFreq)(u8, u8, u8);
-    void* MPlayJumpTable;
-    void* plynote;
-    void (*ExtVolPit)(void);
-    u8 gap2[16];
-    SoundChannel chans[MAX_DIRECTSOUND_CHANNELS];
-    s8 pcmBuffer[PCM_DMA_BUF_SIZE];
-} SoundInfo;
-
-#define MUSICPLAYER_STATUS_TRACK 0x0000ffff
-#define MUSICPLAYER_STATUS_PAUSE 0x80000000
-
-#define MAX_MUSICPLAYER_TRACKS 16
-
-#define TEMPORARY_FADE 0x0001
-#define FADE_IN 0x0002
-#define FADE_VOL_MAX 64
-#define FADE_VOL_SHIFT 2
+#include "gba/m4a_internal.h"
 
 extern u8 gMPlayMemAccArea[];
 
 extern char SoundMainRAM[];
 
-extern void* gMPlayJumpTable[];
+extern void* gMPlayJumpTable[36];
 
-extern CgbChannel gCgbChans[];
+extern CgbChannel gCgbChans[4];
 
 #ifdef PLATFORM_NATIVE
 // Values of the linker.ld symbols below; a native binary cannot place symbols at them.
@@ -224,26 +93,11 @@ void ply_xiecl(MusicPlayerInfo*, MusicPlayerTrack*);
 void ply_xleng(MusicPlayerInfo*, MusicPlayerTrack*);
 void ply_xswee(MusicPlayerInfo*, MusicPlayerTrack*);
 
+#ifndef PLATFORM_NATIVE
 u8 SoundMainRAM_Buffer[0x380];
+#endif
 extern SoundInfo gSoundInfo;
 
-#define SOUND_CHANNEL_SF_START 0x80
-#define SOUND_CHANNEL_SF_STOP 0x40
-#define SOUND_CHANNEL_SF_LOOP 0x10
-#define SOUND_CHANNEL_SF_IEC 0x04
-#define SOUND_CHANNEL_SF_ENV 0x03
-#define SOUND_CHANNEL_SF_ENV_ATTACK 0x03
-#define SOUND_CHANNEL_SF_ENV_DECAY 0x02
-#define SOUND_CHANNEL_SF_ENV_SUSTAIN 0x01
-#define SOUND_CHANNEL_SF_ENV_RELEASE 0x00
-#define SOUND_CHANNEL_SF_ON \
-    (SOUND_CHANNEL_SF_START | SOUND_CHANNEL_SF_STOP | SOUND_CHANNEL_SF_IEC | SOUND_CHANNEL_SF_ENV)
-
-#define CGB_CHANNEL_MO_PIT 0x02
-#define CGB_CHANNEL_MO_VOL 0x01
-
-#define CGB_NRx2_ENV_DIR_DEC 0x00
-#define CGB_NRx2_ENV_DIR_INC 0x08
 
 void* const gMPlayJumpTableTemplate[] = {
     ply_fine,  ply_goto,  ply_patt,   ply_pend,      ply_rept,  ply_fine,    ply_fine,     ply_fine,       ply_fine,
@@ -355,7 +209,9 @@ void MPlayFadeOut(MusicPlayerInfo* mplayInfo, u16 speed) {
 void m4aSoundInit(void) {
     s32 i;
 
+#ifndef PLATFORM_NATIVE // the mixer is ordinary C natively, not code copied to IWRAM
     CpuCopy32((void*)((s32)SoundMainRAM & ~1), SoundMainRAM_Buffer, sizeof(SoundMainRAM_Buffer));
+#endif
 
     SoundInit(&gSoundInfo);
     MPlayExtender(gCgbChans);
@@ -489,7 +345,7 @@ void m4aMPlayImmInit(MusicPlayerInfo* mplayInfo) {
     while (trackCount > 0) {
         if (track->flags & MPT_FLG_EXIST) {
             if (track->flags & MPT_FLG_START) {
-                Clear64byte(track);
+                M4A_CLEAR_TRACK(track);
                 track->flags = MPT_FLG_EXIST;
                 track->bendRange = 2;
                 track->volX = 64;
@@ -579,17 +435,21 @@ void Clear64byte(void* addr) {
 void SoundInit(SoundInfo* soundInfo) {
     soundInfo->ident = 0;
 
+#ifndef PLATFORM_NATIVE // natively the mixed buffer is handed to the port, not DMAed to FIFO A
     if (REG_DMA1CNT & (DMA_REPEAT << 16))
         REG_DMA1CNT = ((DMA_ENABLE | DMA_START_NOW | DMA_32BIT | DMA_SRC_INC | DMA_DEST_FIXED) << 16) | 4;
 
     REG_DMA1CNT_H = DMA_32BIT;
+#endif
     REG_SOUNDCNT_X = SOUND_MASTER_ENABLE | SOUND_4_ON | SOUND_3_ON | SOUND_2_ON | SOUND_1_ON;
     REG_SOUNDCNT_H =
         SOUND_A_FIFO_RESET | SOUND_A_TIMER_0 | SOUND_A_LEFT_OUTPUT | SOUND_A_RIGHT_OUTPUT | SOUND_ALL_MIX_FULL;
     REG_SOUNDBIAS_H = (REG_SOUNDBIAS_H & 0x3F) | 0x40;
 
+#ifndef PLATFORM_NATIVE
     REG_DMA1SAD = (s32)soundInfo->pcmBuffer;
     REG_DMA1DAD = (s32)&REG_FIFO_A;
+#endif
 
     SOUND_INFO_PTR = soundInfo;
     CpuFill32(0, soundInfo, sizeof(SoundInfo));
@@ -698,7 +558,7 @@ void SoundClear(void) {
     while (i > 0) {
         ((SoundChannel*)chan)->statusFlags = 0;
         i--;
-        chan = (void*)((s32)chan + sizeof(SoundChannel));
+        chan = (void*)((PtrU32)chan + sizeof(SoundChannel));
     }
 
     chan = soundInfo->cgbChannels;
@@ -710,7 +570,7 @@ void SoundClear(void) {
             soundInfo->CgbOscOff(i);
             ((CgbChannel*)chan)->statusFlags = 0;
             i++;
-            chan = (void*)((s32)chan + sizeof(CgbChannel));
+            chan = (void*)((PtrU32)chan + sizeof(CgbChannel));
         }
     }
 
@@ -723,12 +583,14 @@ void m4aSoundVSyncOff(void) {
     if (soundInfo->ident >= ID_NUMBER && soundInfo->ident <= ID_NUMBER + 1) {
         soundInfo->ident += 10;
 
+#ifndef PLATFORM_NATIVE
         REG_TM0CNT_H = 0;
 
         if (REG_DMA1CNT & (DMA_REPEAT << 16))
             REG_DMA1CNT = ((DMA_ENABLE | DMA_START_NOW | DMA_32BIT | DMA_SRC_INC | DMA_DEST_FIXED) << 16) | 4;
 
         REG_DMA1CNT_H = DMA_32BIT;
+#endif
 
         CpuFill32(0, soundInfo->pcmBuffer, sizeof(soundInfo->pcmBuffer));
     }
@@ -743,16 +605,20 @@ void m4aSoundVSyncOn(void) {
     if (ident == ID_NUMBER)
         return;
 
+#ifndef PLATFORM_NATIVE
     REG_DMA1CNT_H = DMA_ENABLE | DMA_START_SPECIAL | DMA_32BIT | DMA_REPEAT;
+#endif
 
     soundInfo->pcmDmaCounter = 0;
     soundInfo->ident = ident - 10;
 
+#ifndef PLATFORM_NATIVE // natively there is no DMA timer to line up with VBlank
     while (REG_VCOUNT_8 == 0x9f) {}
     while (REG_VCOUNT_8 != 0x9f) {}
 
     REG_TM0CNT_L = -(0x44940 / soundInfo->pcmSamplesPerVBlank);
     REG_TM0CNT_H = 0x80;
+#endif
 }
 
 void m4aSoundVSync(void) {
@@ -765,11 +631,13 @@ void m4aSoundVSync(void) {
     if ((s8)soundInfo->pcmDmaCounter > 0)
         return;
     soundInfo->pcmDmaCounter = soundInfo->pcmDmaPeriod;
+#ifndef PLATFORM_NATIVE
     if (REG_DMA1CNT & (DMA_REPEAT << 16)) {
         REG_DMA1CNT = ((DMA_ENABLE | DMA_START_NOW | DMA_32BIT | DMA_SRC_INC | DMA_DEST_FIXED) << 16) | 4;
     }
     REG_DMA1CNT_H = DMA_32BIT;
     REG_DMA1CNT_H = DMA_ENABLE | DMA_START_SPECIAL | DMA_32BIT | DMA_REPEAT;
+#endif
 }
 
 void MPlayOpen(MusicPlayerInfo* mplayInfo, MusicPlayerTrack* tracks, u8 trackCount) {
@@ -788,7 +656,11 @@ void MPlayOpen(MusicPlayerInfo* mplayInfo, MusicPlayerTrack* tracks, u8 trackCou
 
     soundInfo->ident++;
 
+#ifdef PLATFORM_NATIVE
+    memset(mplayInfo, 0, sizeof(*mplayInfo));
+#else
     Clear64byte(mplayInfo);
+#endif
 
     mplayInfo->tracks = tracks;
     mplayInfo->trackCount = trackCount;
@@ -832,7 +704,7 @@ void MPlayStart(MusicPlayerInfo* mplayInfo, const SongHeader* songHeader) {
         (mplayInfo->priority <= songHeader->priority)) {
         mplayInfo->status = 0;
         mplayInfo->songHeader = songHeader;
-        mplayInfo->tone = songHeader->tone;
+        mplayInfo->tone = M4A_PTR(ToneData*, songHeader->tone);
         mplayInfo->priority = songHeader->priority;
         mplayInfo->clock = 0;
         mplayInfo->tempoD = 150;
@@ -848,7 +720,7 @@ void MPlayStart(MusicPlayerInfo* mplayInfo, const SongHeader* songHeader) {
             TrackStop(mplayInfo, track);
             track->flags = MPT_FLG_EXIST | MPT_FLG_START;
             track->chan = 0;
-            track->cmdPtr = songHeader->part[i];
+            track->cmdPtr = M4A_PTR(u8*, songHeader->part[i]);
             i++;
             track++;
         }
@@ -1156,7 +1028,7 @@ void CgbSound(void) {
                         *nrx0ptr = channels->sweep;
                         // fallthrough
                     case 2:
-                        *nrx1ptr = ((u32)channels->nextWave << 6) + channels->length;
+                        *nrx1ptr = ((PtrU32)channels->nextWave << 6) + channels->length;
                         goto init_env_step_time_dir;
                     case 3:
                         if (channels->nextWave != channels->currentWave) {
@@ -1176,7 +1048,7 @@ void CgbSound(void) {
                         break;
                     default:
                         *nrx1ptr = channels->length;
-                        *nrx3ptr = (u32)channels->nextWave << 3;
+                        *nrx3ptr = (PtrU32)channels->nextWave << 3;
                     init_env_step_time_dir:
                         envelopeStepTimeAndDir = channels->attack + CGB_NRx2_ENV_DIR_INC;
                         if (channels->length)
@@ -1300,7 +1172,9 @@ void CgbSound(void) {
         if (channels->modify & CGB_CHANNEL_MO_PIT) {
             if (ch < 4 && (channels->type & TONEDATA_TYPE_FIX)) {
                 int dac_pwm_rate = REG_SOUNDBIAS_H;
+#ifndef PLATFORM_NATIVE
                 asm("" ::: "r0");
+#endif
                 if (dac_pwm_rate < 0x40) // if PWM rate = 32768 Hz
                     channels->frequency = (channels->frequency + 2) & 0x7fc;
                 else if (dac_pwm_rate < 0x80) // if PWM rate = 65536 Hz
@@ -1629,7 +1503,7 @@ void ply_xwave(MusicPlayerInfo* mplayInfo, MusicPlayerTrack* track) {
     READ_XCMD_BYTE(wav, 2)
     READ_XCMD_BYTE(wav, 3)
 
-    track->tone.wav = (WaveData*)wav;
+    track->tone.wav = M4A_PTR(WaveData*, wav);
     track->cmdPtr += 4;
 }
 

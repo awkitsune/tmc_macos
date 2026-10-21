@@ -40,8 +40,15 @@ typedef struct SongHeader {
     u8 blockCount;
     u8 priority;
     u8 reverb;
+#ifdef PLATFORM_NATIVE
+    // Song data stays in its GBA form natively: these are GBA ROM addresses,
+    // translated with M4A_PTR (gba/m4a_internal.h).
+    u32 tone;
+    u32 part[1];
+#else
     ToneData* tone;
     u8* part[1];
+#endif
 } SongHeader;
 
 typedef struct Song {
@@ -77,10 +84,10 @@ typedef struct SoundChannel {
     u32 fw;
     u32 frequency;
     WaveData* wav;
-    u32 currentPointer;
+    PtrU32 currentPointer;
     MusicPlayerTrack* track;
-    u32 prev;
-    u32 next;
+    PtrU32 prev;
+    PtrU32 next;
     u32 unk3;
     u16 xpi;
     u16 xpc;

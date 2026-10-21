@@ -741,7 +741,7 @@ extern const SongHeader sfx21F;
 extern const SongHeader sfx220;
 extern const SongHeader sfx221;
 
-extern MusicPlayerTrack gMPlayTracks[];
+extern MusicPlayerTrack gMPlayTracks[0x52];
 
 extern MusicPlayerInfo gMPlayInfos[0x1C];
 extern u8 gMPlayMemAccArea[0x10];
