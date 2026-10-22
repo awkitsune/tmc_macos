@@ -24,7 +24,7 @@ def load_hints(types: TypeDB) -> tuple:
     names, macros = [], {}
     for n, line in enumerate(HINTS.read_text().splitlines(), 1):
         line = line.split("#", 1)[0].strip()
-        if not line:
+        if not line or line.startswith("="):
             continue
         pattern, type_name, *scope = line.split()
         key = type_name if type_name in types.records else f"struct {type_name}"
@@ -42,6 +42,28 @@ def load_hints(types: TypeDB) -> tuple:
         else:
             names.append((re.compile(pattern), ("record", key), scope[0] if scope else None))
     return names, macros
+
+
+def load_ram_aliases(types: TypeDB) -> dict:
+    """RAM symbol -> (container, native byte offset) for `=name container.field` hints."""
+    aliases = {}
+    for n, line in enumerate(HINTS.read_text().splitlines(), 1):
+        line = line.split("#", 1)[0].strip()
+        if not line.startswith("="):
+            continue
+        name, target = line[1:].split()
+        container, *path = target.split(".")
+        t, offset = types.decls.get(container), 0
+        for field in path:
+            if t is None or t[0] != "record":
+                sys.exit(f"{HINTS}:{n}: {target}: not a struct field")
+            fields = {f[0]: f for f in types.record_layout(t[1], "native")[1]}
+            if field not in fields or fields[field][2] is None:
+                sys.exit(f"{HINTS}:{n}: {target}: no field {field}")
+            _, t, field_offset, *_ = fields[field]
+            offset += field_offset
+        aliases[name] = (container, offset)
+    return aliases
 
 
 def main() -> int:
@@ -91,7 +113,7 @@ def main() -> int:
             sources.append(emitter.emit_object(obj))
         except EmitError as e:
             errors.append(f"{obj.rel}: {e}")
-    sources.append(emit_ram(gba_build / "linker.ld", addrs, types, out / "ram.s"))
+    sources.append(emit_ram(gba_build / "linker.ld", addrs, types, load_ram_aliases(types), out / "ram.s"))
     sources.append(emit_ram_map(addrs, linked_globals(root / "tmc.elf"), out / "ram_map.s"))
     sources.append(emit_sound_map(model, objects, out / "sound_map.s"))
     (out / "sources.txt").write_text("\n".join(str(s) for s in sources) + "\n")

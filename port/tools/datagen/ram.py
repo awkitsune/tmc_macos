@@ -5,6 +5,9 @@ A block is as large as the biggest native type declared for it, and at least as
 large as its GBA region (up to the next fixed symbol), since decomp code often
 indexes past a variable's declared type into the rest of its region. Symbols with
 no C declaration get twice their region, enough if it holds only pointers.
+
+Symbols that alias a field of a struct variable on GBA (hints.txt `=name
+container.field`) are defined at that field's native offset instead.
 """
 
 import re
@@ -32,8 +35,8 @@ def fixed_symbols(linker_script: Path) -> list:
     return sorted(result)
 
 
-def emit_ram(linker_script: Path, linked: dict, types: TypeDB, out: Path) -> Path:
-    symbols = fixed_symbols(linker_script)
+def emit_ram(linker_script: Path, linked: dict, types: TypeDB, aliases: dict, out: Path) -> Path:
+    symbols = [(addr, name) for addr, name in fixed_symbols(linker_script) if name not in aliases]
     # Every RAM symbol in the linked ELF bounds the regions, including C-defined ones.
     bounds = sorted({addr for addr in linked.values() if (addr >> 24) in (0x02, 0x03)})
     groups = {}
@@ -55,6 +58,8 @@ def emit_ram(linker_script: Path, linked: dict, types: TypeDB, out: Path) -> Pat
         for name in names:
             lines += [f"\t.globl _{name}", f"_{name}:"]
         lines.append(f"\t.space {size}")
+    for name, (container, offset) in sorted(aliases.items()):
+        lines += [f"\t.globl _{name}", f"_{name} = _{container} + {offset}"]
     out.write_text("\n".join(lines) + "\n")
     return out
 

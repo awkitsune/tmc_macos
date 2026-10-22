@@ -43,7 +43,16 @@ gUnk_additional_11_HyruleField_LonLonRanch    unk_DoorProperty
 # Lava platform tables whose rail pointers are all NULL have no relocations either
 gUnk_additional_8_CaveOfFlames_(Rollobite|BossDoor|AfterCane|MinishLava)    LavaPlatformEntry
 gUnk_080E4C08                                           EntityData
+# Textbox fonts declared only at block scope in subtask.c (pause menu save prompt, area names)
+gUnk_0812(8FA8|8FC0|8FD8|9004)                          Font
 
 # Songs are raw ROM bytes with absolute addresses baked in (no relocations); the
 # native sound engine translates them at runtime (phase 4).
 \w+                     raw                  data/sound/sounds
+
+# RAM symbols that are struct fields on GBA: =<symbol> <variable>.<field>
+# Message text variables 1-4 (gUnk_08109230) live in gTextRender
+=gUnk_020227E8          gTextRender._68
+=gUnk_020227F0          gTextRender._70
+=gUnk_020227F8          gTextRender._78
+=gUnk_02022800          gTextRender._80
