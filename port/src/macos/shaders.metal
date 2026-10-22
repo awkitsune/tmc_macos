@@ -34,6 +34,21 @@ struct Uniforms {
     float lcdGapBloom;      // how much bright pixels shrink their gaps (0-1)
     float lcdResponseMs;    // used by renderer.m for lcd_response, not here
     float lcdDarkSlowdown;
+    // Debugging (Shader Buffers window): which intermediate to output instead
+    // of the picture (Stage*), and where the viewport sits in the drawable when
+    // rendering into a texture of the viewport's size (for position-based patterns).
+    uint debugStage;
+    float2 positionOffset;
+};
+
+// Keep in sync with DebugBuffer in renderer.h (the stage buffers).
+enum : uint {
+    StageNone = 0,
+    StageFilterRaw = 1,  // the filter's colour before colour correction and gamma
+    StageBeams = 2,      // CRT: the summed scanline beams
+    StageMask = 3,       // LCD: grid x subpixel factor; CRT: aperture grille factor
+    StageBloom = 4,      // R spot brightness, G beam width (scanlines) or gap (texels), B scanline strength
+    StagePreGamma = 5,   // after colour correction, before gamma
 };
 
 // Keep in sync with ResponseUniforms in renderer.m.
@@ -131,9 +146,13 @@ static float3 scanlineColour(texture2d<float> frame, float x, float row, constan
 
 // A scanline's beam at distance d (in scanlines) from its centre. Its width
 // grows with the line's brightness by crtBloom, like a real electron beam.
-static float3 beam(float3 colour, float d, constant Uniforms& u) {
+static float beamWidth(float3 colour, constant Uniforms& u) {
     float fixedWidth = 0.5 * (u.crtBeamMin + u.crtBeamMax);
-    float width = mix(fixedWidth, mix(u.crtBeamMin, u.crtBeamMax, spotBrightness(colour)), u.crtBloom);
+    return mix(fixedWidth, mix(u.crtBeamMin, u.crtBeamMax, spotBrightness(colour)), u.crtBloom);
+}
+
+static float3 beam(float3 colour, float d, constant Uniforms& u) {
+    float width = beamWidth(colour, u);
     return colour * exp(-(d * d) / (2.0 * width * width));
 }
 
@@ -163,13 +182,33 @@ static float3 lcd(texture2d<float> frame, float2 uv, constant Uniforms& u) {
     return source * mask * grid * u.lcdBrightness;
 }
 
+// Debugging: lcd()'s mask (grid x subpixel) and gap, worked out the same way.
+// Kept apart so the picture's own arithmetic is exactly lcd()'s.
+static void lcdDebug(texture2d<float> frame, float2 uv, constant Uniforms& u, thread float3& mask, thread float3& bloom) {
+    float2 texel = uv * u.sourceSize;
+    float2 footprint = u.sourceSize / u.outputSize;
+    float3 source = gbaColour(frame.sample(nearestSampler, uv).rgb, u.colorCorrection);
+    float gap = u.lcdGridWidth * 0.5 * (1.0 - u.lcdGapBloom * spotBrightness(source));
+    float insideX = bandCoverage(texel.x, footprint.x, gap, 1.0 - gap);
+    float insideY = bandCoverage(texel.y, footprint.y, gap, 1.0 - gap);
+    float grid = 1.0 - u.lcdGridStrength * (1.0 - insideX * insideY);
+    float third = (1.0 - 2.0 * gap) / 3.0;
+    float3 lit = float3(bandCoverage(texel.x, footprint.x, gap, gap + third),
+                        bandCoverage(texel.x, footprint.x, gap + third, gap + 2.0 * third),
+                        bandCoverage(texel.x, footprint.x, gap + 2.0 * third, 1.0 - gap));
+    mask = (1.0 - u.lcdSubpixel * (insideX - lit)) * grid;
+    bloom = float3(spotBrightness(source), gap, 0.0);
+}
+
 fragment float4 present_fragment(VertexOut in [[stage_in]],
                                  texture2d<float> frame [[texture(0)]],
                                  constant Uniforms& u [[buffer(0)]]) {
     float2 texel = in.uv * u.sourceSize;
     float2 cell = fract(texel);
     float2 pixelsPerTexel = u.outputSize / u.sourceSize;
+    float2 position = in.position.xy + u.positionOffset;
     float3 colour;
+    float3 debugMask = float3(1.0), debugBeams = float3(0.0), debugBloom = float3(0.0);
 
     switch (u.filter) {
     case FilterSharpBilinear:
@@ -180,6 +219,9 @@ fragment float4 present_fragment(VertexOut in [[stage_in]],
         break;
     case FilterLCD:
         colour = lcd(frame, in.uv, u);
+        if (u.debugStage == StageMask || u.debugStage == StageBloom) {
+            lcdDebug(frame, in.uv, u, debugMask, debugBloom);
+        }
         break;
     case FilterCRT: {
         // Scanlines: each texel row is a horizontal beam; this pixel adds up the
@@ -195,9 +237,12 @@ fragment float4 present_fragment(VertexOut in [[stage_in]],
         float strength = saturate((pixelsPerTexel.y - 1.5) / 2.0) * u.crtScanlines;
         colour = mix(source, lines * u.crtBrightness, strength);
         // Aperture grille: R, G, B columns one output pixel wide (neutral on average).
-        float column = fmod(floor(in.position.x), 3.0);
+        float column = fmod(floor(position.x), 3.0);
         float3 grille = float3(column == 0.0, column == 1.0, column == 2.0);
         colour *= 1.0 - u.crtMask * (1.0 - grille);
+        debugBeams = lines;
+        debugMask = 1.0 - u.crtMask * (1.0 - grille);
+        debugBloom = float3(spotBrightness(source), beamWidth(source, u), strength);
         break;
     }
     case FilterNearest:
@@ -205,8 +250,58 @@ fragment float4 present_fragment(VertexOut in [[stage_in]],
         colour = frame.sample(nearestSampler, in.uv).rgb;
         break;
     }
+    switch (u.debugStage) {
+    case StageFilterRaw:
+        return float4(colour, 1.0);
+    case StageBeams:
+        return float4(debugBeams, 1.0);
+    case StageMask:
+        return float4(debugMask, 1.0);
+    case StageBloom:
+        return float4(debugBloom, 1.0);
+    default:
+        break;
+    }
     if (u.filter != FilterLCD) {
         colour = gbaColour(saturate(colour), u.colorCorrection);
     }
+    if (u.debugStage == StagePreGamma) {
+        return float4(saturate(colour), 1.0);
+    }
     return float4(pow(saturate(colour), u.gamma), 1.0);
+}
+
+// Debugging: an outline around a rectangle of the frame (a sprite picked in the
+// Sprites window), drawn over the picture. rect is in source texels.
+struct OverlayUniforms {
+    float4 rect;       // x, y, width, height in texels
+    float2 sourceSize;
+    float2 outputSize; // viewport pixels
+    float4 colour;
+};
+
+struct OverlayOut {
+    float4 position [[position]];
+    float2 local; // output pixels from the outline's top-left
+};
+
+vertex OverlayOut overlay_vertex(uint vid [[vertex_id]], constant OverlayUniforms& u [[buffer(0)]]) {
+    float2 scale = u.outputSize / u.sourceSize;
+    float pad = 2.0; // outline thickness in output pixels, drawn just outside the rect
+    float2 corner = float2(vid & 1, vid >> 1);
+    float2 size = u.rect.zw * scale + 2.0 * pad;
+    float2 pixel = u.rect.xy * scale - pad + corner * size;
+    OverlayOut out;
+    out.position = float4(pixel.x / u.outputSize.x * 2.0 - 1.0, 1.0 - pixel.y / u.outputSize.y * 2.0, 0.0, 1.0);
+    out.local = corner * size;
+    return out;
+}
+
+fragment float4 overlay_fragment(OverlayOut in [[stage_in]], constant OverlayUniforms& u [[buffer(0)]]) {
+    float2 scale = u.outputSize / u.sourceSize;
+    float2 size = u.rect.zw * scale + 4.0;
+    if (in.local.x > 2.0 && in.local.y > 2.0 && in.local.x < size.x - 2.0 && in.local.y < size.y - 2.0) {
+        discard_fragment();
+    }
+    return u.colour;
 }

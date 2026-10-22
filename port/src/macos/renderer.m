@@ -1,5 +1,8 @@
 #import "renderer.h"
 
+#include <os/lock.h>
+#include <zlib.h>
+
 #include "frontend.h"
 
 NSString* FilterModeName(FilterMode mode) {
@@ -53,7 +56,127 @@ typedef struct {
     simd_float2 outputSize;
     uint32_t filter;
     FilterParams params;
+    uint32_t debugStage; // Stage* in shaders.metal; 0 draws the picture
+    simd_float2 positionOffset;
 } Uniforms;
+
+// Keep in sync with OverlayUniforms in shaders.metal.
+typedef struct {
+    simd_float4 rect;
+    simd_float2 sourceSize;
+    simd_float2 outputSize;
+    simd_float4 colour;
+} OverlayUniforms;
+
+NSString* DebugBufferName(DebugBuffer buffer) {
+    switch (buffer) {
+        case DebugBufferFrame:
+            return @"Game frame (uploaded)";
+        case DebugBufferResponseHistory:
+            return @"LCD response: history (linear)";
+        case DebugBufferResponseOutput:
+            return @"LCD response: output";
+        case DebugBufferFilterInput:
+            return @"Filter pass: input";
+        case DebugBufferFilterRaw:
+            return @"Filter pass: output before colour/gamma";
+        case DebugBufferBeams:
+            return @"Filter pass: CRT scanline beams";
+        case DebugBufferMask:
+            return @"Filter pass: LCD grid/subpixel or CRT grille mask";
+        case DebugBufferBloom:
+            return @"Filter pass: bloom (brightness, beam width/gap, scanline strength)";
+        case DebugBufferPreGamma:
+            return @"Filter pass: colour corrected, before gamma";
+        case DebugBufferDrawable:
+            return @"Final drawable (viewport)";
+        default:
+            return @"None";
+    }
+}
+
+// The filter pass's debug stage for a stage buffer (Stage* in shaders.metal), else 0.
+static uint32_t DebugStage(DebugBuffer buffer) {
+    switch (buffer) {
+        case DebugBufferFilterRaw:
+            return 1;
+        case DebugBufferBeams:
+            return 2;
+        case DebugBufferMask:
+            return 3;
+        case DebugBufferBloom:
+            return 4;
+        case DebugBufferPreGamma:
+            return 5;
+        default:
+            return 0;
+    }
+}
+
+@implementation DebugReadback
+
+- (instancetype)initWithBuffer:(DebugBuffer)buffer
+                         width:(NSUInteger)width
+                        height:(NSUInteger)height
+                       isFloat:(BOOL)isFloat
+                         bytes:(NSData*)bytes
+                        format:(NSString*)format
+                          note:(NSString*)note
+                        serial:(uint64_t)serial {
+    if ((self = [super init])) {
+        _buffer = buffer;
+        _width = width;
+        _height = height;
+        _isFloat = isFloat;
+        _bytes = bytes;
+        _format = format;
+        _note = note;
+        _serial = serial;
+    }
+    return self;
+}
+
+- (simd_float4)pixelAtX:(NSUInteger)x y:(NSUInteger)y {
+    if (x >= _width || y >= _height) {
+        return (simd_float4){ 0, 0, 0, 0 };
+    }
+    if (_isFloat) {
+        const __fp16* p = (const __fp16*)_bytes.bytes + (y * _width + x) * 4;
+        return (simd_float4){ p[0], p[1], p[2], p[3] };
+    }
+    const uint8_t* p = (const uint8_t*)_bytes.bytes + (y * _width + x) * 4; // B, G, R, A
+    return (simd_float4){ p[2] / 255.0f, p[1] / 255.0f, p[0] / 255.0f, p[3] / 255.0f };
+}
+
+- (simd_float4)mean {
+    simd_float4 sum = 0;
+    for (NSUInteger y = 0; y < _height; y++) {
+        for (NSUInteger x = 0; x < _width; x++) {
+            sum += [self pixelAtX:x y:y];
+        }
+    }
+    return sum / (float)MAX(_width * _height, 1);
+}
+
+- (NSString*)statistics {
+    simd_float4 lo = { INFINITY, INFINITY, INFINITY, INFINITY }, hi = -lo, sum = 0;
+    for (NSUInteger y = 0; y < _height; y++) {
+        for (NSUInteger x = 0; x < _width; x++) {
+            simd_float4 v = [self pixelAtX:x y:y];
+            lo = simd_min(lo, v);
+            hi = simd_max(hi, v);
+            sum += v;
+        }
+    }
+    simd_float4 mean = sum / (float)MAX(_width * _height, 1);
+    uLong crc = crc32(0, _bytes.bytes, (uInt)_bytes.length);
+    return [NSString stringWithFormat:@"%lux%lu %@ crc32 %08lx R %.4f..%.4f mean %.4f G %.4f..%.4f mean %.4f "
+                                      @"B %.4f..%.4f mean %.4f A %.4f..%.4f",
+                                      (unsigned long)_width, (unsigned long)_height, _format, crc, lo.x, hi.x, mean.x,
+                                      lo.y, hi.y, mean.y, lo.z, hi.z, mean.z, lo.w, hi.w];
+}
+
+@end
 
 // Keep in sync with ResponseUniforms in shaders.metal.
 typedef struct {
@@ -84,6 +207,17 @@ typedef struct {
     uint64_t _sequence;
     uint32_t _pixels[PPU_WIDTH * PPU_HEIGHT];
     NSURL* _captureURL;
+    // Debugging: sprite outline, filter stage capture and the readback copy.
+    id<MTLRenderPipelineState> _overlayPipeline;
+    id<MTLRenderPipelineState> _stagePipeline;
+    id<MTLTexture> _stageTexture;
+    id<MTLTexture> _readbackTexture;
+    os_unfair_lock _readbackLock; // guards _readbackBusy, _latestReadback, _latestTaken
+    BOOL _readbackBusy;
+    DebugReadback* _latestReadback;
+    BOOL _latestTaken; // the viewer has fetched _latestReadback: time for another
+    uint64_t _readbackSerial;
+    NSUInteger _drawCount;
 }
 
 - (nullable instancetype)initWithView:(MTKView*)view {
@@ -116,6 +250,20 @@ typedef struct {
         NSLog(@"pipeline creation failed: %@", error);
         return nil;
     }
+
+    desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA16Float;
+    _stagePipeline = [_device newRenderPipelineStateWithDescriptor:desc error:&error];
+    desc.vertexFunction = [library newFunctionWithName:@"overlay_vertex"];
+    desc.fragmentFunction = [library newFunctionWithName:@"overlay_fragment"];
+    desc.colorAttachments[0].pixelFormat = view.colorPixelFormat;
+    _overlayPipeline = [_device newRenderPipelineStateWithDescriptor:desc error:&error];
+    if (_stagePipeline == nil || _overlayPipeline == nil) {
+        NSLog(@"debug pipeline creation failed: %@", error);
+        return nil;
+    }
+    _readbackLock = OS_UNFAIR_LOCK_INIT;
+    _debugBuffer = DebugBufferNone;
+    _highlightRect = CGRectZero;
 
     id<MTLFunction> response = [library newFunctionWithName:@"lcd_response"];
     _responsePipeline = response ? [_device newComputePipelineStateWithFunction:response error:&error] : nil;
@@ -290,7 +438,32 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     [encoder setFragmentTexture:texture atIndex:0];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    if (!CGRectIsEmpty(self.highlightRect)) {
+        CGRect r = self.highlightRect;
+        OverlayUniforms overlay = {
+            .rect = { r.origin.x, r.origin.y, r.size.width, r.size.height },
+            .sourceSize = uniforms.sourceSize,
+            .outputSize = uniforms.outputSize,
+            .colour = { 1.0f, 0.1f, 0.9f, 1.0f },
+        };
+        [encoder setRenderPipelineState:_overlayPipeline];
+        [encoder setVertexBytes:&overlay length:sizeof(overlay) atIndex:0];
+        [encoder setFragmentBytes:&overlay length:sizeof(overlay) atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    }
     [encoder endEncoding];
+
+    // Debugging: copy the chosen buffer back every few refreshes, one copy in
+    // flight at a time. Nothing here runs while debugBuffer is DebugBufferNone.
+    DebugBuffer debug = self.debugBuffer;
+    if (debug != DebugBufferNone && _drawCount++ % 4 == 0) {
+        [self encodeReadback:debug
+                    commands:commands
+                        view:view
+                       input:texture
+                    viewport:viewport
+                    uniforms:uniforms];
+    }
 
     dispatch_semaphore_t inFlight = _inFlight;
     id<MTLTexture> captureTexture = _captureURL ? view.currentDrawable.texture : nil;
@@ -304,6 +477,199 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     }];
     [commands presentDrawable:view.currentDrawable];
     [commands commit];
+}
+
+- (nullable DebugReadback*)latestReadback {
+    os_unfair_lock_lock(&_readbackLock);
+    DebugReadback* latest = _latestReadback;
+    _latestTaken = YES;
+    os_unfair_lock_unlock(&_readbackLock);
+    return latest;
+}
+
+- (void)setDebugBuffer:(DebugBuffer)debugBuffer {
+    _debugBuffer = debugBuffer;
+    if (debugBuffer == DebugBufferNone) {
+        // Let go of the big textures while nobody looks.
+        _stageTexture = nil;
+        os_unfair_lock_lock(&_readbackLock);
+        _latestReadback = nil;
+        if (!_readbackBusy) {
+            _readbackTexture = nil;
+        }
+        os_unfair_lock_unlock(&_readbackLock);
+    }
+}
+
+// A private texture of this size and format, kept if the one we have fits.
+- (id<MTLTexture>)texture:(id<MTLTexture>)current
+                   format:(MTLPixelFormat)format
+                    width:(NSUInteger)width
+                   height:(NSUInteger)height
+                    usage:(MTLTextureUsage)usage
+                  storage:(MTLStorageMode)storage {
+    if (current != nil && current.pixelFormat == format && current.width == width && current.height == height) {
+        return current;
+    }
+    MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+                                                                                    width:width
+                                                                                   height:height
+                                                                                mipmapped:NO];
+    desc.usage = usage;
+    desc.storageMode = storage;
+    return [_device newTextureWithDescriptor:desc];
+}
+
+- (void)encodeReadback:(DebugBuffer)debug
+              commands:(id<MTLCommandBuffer>)commands
+                  view:(MTKView*)view
+                 input:(id<MTLTexture>)input
+              viewport:(MTLViewport)viewport
+              uniforms:(Uniforms)uniforms {
+    // One copy in flight, and a new one only once the viewer took the last
+    // (so copies follow the viewer's refresh rate, not the display's).
+    os_unfair_lock_lock(&_readbackLock);
+    BOOL skip = _readbackBusy || (_latestReadback != nil && !_latestTaken);
+    if (!skip) {
+        _readbackBusy = YES;
+    }
+    os_unfair_lock_unlock(&_readbackLock);
+    if (skip) {
+        return;
+    }
+
+    id<MTLTexture> source = nil;
+    NSString* format = @"BGRA8Unorm, gamma-encoded";
+    NSString* note = @"";
+    NSUInteger x = 0, y = 0;
+    switch (debug) {
+        case DebugBufferFrame:
+            source = _textures[_slot];
+            break;
+        case DebugBufferResponseHistory:
+            source = _history[_historySlot];
+            format = @"RGBA16Float, linear light";
+            note = self.lcdResponse ? @"" : @"LCD response is off: this buffer is not updated";
+            break;
+        case DebugBufferResponseOutput:
+            source = _shown;
+            format = @"RGBA16Float, gamma-encoded";
+            note = self.lcdResponse ? @"" : @"LCD response is off: this buffer is not updated";
+            break;
+        case DebugBufferFilterInput:
+            source = input;
+            format = input.pixelFormat == MTLPixelFormatRGBA16Float ? @"RGBA16Float, gamma-encoded" : format;
+            note = input == _shown ? @"= LCD response output" : @"= game frame";
+            break;
+        case DebugBufferFilterRaw:
+        case DebugBufferBeams:
+        case DebugBufferMask:
+        case DebugBufferBloom:
+        case DebugBufferPreGamma: {
+            // The filter pass again, into a float texture, with the stage selected.
+            NSUInteger width = MAX((NSUInteger)viewport.width, 1), height = MAX((NSUInteger)viewport.height, 1);
+            _stageTexture = [self texture:_stageTexture
+                                   format:MTLPixelFormatRGBA16Float
+                                    width:width
+                                   height:height
+                                    usage:MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead
+                                  storage:MTLStorageModePrivate];
+            MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+            pass.colorAttachments[0].texture = _stageTexture;
+            pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+            pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+            uniforms.debugStage = DebugStage(debug);
+            uniforms.positionOffset = (simd_float2){ (float)viewport.originX, (float)viewport.originY };
+            id<MTLRenderCommandEncoder> encoder = [commands renderCommandEncoderWithDescriptor:pass];
+            [encoder setRenderPipelineState:_stagePipeline];
+            [encoder setViewport:(MTLViewport){ 0, 0, width, height, 0, 1 }];
+            [encoder setFragmentTexture:input atIndex:0];
+            [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+            [encoder endEncoding];
+            source = _stageTexture;
+            format = debug == DebugBufferPreGamma ? @"RGBA16Float, before gamma" : @"RGBA16Float, filter values";
+            note = [NSString stringWithFormat:@"%@ filter, viewport %lux%lu", FilterModeName(self.filter),
+                                              (unsigned long)width, (unsigned long)height];
+            break;
+        }
+        case DebugBufferDrawable: {
+            id<MTLTexture> drawable = view.currentDrawable.texture;
+            if (drawable.framebufferOnly) {
+                view.framebufferOnly = NO; // readable from the next drawable on
+                note = @"waiting for a readable drawable";
+            } else {
+                source = drawable;
+                x = (NSUInteger)viewport.originX;
+                y = (NSUInteger)viewport.originY;
+                note = [NSString stringWithFormat:@"drawable %lux%lu, viewport at %lu,%lu", (unsigned long)drawable.width,
+                                                  (unsigned long)drawable.height, (unsigned long)x, (unsigned long)y];
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    if (source == nil || (source.pixelFormat != MTLPixelFormatBGRA8Unorm && source.pixelFormat != MTLPixelFormatRGBA16Float)) {
+        os_unfair_lock_lock(&_readbackLock);
+        _readbackBusy = NO;
+        os_unfair_lock_unlock(&_readbackLock);
+        return;
+    }
+    NSUInteger width = source.width - MIN(x, source.width), height = source.height - MIN(y, source.height);
+    if (debug == DebugBufferDrawable) {
+        width = MIN(width, (NSUInteger)viewport.width);
+        height = MIN(height, (NSUInteger)viewport.height);
+    }
+    BOOL isFloat = source.pixelFormat == MTLPixelFormatRGBA16Float;
+    id<MTLTexture> readback = [self texture:_readbackTexture
+                                     format:source.pixelFormat
+                                      width:width
+                                     height:height
+                                      usage:MTLTextureUsageShaderRead
+                                    storage:MTLStorageModeShared];
+    _readbackTexture = readback;
+    id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+    [blit copyFromTexture:source
+              sourceSlice:0
+              sourceLevel:0
+             sourceOrigin:MTLOriginMake(x, y, 0)
+               sourceSize:MTLSizeMake(width, height, 1)
+                toTexture:readback
+         destinationSlice:0
+         destinationLevel:0
+        destinationOrigin:MTLOriginMake(0, 0, 0)];
+    [blit endEncoding];
+
+    uint64_t serial = ++_readbackSerial;
+    __weak Renderer* weakSelf = self;
+    [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+        Renderer* strongSelf = weakSelf;
+        if (strongSelf == nil) {
+            return;
+        }
+        NSUInteger bytesPerPixel = isFloat ? 8 : 4;
+        NSMutableData* bytes = [NSMutableData dataWithLength:width * height * bytesPerPixel];
+        [readback getBytes:bytes.mutableBytes
+               bytesPerRow:width * bytesPerPixel
+                fromRegion:MTLRegionMake2D(0, 0, width, height)
+               mipmapLevel:0];
+        DebugReadback* result = [[DebugReadback alloc] initWithBuffer:debug
+                                                                width:width
+                                                               height:height
+                                                              isFloat:isFloat
+                                                                bytes:bytes
+                                                               format:format
+                                                                 note:note
+                                                               serial:serial];
+        os_unfair_lock_lock(&strongSelf->_readbackLock);
+        strongSelf->_readbackBusy = NO;
+        if (strongSelf->_debugBuffer == debug) {
+            strongSelf->_latestReadback = result;
+            strongSelf->_latestTaken = NO;
+        }
+        os_unfair_lock_unlock(&strongSelf->_readbackLock);
+    }];
 }
 
 - (BOOL)checkLcdResponse {
