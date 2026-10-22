@@ -18,6 +18,7 @@
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
+#include "port/romdata.h"
 #include "port/sound.h"
 
 void TraceGameTask(uint64_t frame); // trace.c (kept apart: game headers clash with libc)
@@ -460,6 +461,7 @@ int main(void) {
     sFrameLimit = frames != NULL ? strtoull(frames, NULL, 10) : 0;
     setvbuf(stdout, NULL, _IOLBF, 0);
     InstallDiagnostics();
+    RomDataPrepareOrExit("tmc");
     if (getenv("TMC_INPUT") != NULL) {
         ParseInput(getenv("TMC_INPUT"));
     }

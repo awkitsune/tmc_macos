@@ -71,13 +71,31 @@ target_compile_options(tmc_game PRIVATE
 # Game data: the GBA data objects converted to native assembly by port/tools/datagen.
 # This needs the GBA build (build/<version>/data/*.o and tmc.elf) and the Python
 # environment from port/README.md.
+#
+# TMC_BAKE_DATA=ON (the default, for development) builds the ROM's data into the
+# programs. OFF leaves every ROM-derived byte out: the programs extract them from
+# the player's ROM on first launch (port/src/romdata.c), so the build can be
+# distributed.
+option(TMC_BAKE_DATA "Build the game data from the ROM into the programs (not distributable)" ON)
 set(TMC_PYTHON ${TMC_ROOT}/.venv/bin/python CACHE FILEPATH "Python with port/requirements.txt installed")
 set(TMC_DATA_DIR ${CMAKE_BINARY_DIR}/data)
+if(TMC_BAKE_DATA)
+    set(TMC_DATA_MODE bake)
+    set(TMC_DATAGEN_MODE_ARG)
+else()
+    set(TMC_DATA_MODE rom)
+    set(TMC_DATAGEN_MODE_ARG --no-bake)
+endif()
 set(TMC_DATAGEN_COMMAND
     ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/tools
     ${TMC_PYTHON} -m datagen --root ${TMC_ROOT} --gba-build ${TMC_ASSETS_BUILD_DIR} --out ${TMC_DATA_DIR}
+    ${TMC_DATAGEN_MODE_ARG}
 )
-if(NOT EXISTS ${TMC_DATA_DIR}/sources.txt)
+set(TMC_DATA_MODE_FOUND none)
+if(EXISTS ${TMC_DATA_DIR}/mode.txt)
+    file(STRINGS ${TMC_DATA_DIR}/mode.txt TMC_DATA_MODE_FOUND)
+endif()
+if(NOT EXISTS ${TMC_DATA_DIR}/sources.txt OR NOT TMC_DATA_MODE_FOUND STREQUAL TMC_DATA_MODE)
     message(STATUS "Converting GBA data (datagen)")
     execute_process(COMMAND ${TMC_DATAGEN_COMMAND} RESULT_VARIABLE datagen_result)
     if(NOT datagen_result EQUAL 0)
@@ -107,6 +125,7 @@ add_library(tmc_port STATIC
     src/mapdump.c
     src/ppu.c
     src/frame.c
+    src/romdata.c
     ${TMC_PORT_ASM_SOURCES}
     ${TMC_PORT_SOUND_SOURCES}
 )

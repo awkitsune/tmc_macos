@@ -21,6 +21,7 @@
 #include "gba/m4a_internal.h"
 #include "port/hw.h"
 #include "port/platform.h"
+#include "port/romdata.h"
 #include "port/sound.h"
 #include "../sound/sound_internal.h"
 #include "../sound/wav.h"
@@ -363,6 +364,7 @@ int main(int argc, char** argv) {
         Usage(stderr);
         return 2;
     }
+    RomDataPrepareOrExit("tmc-songs");
     if (strcmp(argv[1], "list") == 0) {
         List();
         return 0;
