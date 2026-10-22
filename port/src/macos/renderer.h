@@ -14,7 +14,7 @@ typedef NS_ENUM(NSUInteger, FilterMode) {
 
 NSString* FilterModeName(FilterMode mode);
 
-/* Shader knobs, adjustable at runtime (Display Settings). */
+/* Shader knobs, adjustable at runtime (Display Settings). Same order as Uniforms in shaders.metal. */
 typedef struct {
     float lcdGridStrength;
     float lcdGridWidth;
@@ -25,6 +25,10 @@ typedef struct {
     float crtBrightness;
     float colorCorrection; // all filters
     float gamma;           // all filters
+    float crtBloom;
+    float crtBeamMin;
+    float crtBeamMax;
+    float lcdGapBloom;
 } FilterParams;
 
 FilterParams FilterParamsDefaults(void);

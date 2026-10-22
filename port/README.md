@@ -134,8 +134,12 @@ Reset to Defaults restores these:
 | LCD gap strength | 0.35 | 0–1 | How dark the gaps between pixels are |
 | LCD gap width | 0.15 | 0–0.5 | Gap width, as a fraction of a GBA pixel |
 | LCD subpixel strength | 0.35 | 0–1 | How strongly each RGB stripe dims the other two channels |
+| LCD gap bloom | 0.00 | 0–1 | Bright pixels shrink their gaps (1 = no gap on white) |
 | LCD brightness | 1.30 | 0.5–2 | Makes up for the light the gaps and stripes take |
 | CRT scanline strength | 1.00 | 0–1 | Depth of the dark lines between scanlines |
+| CRT bloom | 0.80 | 0–1 | How much a line's height follows its brightness (0 = all lines alike) |
+| CRT beam width (dark) | 0.14 | 0.05–0.6 | Beam width on black, as a Gaussian sigma in scanlines |
+| CRT beam width (bright) | 0.34 | 0.05–0.6 | Beam width on white |
 | CRT aperture grille | 0.10 | 0–1 | RGB column mask, one screen pixel per column |
 | CRT brightness | 1.35 | 0.5–2 | Brightness of the scanline beams |
 | GBA colour correction | 0.00 | 0–1 | Blend towards the GBA screen's own colours (Pokefan531's gba-color matrix): less saturated and warmer |
@@ -143,7 +147,10 @@ Reset to Defaults restores these:
 
 The LCD and CRT masks are box-filtered over each screen pixel, so they average
 to neutral at any scale: greys stay grey in a window, at fractional scales and
-in full screen.
+in full screen. Beam and gap sizes follow one brightness value per pixel
+(halfway between luma and the brightest channel), the same for all three
+channels, so bloom adds no colour fringes. Each CRT pixel sums the beams of its
+own scanline and the two around it, so bright lines spread into dark ones.
 
 The save is `~/Library/Application Support/tmc_macos/tmc.sav`, an 8 KB EEPROM
 image (*The Minish Cap* menu → Show Save Folder). `TMC_SAVE=path` overrides it.

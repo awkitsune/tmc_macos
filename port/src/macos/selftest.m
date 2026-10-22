@@ -66,6 +66,21 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, NSString
         [window setContentSize:NSMakeSize(PPU_WIDTH * 3, PPU_HEIGHT * 3)];
     });
     patterns(@"integer");
+    // Bloom comparisons at the same scale: CRT with fixed-width beams, and the
+    // LCD grid with gaps that shrink on bright pixels.
+    void (^withParams)(FilterMode, NSString*, void (^)(FilterParams*)) =
+        ^(FilterMode mode, NSString* name, void (^change)(FilterParams*)) {
+            add(3, ^{
+                FilterParams params = FilterParamsDefaults();
+                change(&params);
+                renderer.params = params;
+                renderer.filter = mode;
+            });
+            add(3, ^{ [renderer captureNextFrameToURL:file(name)]; });
+            add(3, ^{ renderer.params = FilterParamsDefaults(); });
+        };
+    withParams(FilterModeCRT, @"pattern_4_integer_nobloom", ^(FilterParams* p) { p->crtBloom = 0; });
+    withParams(FilterModeLCD, @"pattern_3_integer_gapbloom", ^(FilterParams* p) { p->lcdGapBloom = 1; });
     add(5, ^{
         renderer.integerScaling = NO;
         [window setContentSize:NSMakeSize(PPU_WIDTH * 4.37, PPU_HEIGHT * 4.37)];

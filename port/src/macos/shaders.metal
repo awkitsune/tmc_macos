@@ -28,6 +28,10 @@ struct Uniforms {
     float crtBrightness;
     float colorCorrection;  // 0 = raw GBA colours, 1 = GBA LCD colour response
     float gamma;            // output = colour ^ gamma
+    float crtBloom;         // 0 = every beam the same width, 1 = width follows brightness fully
+    float crtBeamMin;       // beam width (Gaussian sigma, in scanlines) on black
+    float crtBeamMax;       // beam width on white
+    float lcdGapBloom;      // how much bright pixels shrink their gaps (0-1)
 };
 
 struct VertexOut {
@@ -82,13 +86,35 @@ static float3 gbaColour(float3 c, float amount) {
     return mix(c, corrected, amount);
 }
 
+// Brightness that drives beam and gap size: halfway between luma and the
+// brightest channel, so saturated blues and reds still count as bright. One
+// value for all three channels, so widths never differ per colour (no fringes).
+static float spotBrightness(float3 c) {
+    return 0.5 * (dot(c, float3(0.2126, 0.7152, 0.0722)) + max(c.r, max(c.g, c.b)));
+}
+
+// Colour of one scanline (texel row) at this x, sampled at the row centre so
+// rows never blend vertically; the beams do that.
+static float3 scanlineColour(texture2d<float> frame, float x, float row, constant Uniforms& u) {
+    return sharpBilinear(frame, float2(x, (row + 0.5) / u.sourceSize.y), u);
+}
+
+// A scanline's beam at distance d (in scanlines) from its centre. Its width
+// grows with the line's brightness by crtBloom, like a real electron beam.
+static float3 beam(float3 colour, float d, constant Uniforms& u) {
+    float fixedWidth = 0.5 * (u.crtBeamMin + u.crtBeamMax);
+    float width = mix(fixedWidth, mix(u.crtBeamMin, u.crtBeamMax, spotBrightness(colour)), u.crtBloom);
+    return colour * exp(-(d * d) / (2.0 * width * width));
+}
+
 static float3 lcd(texture2d<float> frame, float2 uv, constant Uniforms& u) {
     float2 texel = uv * u.sourceSize;
     float2 footprint = u.sourceSize / u.outputSize; // texels per output pixel
     float3 source = gbaColour(frame.sample(nearestSampler, uv).rgb, u.colorCorrection);
 
-    // Gaps of lcdGridWidth centred on the pixel edges, dimmed by lcdGridStrength.
-    float gap = u.lcdGridWidth * 0.5;
+    // Gaps of lcdGridWidth centred on the pixel edges, dimmed by lcdGridStrength;
+    // with lcdGapBloom, bright pixels shrink their gaps.
+    float gap = u.lcdGridWidth * 0.5 * (1.0 - u.lcdGapBloom * spotBrightness(source));
     float insideX = bandCoverage(texel.x, footprint.x, gap, 1.0 - gap);
     float insideY = bandCoverage(texel.y, footprint.y, gap, 1.0 - gap);
     float grid = 1.0 - u.lcdGridStrength * (1.0 - insideX * insideY);
@@ -126,17 +152,18 @@ fragment float4 present_fragment(VertexOut in [[stage_in]],
         colour = lcd(frame, in.uv, u);
         break;
     case FilterCRT: {
-        // Scanlines: each texel row is a beam whose width grows with brightness.
-        float3 source = sharpBilinear(frame, in.uv, u);
-        float3 above = sharpBilinear(frame, in.uv - float2(0.0, 1.0 / u.sourceSize.y), u);
-        float3 below = sharpBilinear(frame, in.uv + float2(0.0, 1.0 / u.sourceSize.y), u);
+        // Scanlines: each texel row is a horizontal beam; this pixel adds up the
+        // beams of its own row and the rows above and below, each with its own
+        // width, so bright lines spread into their darker neighbours.
+        float row = floor(texel.y);
         float d = cell.y - 0.5;
-        float3 width = mix(float3(0.22), float3(0.36), source);
-        float3 beam = exp(-(d * d) / (2.0 * width * width));
-        float3 bleed = (d < 0.0 ? above : below) * exp(-((1.0 - abs(d)) * (1.0 - abs(d))) / 0.12) * 0.25;
+        float3 source = scanlineColour(frame, in.uv.x, row, u);
+        float3 lines = beam(source, d, u) +
+                       beam(scanlineColour(frame, in.uv.x, max(row - 1.0, 0.0), u), d + 1.0, u) +
+                       beam(scanlineColour(frame, in.uv.x, min(row + 1.0, u.sourceSize.y - 1.0), u), d - 1.0, u);
         // Scanlines fade out where there are too few output rows per texel row.
         float strength = saturate((pixelsPerTexel.y - 1.5) / 2.0) * u.crtScanlines;
-        colour = mix(source, (source * beam + bleed) * u.crtBrightness, strength);
+        colour = mix(source, lines * u.crtBrightness, strength);
         // Aperture grille: R, G, B columns one output pixel wide (neutral on average).
         float column = fmod(floor(in.position.x), 3.0);
         float3 grille = float3(column == 0.0, column == 1.0, column == 2.0);

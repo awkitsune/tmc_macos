@@ -30,6 +30,10 @@ FilterParams FilterParamsDefaults(void) {
         .crtBrightness = 1.35f,
         .colorCorrection = 0.0f,
         .gamma = 1.0f,
+        .crtBloom = 0.8f,
+        .crtBeamMin = 0.14f,
+        .crtBeamMax = 0.34f,
+        .lcdGapBloom = 0.0f,
     };
 }
 
