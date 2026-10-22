@@ -17,6 +17,7 @@
 #include "gba/m4a.h"
 #include "gba/m4a_internal.h"
 #include "port/sound.h"
+#include "port/state.h"
 
 extern void* gMPlayJumpTable[36];
 extern void* const gMPlayJumpTableTemplate[];
@@ -52,7 +53,7 @@ CHECK_SAME_OFFSET(next);
 #define CHAN_PREV(chan) ((SoundChannel*)(chan)->prev)
 #define CHAN_NEXT(chan) ((SoundChannel*)(chan)->next)
 
-M4aGotoHook gM4aGotoHook;
+M4aGotoHook gM4aGotoHook STATE_EXCLUDE; // a tool's hook, not game state
 
 u32 umul3232H32(u32 multiplier, u32 multiplicand) {
     return (u32)(((u64)multiplier * multiplicand) >> 32);

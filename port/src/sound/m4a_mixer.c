@@ -24,6 +24,7 @@
 #include "gba/m4a.h"
 #include "gba/m4a_internal.h"
 #include "port/sound.h"
+#include "port/state.h"
 #include "sound_internal.h"
 
 #define MAX_FRAME 4096
@@ -34,12 +35,13 @@
 #define DS_SCALE 4.0f
 #define DAC_HALF 512.0f
 
-static SoundSink sSink;
-static void* sSinkContext;
+// Output settings, not game state: loading a save state keeps them.
+static SoundSink sSink STATE_EXCLUDE;
+static void* sSinkContext STATE_EXCLUDE;
 // Set from the app's main thread, applied by the game thread at the next frame.
-static _Atomic SoundQuality sQuality = SOUND_QUALITY_AUTHENTIC;
+static _Atomic SoundQuality sQuality STATE_EXCLUDE = SOUND_QUALITY_AUTHENTIC;
 static SoundQuality sAppliedQuality = SOUND_QUALITY_AUTHENTIC;
-static _Atomic int sHqRate = 48000;
+static _Atomic int sHqRate STATE_EXCLUDE = 48000;
 
 static float sMono[MAX_FRAME];
 static float sStereo[2 * MAX_FRAME];

@@ -10,6 +10,7 @@
 
 #include "port/hw.h"
 #include "port/platform.h"
+#include "port/state.h"
 
 typedef int16_t s16;
 typedef int32_t s32;
@@ -296,6 +297,18 @@ void SoundBiasSet(void) {
 
 void VBlankIntrWait(void) {
     PlatformVBlank();
+}
+
+static bool sAtLoopBoundary STATE_EXCLUDE;
+
+void PlatformLoopVBlank(void) {
+    sAtLoopBoundary = true;
+    PlatformVBlank();
+    sAtLoopBoundary = false;
+}
+
+bool PlatformAtLoopBoundary(void) {
+    return sAtLoopBoundary;
 }
 
 void SoftReset(u32 flags) {

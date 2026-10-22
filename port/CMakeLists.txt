@@ -53,6 +53,8 @@ target_compile_definitions(tmc_game PRIVATE
     REVISION=0
 )
 target_compile_options(tmc_game PRIVATE
+    # Writable globals into the save state segment (port/include/port/state.h).
+    -include ${CMAKE_CURRENT_SOURCE_DIR}/include/port/state_segment.h
     # Decomp idioms that are fine on GBA but noisy here; revisit as code gets ported.
     -Wno-missing-braces
     -Wno-deprecated-non-prototype
@@ -127,9 +129,25 @@ add_library(tmc_port STATIC
     src/ppu.c
     src/frame.c
     src/romdata.c
+    src/state.c
     ${TMC_PORT_ASM_SOURCES}
     ${TMC_PORT_SOUND_SOURCES}
 )
+# The port's game state (emulated hardware, EEPROM, sound engine) goes into the
+# save state segment with the game's; renderers, tools and caches stay out.
+set(TMC_PORT_STATE_SOURCES
+    src/hw.c
+    src/bios.c
+    src/interrupts.c
+    src/data_glue.c
+    src/eeprom.c
+    src/sound/m4a_engine.c
+    src/sound/m4a_mixer.c
+    src/sound/psg.c
+    ${TMC_PORT_ASM_SOURCES}
+)
+set_source_files_properties(${TMC_PORT_STATE_SOURCES} TARGET_DIRECTORY tmc_port PROPERTIES
+    COMPILE_OPTIONS "-include;${CMAKE_CURRENT_SOURCE_DIR}/include/port/state_segment.h")
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tmc_port PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR} ${TMC_DATA_DIR})
 target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)

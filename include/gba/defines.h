@@ -7,8 +7,9 @@
 #define FALSE 0
 
 #if defined(__APPLE__)
-#define IWRAM_DATA __attribute__((section("__DATA,iwram_data")))
-#define EWRAM_DATA __attribute__((section("__DATA,ewram_data")))
+// In the save state segment (port/include/port/state.h).
+#define IWRAM_DATA __attribute__((section("__TMCSTATE,iwram_data")))
+#define EWRAM_DATA __attribute__((section("__TMCSTATE,ewram_data")))
 #else
 #define IWRAM_DATA __attribute__((section("iwram_data")))
 #define EWRAM_DATA __attribute__((section("ewram_data")))

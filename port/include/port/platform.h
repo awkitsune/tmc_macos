@@ -1,6 +1,7 @@
 #ifndef PORT_PLATFORM_H
 #define PORT_PLATFORM_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /*
@@ -9,6 +10,15 @@
  * then VBLANK), and later presents the frame, reads input and paces to 59.73 Hz.
  */
 void PlatformVBlank(void);
+
+/*
+ * The main loop's VBlankIntrWait (WaitForNextFrame, src/interrupts.c). The game
+ * also waits in pause loops; only here is nothing but globals live, so this is
+ * where save states are taken and restored. PlatformAtLoopBoundary() is true
+ * inside the PlatformVBlank this calls.
+ */
+void PlatformLoopVBlank(void);
+bool PlatformAtLoopBoundary(void);
 
 /* BIOS SoftReset: restart the game from AgbMain, keeping EWRAM-like state. */
 _Noreturn void PlatformSoftReset(void);

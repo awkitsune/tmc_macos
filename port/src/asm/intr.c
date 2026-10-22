@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "global.h"
+#include "port/state.h"
 #include "affine.h"
 #include "asm.h"
 #include "color.h"
@@ -441,7 +442,8 @@ static const struct {
 
 // DeleteThisEntity jumps back here so the loop continues with the next entity,
 // the way ClearAndUpdateEntities restores the saved stack pointer.
-static jmp_buf sUpdateResume;
+// Only live within a frame; they hold stack addresses, so not part of save states.
+static jmp_buf sUpdateResume STATE_EXCLUDE;
 static bool32 sUpdating;
 
 void ram_UpdateEntities(u32 mode) {
@@ -557,7 +559,7 @@ typedef struct {
     const u8* objs; // sl: frame object list
 } DrawState;
 
-static jmp_buf sOamFull;
+static jmp_buf sOamFull STATE_EXCLUDE;
 
 static void EmitFrameObjs(DrawState* st) {
     const u8* dims;

@@ -206,7 +206,12 @@ void LoadResources(void) {
 
 void WaitForNextFrame(void) {
     gMain.interruptFlag = 0;
+#ifdef PLATFORM_NATIVE
+    extern void PlatformLoopVBlank(void); // where save states are taken (port/include/port/platform.h)
+    PlatformLoopVBlank();
+#else
     VBlankIntrWait();
+#endif
     do {
         // Our VBlankIntr will set this flag
     } while (gMain.interruptFlag == 0);
