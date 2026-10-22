@@ -270,9 +270,15 @@ void BgAffineSet(struct BgAffineSrcData* src, struct BgAffineDstData* dest, s32 
     }
 }
 
+// The BIOS reads 8-byte source entries (scale x, scale y, angle, 2 unused bytes);
+// struct ObjAffineSrcData has only the 6 used ones. The game passes its 8-byte
+// gOAMControls.unk entries, so stepping by the struct read every group after
+// the first from the wrong place (all zero: solid squares for affine sprites).
+#define OBJ_AFFINE_SRC_STRIDE 8
+
 void ObjAffineSet(struct ObjAffineSrcData* src, void* dest, s32 count, s32 offset) {
     u8* d = dest;
-    for (; count > 0; count--, src++) {
+    for (; count > 0; count--, src = (struct ObjAffineSrcData*)((u8*)src + OBJ_AFFINE_SRC_STRIDE)) {
         u8 angle = src->rotation >> 8;
         s32 sin = BiosSin(angle), cos = BiosCos(angle);
         s16 params[4] = {
