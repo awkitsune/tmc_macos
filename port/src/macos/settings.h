@@ -14,7 +14,7 @@ extern NSString* const kGamepadLayoutDefault;
 FilterParams LoadFilterParams(void);
 
 /*
- * Display Settings window: filter, integer scaling, every shader knob as a
+ * Settings window: filter, integer scaling, every shader knob as a
  * slider, and the gamepad button layout. Changes apply to the running game
  * immediately and are saved.
  */

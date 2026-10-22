@@ -199,6 +199,8 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
                        action:@selector(orderFrontStandardAboutPanel:)
                 keyEquivalent:@""];
     [appMenu addItem:NSMenuItem.separatorItem];
+    [appMenu addItemWithTitle:@"Settings…" action:@selector(showSettings:) keyEquivalent:@","];
+    [appMenu addItem:NSMenuItem.separatorItem];
     [appMenu addItemWithTitle:@"Show Save Folder" action:@selector(showSaveFolder:) keyEquivalent:@""];
     if (RomSetup.needsRom) {
         [appMenu addItemWithTitle:@"Change ROM…" action:@selector(changeRom:) keyEquivalent:@""];
@@ -231,7 +233,6 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     }
     [view addItem:NSMenuItem.separatorItem];
     [view addItemWithTitle:@"Integer Scaling" action:@selector(toggleIntegerScaling:) keyEquivalent:@"i"];
-    [view addItemWithTitle:@"Display Settings…" action:@selector(showDisplaySettings:) keyEquivalent:@","];
     [view addItem:NSMenuItem.separatorItem];
     NSMenuItem* fullScreen = [view addItemWithTitle:@"Toggle Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
     fullScreen.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
@@ -269,7 +270,7 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
            item.action == @selector(orderFrontStandardAboutPanel:);
 }
 
-- (void)showDisplaySettings:(id)sender {
+- (void)showSettings:(id)sender {
     if (_settings == nil) {
         _settings = [[SettingsWindowController alloc] initWithRenderer:_renderer input:_input];
     }

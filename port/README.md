@@ -176,7 +176,7 @@ point instead of the GBA's 15.7 kHz 8-bit mix; both are remembered.
 
 Keys are matched by position, so other keyboard layouts use the same physical
 keys. Any extended gamepad (Xbox, PlayStation, Switch Pro, MFi) works and can be
-connected or disconnected while the game runs. Display Settings → Gamepad A/B
+connected or disconnected while the game runs. Settings → Gamepad A/B
 switches Xbox and PlayStation pads to the GBA's positions instead (right and top
 buttons = A, bottom and left = B); Nintendo pads already have A on the right, so
 they are the same either way.
@@ -186,7 +186,7 @@ smooth bilinear, LCD grid, CRT scanlines), ⌘I toggles integer scaling, ⌃⌘F
 toggles full screen (Escape leaves it), ⌘P pauses, ⌘R resets (the game's own
 A+B+Select+Start reset). The filter and scaling choice are remembered.
 
-View → Display Settings… (⌘,) adjusts the filters live; values are saved and
+The Minish Cap → Settings… (⌘,) adjusts the filters live; values are saved and
 Reset to Defaults restores these:
 
 | Knob | Default | Range | Effect |
@@ -358,7 +358,7 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/macos/app.m` | Window, menus, full screen, save location |
 | `port/src/macos/renderer.m`, `shaders.metal` | Metal presentation and filters (shaders compiled at launch) |
 | `port/src/macos/input.m` | Keyboard and GameController input |
-| `port/src/macos/settings.m` | Display Settings window and the saved filter knobs |
+| `port/src/macos/settings.m` | Settings window and the saved filter knobs |
 | `port/src/macos/selftest.m` | `TMC_SELFTEST` scripted run with PNG captures |
 | `port/src/macos/romsetup.m` | First launch: ROM open panel, progress window, errors, Change ROM… |
 | `port/src/romdata.c` | ROM checks, extraction to `gamedata.bin`, filling the game data from it |

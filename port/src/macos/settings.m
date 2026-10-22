@@ -63,7 +63,7 @@ FilterParams LoadFilterParams(void) {
                                                           NSWindowStyleMaskUtilityWindow
                                                   backing:NSBackingStoreBuffered
                                                     defer:YES];
-    panel.title = @"Display Settings";
+    panel.title = @"Settings";
     panel.hidesOnDeactivate = NO;
     panel.becomesKeyOnlyIfNeeded = YES; // keep the game window taking the keyboard
     if ((self = [super initWithWindow:panel]) != nil) {
