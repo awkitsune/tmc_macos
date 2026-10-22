@@ -43,6 +43,11 @@ gUnk_additional_11_HyruleField_LonLonRanch    unk_DoorProperty
 # Lava platform tables whose rail pointers are all NULL have no relocations either
 gUnk_additional_8_CaveOfFlames_(Rollobite|BossDoor|AfterCane|MinishLava)    LavaPlatformEntry
 gUnk_080E4C08                                           EntityData
+# Entity lists stored as raw .incbin blobs with no pointers, so nothing shows
+# their type: scripts load these with LoadRoomEntityList, and Minish Woods'
+# room property 0x10 holds the Octoroks that attack Ezlo.
+gUnk_080D9048|gUnk_080E3830|gUnk_080F51D0|gUnk_080F7FC0    EntityData
+gUnk_additional_10_MinishWoods_Main                         EntityData
 # Textbox fonts declared only at block scope in subtask.c (pause menu save prompt, area names)
 gUnk_0812(8FA8|8FC0|8FD8|9004)                          Font
 
