@@ -195,6 +195,12 @@ target_include_directories(tmc_songs PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BU
 target_compile_definitions(tmc_songs PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
 target_link_libraries(tmc_songs PRIVATE tmc_port z)
 
+# Scanline renderer checks (per-line HBlank DMA effects), no game code needed:
+#   cmake --build build/native --target scanline_test && build/native/scanline_test
+add_executable(scanline_test EXCLUDE_FROM_ALL src/tools/scanline_test.c src/frame.c src/hw.c src/ppu.c)
+target_include_directories(scanline_test PRIVATE include)
+target_link_libraries(scanline_test PRIVATE z)
+
 
 add_custom_target(link-report
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target tmc > ${CMAKE_BINARY_DIR}/link.log 2>&1 || true
