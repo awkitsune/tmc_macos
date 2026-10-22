@@ -54,6 +54,27 @@ static void CheckGamepadMapping(Input* input) {
     NSLog(@"selftest: gamepad mapping %s", failures ? "FAILED" : "ok");
 }
 
+void SelfTestSnapshotWindow(NSWindow* window, NSString* name) {
+    NSString* dir = NSProcessInfo.processInfo.environment[@"TMC_SELFTEST"];
+    if (dir.length == 0) {
+        return;
+    }
+    [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSView* content = window.contentView;
+    NSBitmapImageRep* rep = [content bitmapImageRepForCachingDisplayInRect:content.bounds];
+    NSGraphicsContext* context = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+    [NSGraphicsContext saveGraphicsState];
+    NSGraphicsContext.currentContext = context;
+    [window.effectiveAppearance performAsCurrentDrawingAppearance:^{
+        [NSColor.windowBackgroundColor setFill];
+        NSRectFill(content.bounds);
+    }];
+    [NSGraphicsContext restoreGraphicsState];
+    [content displayRectIgnoringOpacity:content.bounds inContext:context];
+    NSURL* url = [[NSURL fileURLWithPath:dir] URLByAppendingPathComponent:[name stringByAppendingPathExtension:@"png"]];
+    [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToURL:url atomically:YES];
+}
+
 void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* input, NSString* dir) {
     CheckGamepadMapping(input);
     NSURL* out = [NSURL fileURLWithPath:dir isDirectory:YES];
@@ -144,20 +165,7 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
         settings = [[SettingsWindowController alloc] initWithRenderer:renderer input:input];
         [settings showWindow:nil];
     });
-    add(10, ^{
-        NSView* content = settings.window.contentView;
-        NSBitmapImageRep* rep = [content bitmapImageRepForCachingDisplayInRect:content.bounds];
-        NSGraphicsContext* context = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
-        [NSGraphicsContext saveGraphicsState];
-        NSGraphicsContext.currentContext = context;
-        [settings.window.effectiveAppearance performAsCurrentDrawingAppearance:^{
-            [NSColor.windowBackgroundColor setFill];
-            NSRectFill(content.bounds);
-        }];
-        [NSGraphicsContext restoreGraphicsState];
-        [content displayRectIgnoringOpacity:content.bounds inContext:context];
-        [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToURL:file(@"settings") atomically:YES];
-    });
+    add(10, ^{ SelfTestSnapshotWindow(settings.window, @"settings"); });
     add(5, ^{ [NSApp terminate:nil]; });
 
     __block NSUInteger next = 0;

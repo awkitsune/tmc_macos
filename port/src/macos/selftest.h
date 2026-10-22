@@ -10,3 +10,6 @@
  * person at the keyboard or screen-recording permission.
  */
 void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* input, NSString* dir);
+
+// With TMC_SELFTEST set, draw a window's content offscreen to dir/name.png.
+void SelfTestSnapshotWindow(NSWindow* window, NSString* name);

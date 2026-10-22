@@ -8,6 +8,7 @@
 
 #import "input.h"
 #import "renderer.h"
+#import "romsetup.h"
 #import "selftest.h"
 #import "settings.h"
 
@@ -60,6 +61,7 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     Renderer* _renderer;
     SettingsWindowController* _settings;
     Input* _input;
+    RomSetup* _romSetup;
 }
 
 #pragma mark Launch
@@ -88,6 +90,15 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 
     [self buildMenus];
 
+    // Builds without the game data built in get it from the player's ROM first.
+    _romSetup = [RomSetup new];
+    [_romSetup prepareThen:^{
+        [self launchGame];
+    }];
+}
+
+- (void)launchGame {
+    NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
     const CGFloat scale = 3;
     NSRect frame = NSMakeRect(0, 0, PPU_WIDTH * scale, PPU_HEIGHT * scale);
     _window = [[NSWindow alloc] initWithContentRect:frame
@@ -189,6 +200,10 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
                 keyEquivalent:@""];
     [appMenu addItem:NSMenuItem.separatorItem];
     [appMenu addItemWithTitle:@"Show Save Folder" action:@selector(showSaveFolder:) keyEquivalent:@""];
+    if (RomSetup.needsRom) {
+        [appMenu addItemWithTitle:@"Change ROM…" action:@selector(changeRom:) keyEquivalent:@""];
+        [appMenu addItemWithTitle:@"Re-extract Game Data" action:@selector(reextractGameData:) keyEquivalent:@""];
+    }
     [appMenu addItem:NSMenuItem.separatorItem];
     [appMenu addItemWithTitle:[@"Hide " stringByAppendingString:appName] action:@selector(hide:) keyEquivalent:@"h"];
     [appMenu addItemWithTitle:[@"Quit " stringByAppendingString:appName] action:@selector(terminate:) keyEquivalent:@"q"];
@@ -247,8 +262,11 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
         item.state = AudioIsHighQuality() ? NSControlStateValueOn : NSControlStateValueOff;
     } else if (item.action == @selector(togglePause:)) {
         item.title = FrontendIsPaused() ? @"Resume" : @"Pause";
+    } else if (item.action == @selector(changeRom:) || item.action == @selector(reextractGameData:)) {
+        return _window != nil && [_romSetup validateMenuItem:item];
     }
-    return YES;
+    return _window != nil || item.action == @selector(terminate:) || item.action == @selector(hide:) ||
+           item.action == @selector(orderFrontStandardAboutPanel:);
 }
 
 - (void)showDisplaySettings:(id)sender {
@@ -289,6 +307,14 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 
 - (void)resetGame:(id)sender {
     FrontendRequestReset();
+}
+
+- (void)changeRom:(id)sender {
+    [_romSetup changeRomForWindow:_window];
+}
+
+- (void)reextractGameData:(id)sender {
+    [_romSetup reextractForWindow:_window];
 }
 
 - (void)showSaveFolder:(id)sender {
