@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 
+#import "input.h"
 #import "renderer.h"
 
 /*
@@ -8,4 +9,4 @@
  * presented as PNGs in dir, then quit. For checking the front end without a
  * person at the keyboard or screen-recording permission.
  */
-void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, NSString* dir);
+void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* input, NSString* dir);

@@ -21,7 +21,41 @@ static void PostKey(NSWindow* window, unsigned short keyCode, BOOL down) {
     [window sendEvent:event];
 }
 
-void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, NSString* dir) {
+// Press each face button on a virtual pad and check the GBA key it gives, for
+// both layouts and for Nintendo (label-reported) and other pads.
+static void CheckGamepadMapping(Input* input) {
+    GCController* controller = [GCController controllerWithExtendedGamepad];
+    GCExtendedGamepad* pad = controller.extendedGamepad;
+    GCControllerButtonInput* buttons[4] = { pad.buttonA, pad.buttonB, pad.buttonX, pad.buttonY };
+    const char* names[4] = { "A", "B", "X", "Y" };
+    // Expected GBA key per button: [nintendo][layout][button] (1 = A, 2 = B).
+    static const uint16_t expected[2][2][4] = {
+        { { 1, 2, 1, 2 }, { 2, 1, 2, 1 } }, // other pads: by label, by position
+        { { 1, 2, 1, 2 }, { 1, 2, 1, 2 } }, // Nintendo pads: the same either way
+    };
+    GamepadLayout saved = input.gamepadLayout;
+    int failures = 0;
+    for (int nintendo = 0; nintendo < 2; nintendo++) {
+        for (int layout = 0; layout < 2; layout++) {
+            input.gamepadLayout = layout;
+            for (int b = 0; b < 4; b++) {
+                [buttons[b] setValue:1];
+                uint16_t keys = [input keysForController:controller nintendo:nintendo];
+                [buttons[b] setValue:0];
+                if (keys != expected[nintendo][layout][b]) {
+                    NSLog(@"selftest: FAIL %s pad, layout %d, button %s gave keys %#x", nintendo ? "Nintendo" : "other",
+                          layout, names[b], keys);
+                    failures++;
+                }
+            }
+        }
+    }
+    input.gamepadLayout = saved;
+    NSLog(@"selftest: gamepad mapping %s", failures ? "FAILED" : "ok");
+}
+
+void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* input, NSString* dir) {
+    CheckGamepadMapping(input);
     NSURL* out = [NSURL fileURLWithPath:dir isDirectory:YES];
     [NSFileManager.defaultManager createDirectoryAtURL:out withIntermediateDirectories:YES attributes:nil error:nil];
     NSURL* (^file)(NSString*) = ^(NSString* name) {
@@ -107,7 +141,7 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, NSString
     // The settings window, drawn offscreen.
     __block SettingsWindowController* settings = nil;
     add(90, ^{
-        settings = [[SettingsWindowController alloc] initWithRenderer:renderer];
+        settings = [[SettingsWindowController alloc] initWithRenderer:renderer input:input];
         [settings showWindow:nil];
     });
     add(10, ^{

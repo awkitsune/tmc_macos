@@ -111,6 +111,9 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
         return;
     }
     _input = [Input new];
+    _input.gamepadLayout = [defaults integerForKey:kGamepadLayoutDefault] == GamepadLayoutByPosition
+                               ? GamepadLayoutByPosition
+                               : GamepadLayoutByLabel;
     _view = [[GameView alloc] initWithFrame:frame device:device];
     _view.input = _input;
     _view.colorPixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -143,7 +146,7 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 
     NSString* selfTest = NSProcessInfo.processInfo.environment[@"TMC_SELFTEST"];
     if (selfTest.length != 0) {
-        SelfTestStart(_window, _view, _renderer, selfTest);
+        SelfTestStart(_window, _view, _renderer, _input, selfTest);
     }
 }
 
@@ -250,7 +253,7 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 
 - (void)showDisplaySettings:(id)sender {
     if (_settings == nil) {
-        _settings = [[SettingsWindowController alloc] initWithRenderer:_renderer];
+        _settings = [[SettingsWindowController alloc] initWithRenderer:_renderer input:_input];
     }
     [_settings refresh];
     [_settings showWindow:sender];

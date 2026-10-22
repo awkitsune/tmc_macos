@@ -4,6 +4,7 @@
 
 NSString* const kFilterDefault = @"Filter";
 NSString* const kIntegerScalingDefault = @"IntegerScaling";
+NSString* const kGamepadLayoutDefault = @"GamepadLayout";
 
 typedef struct {
     NSString* section; // starts a new section when set
@@ -48,13 +49,15 @@ FilterParams LoadFilterParams(void) {
 
 @implementation SettingsWindowController {
     Renderer* _renderer;
+    Input* _input;
     NSPopUpButton* _filterPopup;
+    NSPopUpButton* _gamepadPopup;
     NSButton* _integerScaling;
     NSSlider* _sliders[KNOB_COUNT];
     NSTextField* _values[KNOB_COUNT];
 }
 
-- (instancetype)initWithRenderer:(Renderer*)renderer {
+- (instancetype)initWithRenderer:(Renderer*)renderer input:(Input*)input {
     NSPanel* panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 420, 400)
                                                 styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                                           NSWindowStyleMaskUtilityWindow
@@ -65,6 +68,7 @@ FilterParams LoadFilterParams(void) {
     panel.becomesKeyOnlyIfNeeded = YES; // keep the game window taking the keyboard
     if ((self = [super initWithWindow:panel]) != nil) {
         _renderer = renderer;
+        _input = input;
         [self buildContent];
         [self refresh];
         [panel center];
@@ -114,6 +118,18 @@ static NSTextField* Label(NSString* text, BOOL bold) {
         [rows addObject:@[ Label(kKnobs[i].title, NO), slider, value ]];
     }
 
+    [headerRows addIndex:rows.count];
+    [rows addObject:@[ Label(@"Controls", YES) ]];
+    _gamepadPopup = [NSPopUpButton new];
+    [_gamepadPopup addItemsWithTitles:@[ @"By label (A is A)", @"By position (right is A)" ]];
+    _gamepadPopup.target = self;
+    _gamepadPopup.action = @selector(gamepadLayoutChanged:);
+    [rows addObject:@[ Label(@"Gamepad A/B", NO), _gamepadPopup, NSGridCell.emptyContentView ]];
+    NSTextField* note = Label(@"Nintendo pads use their labels either way; this\nchanges Xbox and PlayStation pads.", NO);
+    note.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    note.textColor = NSColor.secondaryLabelColor;
+    [rows addObject:@[ NSGridCell.emptyContentView, note, NSGridCell.emptyContentView ]];
+
     NSGridView* grid = [NSGridView gridViewWithViews:rows];
     grid.rowSpacing = 8;
     grid.columnSpacing = 10;
@@ -152,6 +168,7 @@ static NSTextField* Label(NSString* text, BOOL bold) {
     FilterParams params = _renderer.params;
     [_filterPopup selectItemAtIndex:(NSInteger)_renderer.filter];
     _integerScaling.state = _renderer.integerScaling ? NSControlStateValueOn : NSControlStateValueOff;
+    [_gamepadPopup selectItemAtIndex:_input.gamepadLayout];
     for (size_t i = 0; i < KNOB_COUNT; i++) {
         float value = *KnobValue(&params, &kKnobs[i]);
         _sliders[i].floatValue = value;
@@ -167,6 +184,11 @@ static NSTextField* Label(NSString* text, BOOL bold) {
 - (void)integerScalingChanged:(NSButton*)sender {
     _renderer.integerScaling = sender.state == NSControlStateValueOn;
     [NSUserDefaults.standardUserDefaults setBool:_renderer.integerScaling forKey:kIntegerScalingDefault];
+}
+
+- (void)gamepadLayoutChanged:(NSPopUpButton*)sender {
+    _input.gamepadLayout = (GamepadLayout)sender.indexOfSelectedItem;
+    [NSUserDefaults.standardUserDefaults setInteger:sender.indexOfSelectedItem forKey:kGamepadLayoutDefault];
 }
 
 - (void)sliderChanged:(NSSlider*)sender {

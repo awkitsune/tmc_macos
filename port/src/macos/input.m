@@ -50,7 +50,8 @@ static const unsigned short kFastForwardKey = kVK_Tab;
 - (void)controllersDidChange:(NSNotification*)note {
     GCController* controller = note.object;
     BOOL connected = [note.name isEqualToString:GCControllerDidConnectNotification];
-    NSLog(@"controller %@: %@", connected ? @"connected" : @"disconnected", controller.vendorName);
+    NSLog(@"controller %@: %@ (%@)", connected ? @"connected" : @"disconnected", controller.vendorName,
+          controller.productCategory);
     if (self.controllersChanged) {
         self.controllersChanged();
     }
@@ -90,16 +91,34 @@ static const unsigned short kFastForwardKey = kVK_Tab;
     _fastForwardKey = NO;
 }
 
-static uint16_t GamepadKeys(GCExtendedGamepad* pad) {
+// GameController reports Nintendo pads by printed label (buttonA is the button
+// labelled A, on the right), others by Xbox position (buttonA at the bottom).
+// productCategory has no Nintendo constants; seen: "Switch Pro Controller".
+static BOOL IsNintendoPad(GCController* controller) {
+    NSString* category = controller.productCategory;
+    for (NSString* name in @[ @"Switch", @"Joy-Con", @"Nintendo" ]) {
+        if ([category rangeOfString:name options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static uint16_t GamepadKeys(GCController* controller, BOOL nintendo, GamepadLayout layout) {
+    GCExtendedGamepad* pad = controller.extendedGamepad;
     uint16_t keys = 0;
     const float threshold = 0.5f;
     float x = pad.leftThumbstick.xAxis.value, y = pad.leftThumbstick.yAxis.value;
 
-    // Face buttons by position, Nintendo-style: right = A, bottom = B.
-    if (pad.buttonB.pressed) keys |= HW_KEY_A;
-    if (pad.buttonA.pressed) keys |= HW_KEY_B;
-    if (pad.buttonY.pressed) keys |= HW_KEY_A; // top
-    if (pad.buttonX.pressed) keys |= HW_KEY_B; // left
+    // Nintendo labels and Nintendo positions agree, so both layouts treat a
+    // Nintendo pad alike: A (right) and X (top) are GBA A, B and Y are GBA B.
+    // On other pads, by label means A/X are GBA A and B/Y GBA B; by position
+    // means the Nintendo spots: right (B) and top (Y) are GBA A.
+    BOOL byLabel = nintendo || layout == GamepadLayoutByLabel;
+    GCControllerButtonInput* forA[2] = { byLabel ? pad.buttonA : pad.buttonB, byLabel ? pad.buttonX : pad.buttonY };
+    GCControllerButtonInput* forB[2] = { byLabel ? pad.buttonB : pad.buttonA, byLabel ? pad.buttonY : pad.buttonX };
+    if (forA[0].pressed || forA[1].pressed) keys |= HW_KEY_A;
+    if (forB[0].pressed || forB[1].pressed) keys |= HW_KEY_B;
     if (pad.leftShoulder.pressed || pad.leftTrigger.pressed) keys |= HW_KEY_L;
     if (pad.rightShoulder.pressed || pad.rightTrigger.pressed) keys |= HW_KEY_R;
     if (pad.buttonMenu.pressed) keys |= HW_KEY_START;
@@ -114,12 +133,15 @@ static uint16_t GamepadKeys(GCExtendedGamepad* pad) {
     return keys;
 }
 
+- (uint16_t)keysForController:(GCController*)controller nintendo:(BOOL)nintendo {
+    return GamepadKeys(controller, nintendo, self.gamepadLayout);
+}
+
 - (uint16_t)pollKeys {
     uint16_t keys = _keyboardKeys;
     for (GCController* controller in GCController.controllers) {
-        GCExtendedGamepad* pad = controller.extendedGamepad;
-        if (pad != nil) {
-            keys |= GamepadKeys(pad);
+        if (controller.extendedGamepad != nil) {
+            keys |= GamepadKeys(controller, IsNintendoPad(controller), self.gamepadLayout);
         }
     }
     return keys;

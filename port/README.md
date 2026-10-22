@@ -110,8 +110,8 @@ point instead of the GBA's 15.7 kHz 8-bit mix; both are remembered.
 | Keyboard | GBA | Gamepad |
 |---|---|---|
 | Arrow keys | D-pad | D-pad or left stick |
-| X | A | Right face button (B on Xbox, ○ on PlayStation), or top |
-| Z | B | Bottom face button (A on Xbox, ✕ on PlayStation), or left |
+| X | A | Button labelled A (Xbox A, PlayStation ✕, Nintendo A), or X |
+| Z | B | Button labelled B (Xbox B, PlayStation ○, Nintendo B), or Y |
 | A / S | L / R | Shoulders or triggers |
 | Return | Start | Menu |
 | Backspace or `\` | Select | Options |
@@ -119,7 +119,10 @@ point instead of the GBA's 15.7 kHz 8-bit mix; both are remembered.
 
 Keys are matched by position, so other keyboard layouts use the same physical
 keys. Any extended gamepad (Xbox, PlayStation, Switch Pro, MFi) works and can be
-connected or disconnected while the game runs.
+connected or disconnected while the game runs. Display Settings → Gamepad A/B
+switches Xbox and PlayStation pads to the GBA's positions instead (right and top
+buttons = A, bottom and left = B); Nintendo pads already have A on the right, so
+they are the same either way.
 
 Menu shortcuts: ⌘1–⌘5 pick the filter (nearest neighbour, sharp bilinear,
 smooth bilinear, LCD grid, CRT scanlines), ⌘I toggles integer scaling, ⌃⌘F
