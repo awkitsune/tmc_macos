@@ -98,16 +98,38 @@ set(TMC_DATA_MODE_FOUND none)
 if(EXISTS ${TMC_DATA_DIR}/mode.txt)
     file(STRINGS ${TMC_DATA_DIR}/mode.txt TMC_DATA_MODE_FOUND)
 endif()
-if(NOT EXISTS ${TMC_DATA_DIR}/sources.txt OR NOT TMC_DATA_MODE_FOUND STREQUAL TMC_DATA_MODE)
-    message(STATUS "Converting GBA data (datagen)")
+# datagen's inputs: its own code and hints, and the GBA link (tmc.elf changes
+# with any game data or code). When one is newer than the last run, the build
+# reconfigures and datagen runs again, so the data never goes stale.
+file(GLOB TMC_DATAGEN_INPUTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/datagen/*.py ${CMAKE_CURRENT_SOURCE_DIR}/tools/datagen/hints.txt)
+list(APPEND TMC_DATAGEN_INPUTS ${TMC_ROOT}/tmc.elf ${TMC_ROOT}/linker.ld)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${TMC_DATAGEN_INPUTS})
+set(TMC_DATAGEN_STAMP ${TMC_DATA_DIR}/datagen.stamp)
+set(TMC_DATAGEN_REASON)
+if(NOT EXISTS ${TMC_DATA_DIR}/sources.txt OR NOT EXISTS ${TMC_DATAGEN_STAMP})
+    set(TMC_DATAGEN_REASON "no converted data yet")
+elseif(NOT TMC_DATA_MODE_FOUND STREQUAL TMC_DATA_MODE)
+    set(TMC_DATAGEN_REASON "data mode changed")
+else()
+    foreach(input ${TMC_DATAGEN_INPUTS})
+        if(EXISTS ${input} AND ${input} IS_NEWER_THAN ${TMC_DATAGEN_STAMP})
+            set(TMC_DATAGEN_REASON "${input} changed")
+            break()
+        endif()
+    endforeach()
+endif()
+if(TMC_DATAGEN_REASON)
+    message(STATUS "Converting GBA data (datagen): ${TMC_DATAGEN_REASON}")
     execute_process(COMMAND ${TMC_DATAGEN_COMMAND} RESULT_VARIABLE datagen_result)
     if(NOT datagen_result EQUAL 0)
         message(FATAL_ERROR "datagen failed; see the output above")
     endif()
+    file(TOUCH ${TMC_DATAGEN_STAMP})
 endif()
 file(STRINGS ${TMC_DATA_DIR}/sources.txt TMC_DATA_SOURCES)
 add_custom_target(datagen
     COMMAND ${TMC_DATAGEN_COMMAND}
+    COMMAND ${CMAKE_COMMAND} -E touch ${TMC_DATAGEN_STAMP}
     COMMAND ${CMAKE_COMMAND} ${CMAKE_BINARY_DIR}
     USES_TERMINAL
     COMMENT "Regenerating native game data"

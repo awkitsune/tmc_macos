@@ -75,8 +75,10 @@ PATH="$PWD/.venv/bin:$PATH" make -j$(sysctl -n hw.ncpu)
 ```
 
 Configure and build the native game. The first configure converts the game data
-(about a minute); `cmake --build build/native --target datagen` reruns it after
-data or hint changes:
+(about a minute). Builds convert it again by themselves when datagen's code,
+`hints.txt`, `tmc.elf` or `linker.ld` is newer than the last conversion (so
+rebuild the GBA game first after changing game data); `cmake --build build/native
+--target datagen` forces a rerun:
 
 ```bash
 cmake -S port -B build/native
