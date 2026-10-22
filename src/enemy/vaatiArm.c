@@ -20,7 +20,11 @@
 
 typedef struct {
     /*0x00*/ Entity base;
+#ifdef PLATFORM_NATIVE
+    /*0x68*/ u32 unk_68Slot; // the Enemy child pointer, which natively is at the end of the slot
+#else
     /*0x68*/ Entity* unk_68;
+#endif
     /*0x6c*/ u8 unused1[12];
     /*0x78*/ u8 unk_78;
     /*0x79*/ u8 unk_79;
@@ -29,7 +33,16 @@ typedef struct {
     /*0x7d*/ u8 unk_7d;
     /*0x7e*/ u8 unk_7e;
     /*0x7f*/ u8 unk_7f;
+#ifdef PLATFORM_NATIVE
+    u8 nativePad[offsetof(Enemy, child) - offsetof(Enemy, field_0x80)];
+    Entity* unk_68; // Enemy.child
+#endif
 } VaatiArmEntity;
+#ifdef PLATFORM_NATIVE
+static_assert(offsetof(VaatiArmEntity, unused1[1]) == offsetof(Enemy, enemyFlags));
+static_assert(offsetof(VaatiArmEntity, unk_78) == offsetof(Enemy, field_0x78));
+static_assert(offsetof(VaatiArmEntity, unk_68) == offsetof(Enemy, child));
+#endif
 
 typedef struct VaatiArm_HeapStruct1 {
     union SplitHWord unk00;
