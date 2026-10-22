@@ -13,6 +13,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <zlib.h>
 
 #include "port/headless_state.h"
 #include "port/hw.h"
@@ -321,6 +322,20 @@ static void MaybeDumpMap(void) {
     DumpRoomMap(path);
 }
 static uint64_t sTracePlayer;
+static FILE* sHashFile; // TMC_FRAME_HASH
+
+// TMC_FRAME_HASH=path writes "frame crc32" for every frame's picture, to compare
+// renderer changes numerically between runs.
+static void MaybeHashFrame(void) {
+    static uint16_t sFrame[PPU_WIDTH * PPU_HEIGHT];
+
+    if (sHashFile == NULL) {
+        return;
+    }
+    PpuRenderFrame(sFrame);
+    fprintf(sHashFile, "%llu %08lx\n", (unsigned long long)gPlatformFrame,
+            crc32(0, (const Bytef*)sFrame, sizeof(sFrame)));
+}
 
 // TMC_SCREENSHOT="frame,frame,..." or "every:n" saves PNGs to TMC_SCREENSHOT_DIR
 // (default: screenshots).
@@ -401,6 +416,7 @@ void PlatformVBlank(void) {
     }
     // The picture shown during this frame: registers as the last VBlank left them.
     MaybeScreenshot();
+    MaybeHashFrame();
 
     HwFrameInterrupts();
 
@@ -480,6 +496,10 @@ int main(void) {
             sShotDir = getenv("TMC_SCREENSHOT_DIR");
         }
         mkdir(sShotDir, 0755);
+    }
+    if (getenv("TMC_FRAME_HASH") != NULL && (sHashFile = fopen(getenv("TMC_FRAME_HASH"), "w")) == NULL) {
+        fprintf(stderr, "TMC_FRAME_HASH: cannot write %s\n", getenv("TMC_FRAME_HASH"));
+        exit(1);
     }
     SoundWavFromEnv();
 
