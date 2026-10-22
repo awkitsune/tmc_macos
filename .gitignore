@@ -96,3 +96,6 @@ ctx.c
 
 # headless screenshots (port/README.md)
 /screenshots/
+
+# save states (port/scripts/checkpoints.sh, the app keeps its own)
+/port/states/

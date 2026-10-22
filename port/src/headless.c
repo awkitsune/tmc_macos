@@ -72,8 +72,10 @@ static jmp_buf sResetPoint;
 //
 //   save:NAME         save a state as TMC_STATE_DIR/NAME.tmcs at the next frame
 //                     boundary (only when TMC_STATE_DIR is set; the step takes
-//                     the same frames either way, so runs stay alike). A script
-//                     that starts from it (TMC_LOAD_STATE) carries on from there.
+//                     the same frames either way, so runs stay alike).
+//
+// TMC_INPUT_FROM=NAME starts the script after its save:NAME step, to carry on
+// from that state (TMC_LOAD_STATE=.../NAME.tmcs) exactly as the full run did.
 typedef enum { STEP_KEYS, STEP_WAIT, STEP_MASH, STEP_GOX, STEP_GOY, STEP_SAVE } StepKind;
 typedef enum { COND_CONTROL, COND_ROOM, COND_IN, COND_MSG, COND_NOMSG } StepCond;
 typedef struct {
@@ -680,6 +682,17 @@ int main(int argc, char** argv) {
     RomDataPrepareOrExit("tmc");
     if (getenv("TMC_INPUT") != NULL) {
         ParseInput(getenv("TMC_INPUT"));
+    }
+    if (getenv("TMC_INPUT_FROM") != NULL) {
+        const char* from = getenv("TMC_INPUT_FROM");
+        while (sStep < sStepCount && !(sSteps[sStep].kind == STEP_SAVE && strcmp(sSteps[sStep].text, from) == 0)) {
+            sStep++;
+        }
+        if (sStep == sStepCount) {
+            fprintf(stderr, "TMC_INPUT_FROM: the script has no save:%s step\n", from);
+            exit(1);
+        }
+        sStep++;
     }
     sTraceTask = getenv("TMC_TRACE_TASK") != NULL;
     sTraceEntities = getenv("TMC_TRACE_ENTITIES") != NULL;
