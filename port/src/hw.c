@@ -136,6 +136,14 @@ int HwDmaVBlank(void) {
     return RunTimed(CNT_START_VBLANK);
 }
 
+void HwDmaInfo(int channel, const void** src, void** dest, uint32_t* control) {
+    const HwDmaChannel* ch = &sDmaChannels[channel];
+
+    *src = ch->src;
+    *dest = ch->dest;
+    *control = (ch->control >> 16) & CNT_ENABLE ? ch->control : 0;
+}
+
 void HwDmaStop(int channel) {
     sDmaChannels[channel].control &= ~((uint32_t)(CNT_ENABLE | CNT_START_MASK | CNT_REPEAT) << 16);
 }
@@ -161,6 +169,36 @@ extern const struct mach_header_64 _mh_execute_header;
 
 uint32_t HwRomAddress(uintptr_t pointer) {
     return 0x08000000u + (uint32_t)(pointer - (uintptr_t)&_mh_execute_header);
+}
+
+uint32_t HwGbaAddress(const void* pointer) {
+    const uint8_t* p = pointer;
+    static const struct {
+        uint32_t base;
+        uint32_t size;
+        const uint8_t* native;
+    } sRegions[] = {
+        { 0x04000000, HW_IO_SIZE, gHwIo },
+        { 0x05000000, HW_PLTT_SIZE, gHwPltt },
+        { 0x06000000, HW_VRAM_SIZE, gHwVram },
+        { 0x07000000, HW_OAM_SIZE, gHwOam },
+    };
+
+    if (p == NULL) {
+        return 0;
+    }
+    for (size_t i = 0; i < sizeof(sRegions) / sizeof(sRegions[0]); i++) {
+        if (p >= sRegions[i].native && p < sRegions[i].native + sRegions[i].size) {
+            return sRegions[i].base + (uint32_t)(p - sRegions[i].native);
+        }
+    }
+    for (uint32_t i = 0; i < gHwRamMapCount; i++) {
+        const HwRamMapEntry* e = &gHwRamMap[i];
+        if (e->native != NULL && p >= e->native && p < e->native + e->size) {
+            return e->address + (uint32_t)(p - e->native);
+        }
+    }
+    return 0;
 }
 
 void* HwGbaPtr(uint32_t address) {

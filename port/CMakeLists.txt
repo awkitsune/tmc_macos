@@ -128,6 +128,7 @@ add_library(tmc_port STATIC
     src/mapdump.c
     src/ppu.c
     src/frame.c
+    src/gfxdebug.c
     src/romdata.c
     src/state.c
     ${TMC_PORT_ASM_SOURCES}

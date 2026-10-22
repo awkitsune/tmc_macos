@@ -41,6 +41,12 @@ void HwDmaStop(int channel);
 int HwDmaHBlank(void);
 int HwDmaVBlank(void);
 
+/* A timed channel's latched transfer (for debug viewers); control is 0 if idle. */
+void HwDmaInfo(int channel, const void** src, void** dest, uint32_t* control);
+
+/* The GBA address of a host pointer into a hardware buffer or RAM variable; 0 if none. */
+uint32_t HwGbaAddress(const void* pointer);
+
 /*
  * Host pointer for a fixed GBA address: hardware regions map to the buffers above,
  * EWRAM/IWRAM to the variable placed there (by symbol, from the GBA link).
@@ -79,5 +85,13 @@ void HwSystemCall(int number);
  */
 void HwSetKeys(uint16_t held);
 void HwRunFrame(uint16_t* framebuffer);
+
+/*
+ * Debugging (port/gfxdebug.h): while not NULL, HwRunFrame copies the display
+ * registers (DISPCNT .. BLDY, HW_LINE_REGS bytes) into gHwLineCapture[line]
+ * just before drawing each visible line.
+ */
+#define HW_LINE_REGS 0x56
+extern uint8_t (*gHwLineCapture)[HW_LINE_REGS];
 
 #endif // PORT_HW_H

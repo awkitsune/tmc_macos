@@ -255,6 +255,17 @@ static uint16_t Brightness(uint16_t c, int evy, int up) {
     return ch[0] | (ch[1] << 5) | (ch[2] << 10);
 }
 
+// Debug layer mask (PpuSetLayerMask); written by a viewer on another thread.
+static volatile unsigned sLayerMask = PPU_LAYERS_ALL;
+
+void PpuSetLayerMask(unsigned mask) {
+    sLayerMask = mask & PPU_LAYERS_ALL;
+}
+
+unsigned PpuLayerMask(void) {
+    return sLayerMask;
+}
+
 void PpuBeginFrame(void) {
     for (int i = 0; i < 2; i++) {
         sRefX[i] = Reg28(0x28 + i * 0x10);
@@ -287,6 +298,7 @@ static void RenderLine(int line, uint16_t* out) {
     static BgLine bgs[4];
     static ObjLine objs;
     int bgEnabled[4] = { 0 };
+    unsigned layerMask = sLayerMask;
 
     if (eva > 16) {
         eva = 16;
@@ -306,7 +318,7 @@ static void RenderLine(int line, uint16_t* out) {
     }
     for (int bg = 0; bg < 4; bg++) {
         int enabled = (dispcnt >> (8 + bg)) & 1;
-        if (!enabled || (mode == 1 && bg == 3) || (mode == 2 && bg < 2) || mode > 2) {
+        if (!enabled || !(layerMask & (1 << bg)) || (mode == 1 && bg == 3) || (mode == 2 && bg < 2) || mode > 2) {
             continue;
         }
         bgEnabled[bg] = 1;
@@ -318,6 +330,9 @@ static void RenderLine(int line, uint16_t* out) {
     }
     if (dispcnt & 0x1000) {
         RenderObjs(line, (dispcnt >> 6) & 1, &objs);
+        if (!(layerMask & 0x10)) {
+            memset(&objs, 0xFF, sizeof(objs.color)); // hidden; the OBJ window stays
+        }
     } else {
         memset(&objs, 0xFF, sizeof(objs.color));
         memset(objs.window, 0, sizeof(objs.window));

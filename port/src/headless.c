@@ -16,6 +16,17 @@
  *   TMC_FRAMES=+n            stop n frames after the start (or the loaded state)
  *   TMC_RECORD_INPUT=path    write the keys each frame held as a TMC_INPUT
  *                            script (absolute frames), to replay a run exactly
+ *
+ * Graphics dumps (port/gfxdebug.h), each a frame list (F,F,... or every:K), of
+ * the hardware as that frame was drawn:
+ *   TMC_DUMP_OAM             decoded sprite table (TMC_DUMP_OAM_ALL=1: hidden too)
+ *   TMC_DUMP_BG              layer settings and map summaries
+ *   TMC_DUMP_PAL             the 512 palette colours
+ *   TMC_DUMP_REGS            decoded display registers and the per-line changes
+ *   TMC_DUMP_FILE=path       write them there instead of stdout
+ *   TMC_DUMP_PNG=dir         with TMC_DUMP_BG, also each layer's whole map and all
+ *                            VRAM tiles (greyscale) as PNGs
+ *   TMC_LAYER_MASK=hex       draw only these layers (bits 0-3 BG0-3, 4 OBJ; 1f = all)
  * States are taken at the main loop's frame boundary: a frame that falls in one
  * of the game's pause loops saves at the next boundary instead.
  */
@@ -31,6 +42,7 @@
 #include <unistd.h>
 #include <zlib.h>
 
+#include "port/gfxdebug.h"
 #include "port/headless_state.h"
 #include "port/hw.h"
 #include "port/platform.h"
@@ -467,6 +479,64 @@ static int InFrameList(const FrameList* list, uint64_t frame) {
     return 0;
 }
 
+// TMC_DUMP_*: graphics dumps.
+static FrameList sDumpOam, sDumpBg, sDumpPal, sDumpRegs;
+static int sDumping, sDumpOamAll;
+static FILE* sDumpOut;
+static const char* sDumpPngDir;
+
+static int DumpThisFrame(void) {
+    return sDumping && (InFrameList(&sDumpOam, gPlatformFrame) || InFrameList(&sDumpBg, gPlatformFrame) ||
+                        InFrameList(&sDumpPal, gPlatformFrame) || InFrameList(&sDumpRegs, gPlatformFrame));
+}
+
+static void DumpPng(const uint32_t* rgb, int width, int height, const char* name) {
+    static uint16_t sPixels[1024 * 1024];
+    char path[1024];
+
+    for (int i = 0; i < width * height; i++) {
+        uint32_t c = rgb[i];
+        sPixels[i] = ((c >> 19) & 0x1F) | (((c >> 11) & 0x1F) << 5) | (((c >> 3) & 0x1F) << 10);
+    }
+    snprintf(path, sizeof(path), "%s/frame_%06llu_%s.png", sDumpPngDir, (unsigned long long)gPlatformFrame, name);
+    if (PpuWritePngSize(sPixels, width, height, path) != 0) {
+        fprintf(stderr, "TMC_DUMP_PNG: cannot write %s\n", path);
+    }
+}
+
+static void WriteDumps(const GfxSnapshot* snap) {
+    uint64_t f = gPlatformFrame;
+
+    if (InFrameList(&sDumpRegs, f)) {
+        GfxDumpIo(snap, sDumpOut);
+        GfxDumpLines(snap, sDumpOut);
+    }
+    if (InFrameList(&sDumpBg, f)) {
+        GfxDumpBg(snap, sDumpOut);
+        if (sDumpPngDir != NULL) {
+            static uint32_t sImage[1024 * 1024];
+            char name[16];
+            for (int bg = 0; bg < 4; bg++) {
+                GfxBg info;
+                GfxDecodeBg(snap, bg, &info);
+                if (GfxRenderBg(snap, bg, sImage, 0)) {
+                    snprintf(name, sizeof(name), "bg%d", bg);
+                    DumpPng(sImage, info.width, info.height, name);
+                }
+            }
+            GfxRenderTiles(snap, 0, HW_VRAM_SIZE / 32, 0, -1, sImage);
+            DumpPng(sImage, 256, HW_VRAM_SIZE / 32 / 32 * 8, "vram");
+        }
+    }
+    if (InFrameList(&sDumpOam, f)) {
+        GfxDumpOam(snap, sDumpOut, sDumpOamAll);
+    }
+    if (InFrameList(&sDumpPal, f)) {
+        GfxDumpPal(snap, sDumpOut);
+    }
+    fflush(sDumpOut);
+}
+
 static const char* sLoadState; // TMC_LOAD_STATE, until loaded
 static FrameList sSaveFrames;  // TMC_SAVE_STATES
 static uint64_t sSaveDue = UINT64_MAX; // a listed frame that fell in a pause loop
@@ -609,7 +679,17 @@ void PlatformVBlank(void) {
         if (shot) {
             DumpIo();
         }
+        static GfxSnapshot sSnap;
+        int dump = DumpThisFrame();
+
+        if (dump) {
+            GfxSnapshotBegin(&sSnap, gPlatformFrame);
+        }
         HwRunFrame(shot || sHashFile != NULL ? sFrame : NULL);
+        if (dump) {
+            GfxSnapshotEnd(&sSnap);
+            WriteDumps(&sSnap);
+        }
         if (shot) {
             Screenshot(sFrame);
         }
@@ -733,6 +813,35 @@ int main(int argc, char** argv) {
     if (getenv("TMC_HASH") != NULL) {
         ParseFrameList(getenv("TMC_HASH"), &sHashFrames);
         sHashing = 1;
+    }
+    {
+        static const struct {
+            const char* name;
+            FrameList* list;
+        } dumps[] = {
+            { "TMC_DUMP_OAM", &sDumpOam },
+            { "TMC_DUMP_BG", &sDumpBg },
+            { "TMC_DUMP_PAL", &sDumpPal },
+            { "TMC_DUMP_REGS", &sDumpRegs },
+        };
+        for (size_t i = 0; i < sizeof(dumps) / sizeof(dumps[0]); i++) {
+            if (getenv(dumps[i].name) != NULL) {
+                ParseFrameList(getenv(dumps[i].name), dumps[i].list);
+                sDumping = 1;
+            }
+        }
+        sDumpOamAll = getenv("TMC_DUMP_OAM_ALL") != NULL;
+        if (getenv("TMC_LAYER_MASK") != NULL) {
+            PpuSetLayerMask((unsigned)strtoul(getenv("TMC_LAYER_MASK"), NULL, 16));
+        }
+        sDumpOut = stdout;
+        if (getenv("TMC_DUMP_FILE") != NULL && (sDumpOut = fopen(getenv("TMC_DUMP_FILE"), "w")) == NULL) {
+            fprintf(stderr, "TMC_DUMP_FILE: cannot write %s\n", getenv("TMC_DUMP_FILE"));
+            exit(1);
+        }
+        if ((sDumpPngDir = getenv("TMC_DUMP_PNG")) != NULL) {
+            mkdir(sDumpPngDir, 0755);
+        }
     }
 
     HwSetKeys(0);

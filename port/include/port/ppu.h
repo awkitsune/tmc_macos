@@ -25,6 +25,15 @@ void PpuBeginFrame(void);
 void PpuRenderLine(int line, uint16_t* out);
 void PpuIoWritten(uint32_t offset, uint32_t size);
 
+/*
+ * Debugging: which layers are drawn (bits 0-3 BG0-BG3, bit 4 OBJ; default all,
+ * 0x1F). A hidden layer is left out as if transparent; the OBJ window still
+ * applies. Changes nothing while all bits are set.
+ */
+#define PPU_LAYERS_ALL 0x1F
+void PpuSetLayerMask(unsigned mask);
+unsigned PpuLayerMask(void);
+
 /* Write a framebuffer as an RGB PNG. Returns 0 on success. */
 int PpuWritePng(const uint16_t* framebuffer, const char* path);
 int PpuWritePngSize(const uint16_t* framebuffer, int width, int height, const char* path);

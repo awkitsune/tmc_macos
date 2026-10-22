@@ -40,7 +40,7 @@
 #define INTR_VCOUNT 0x0004
 
 #define LINES_PER_FRAME 228
-#define DISPLAY_REGS 0x56 // DISPCNT .. BLDY, the registers a line is drawn from
+#define DISPLAY_REGS HW_LINE_REGS // DISPCNT .. BLDY, the registers a line is drawn from
 
 // DISPSTAT and VCOUNT change every line by design; the log and stats skip them.
 static int IsStatusReg(int offset) {
@@ -48,6 +48,8 @@ static int IsStatusReg(int offset) {
 }
 
 void HwRaiseInterrupt(uint16_t flag);
+
+uint8_t (*gHwLineCapture)[HW_LINE_REGS];
 
 void HwSetKeys(uint16_t held) {
     REG_KEYINPUT = 0x03FF & ~held; // active low
@@ -198,6 +200,9 @@ void HwRunFrame(uint16_t* framebuffer) {
         }
         if (watch.log || watch.stats) {
             WatchLine(&watch, line);
+        }
+        if (gHwLineCapture != NULL) {
+            memcpy(gHwLineCapture[line], gHwIo, HW_LINE_REGS);
         }
         PpuRenderLine(line, draw != NULL ? &draw[line * PPU_WIDTH] : NULL);
 
