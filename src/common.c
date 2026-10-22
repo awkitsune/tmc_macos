@@ -111,6 +111,19 @@ u32 EncodeBCD(u32 value) {
         return 0x99999999;
     }
 
+#ifdef PLATFORM_NATIVE
+    // On GBA Div leaves the remainder in r1, which the code below reads; natively
+    // r1 is just an uninitialized variable.
+    {
+        u32 divisor = 10000000;
+        result = 0;
+        for (u32 shift = 28; shift > 0; shift -= 4, divisor /= 10) {
+            result += (value / divisor) << shift;
+            value %= divisor;
+        }
+        return result + value;
+    }
+#endif
     result = Div(value, 10000000) * 0x10000000;
     result += Div(r1, 1000000) * 0x1000000;
     result += Div(r1, 100000) * 0x100000;
