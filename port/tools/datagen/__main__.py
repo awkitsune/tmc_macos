@@ -70,27 +70,6 @@ def load_ram_aliases(types: TypeDB) -> dict:
     return aliases
 
 
-C_TABLE_SECTIONS = re.compile(r"\s*(\.rodata\S*|\.text)\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)\s+(\S+)\.o$")
-
-
-def c_tables(map_path: Path) -> list:
-    """(ROM offset, length) of the tables port and game C files hold, from the GBA link map.
-
-    That is the read-only data of src/*.c, and the asm/src objects, whose inline
-    tables port/src/asm transcribes into C.
-    """
-    tables = []
-    for line in map_path.read_text().splitlines():
-        m = C_TABLE_SECTIONS.match(line)
-        if m is None:
-            continue
-        section, addr, size, obj = m.group(1), int(m.group(2), 16), int(m.group(3), 16), m.group(4)
-        wanted = obj.startswith("src/") if section != ".text" else obj.startswith("asm/src/")
-        if wanted and addr >> 24 == 0x08 and size:
-            tables.append((addr - 0x08000000, size))
-    return tables
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", type=Path, default=Path("."))
@@ -147,8 +126,7 @@ def main() -> int:
     sources.append(emit_sound_map(model, objects, out / "sound_map.s"))
     if not errors:
         try:
-            sources.append(emitter.write_manifest(out / "rom_manifest.s", out / "rom_manifest.txt",
-                                                  c_tables(gba_build / "tmc.map")))
+            sources.append(emitter.write_manifest(out / "rom_manifest.s", out / "rom_manifest.txt"))
         except EmitError as e:
             errors.append(f"rom_manifest: {e}")
     (out / "mode.txt").write_text(("bake" if args.bake else "rom") + "\n")

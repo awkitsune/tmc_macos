@@ -7,12 +7,6 @@
  * sorted and numbered into the cache: the cache's data is the bytes of every
  * extent back to back. Extracting copies extents out of the ROM; loading copies
  * each run out of the cache.
- *
- * Tables the decomp writes in C are compiled into the program instead. In a
- * ROM build the link makes them writable (__DATA,__tmcconst) and
- * port/tools/scrub_rom_data.py zeroes their ROM bytes afterwards, listing each
- * stretch in gRomScrubTable; their ROM ranges are extents too, so loading puts
- * them back the same way.
  */
 
 #include "port/romdata.h"
@@ -49,22 +43,6 @@ extern const uint32_t gRomExtentCount;
 extern const RomExtent gRomExtents[];
 extern const RomRun sRunsStart __asm("section$start$__DATA$__tmcruns");
 extern const RomRun sRunsEnd __asm("section$end$__DATA$__tmcruns");
-
-typedef struct {
-    uint32_t section; // 0 __DATA,__tmcconst, 1 __DATA,__data
-    uint32_t offset;  // within the section
-    uint32_t rom;
-    uint32_t length;
-} RomScrub;
-
-extern const struct {
-    uint32_t count, capacity;
-    RomScrub entries[];
-} gRomScrubTable; // rom_scrub.s, filled in after linking
-extern uint8_t sConstStart __asm("section$start$__DATA$__tmcconst");
-extern uint8_t sConstEnd __asm("section$end$__DATA$__tmcconst");
-extern uint8_t sDataStart __asm("section$start$__DATA$__data");
-extern uint8_t sDataEnd __asm("section$end$__DATA$__data");
 
 #define ROM_SIZE 0x1000000
 #define ROM_MAX_READ (64 << 20) // anything larger is not a GBA ROM
@@ -467,23 +445,9 @@ RomDataResult RomDataLoad(const char* cachePath, char* message, size_t messageSi
         }
         memcpy(run->dest, data + e->cache + (run->rom - e->rom), run->length);
     }
-    for (uint32_t i = 0; i < gRomScrubTable.count && i < gRomScrubTable.capacity; i++) {
-        const RomScrub* scrub = &gRomScrubTable.entries[i];
-        uint8_t* begin = scrub->section == 0 ? &sConstStart : &sDataStart;
-        uint8_t* end = scrub->section == 0 ? &sConstEnd : &sDataEnd;
-        e = FindExtent(scrub->rom);
-        if (e == NULL || scrub->rom + scrub->length > e->rom + e->length || scrub->section > 1 ||
-            scrub->offset + scrub->length > (size_t)(end - begin)) {
-            munmap(file, (size_t)st.st_size);
-            return Fail(ROMDATA_BAD_CACHE, message, messageSize, "C table %u (ROM %#x+%#x) does not fit.", i,
-                        scrub->rom, scrub->length);
-        }
-        memcpy(begin + scrub->offset, data + e->cache + (scrub->rom - e->rom), scrub->length);
-    }
     munmap(file, (size_t)st.st_size);
-    return Fail(ROMDATA_OK, message, messageSize,
-                "Loaded %zu runs and %u C tables (%u bytes of extracted data) in %.1f ms.", runs,
-                gRomScrubTable.count, gRomCacheSize, Milliseconds(start));
+    return Fail(ROMDATA_OK, message, messageSize, "Loaded %zu runs (%u bytes of extracted data) in %.1f ms.", runs,
+                gRomCacheSize, Milliseconds(start));
 }
 
 RomDataResult RomDataVerifyBaked(const char* romPath, char* message, size_t messageSize) {
