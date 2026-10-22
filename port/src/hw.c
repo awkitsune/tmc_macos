@@ -157,6 +157,12 @@ typedef struct {
 extern const HwRamMapEntry gHwRamMap[];
 extern const uint32_t gHwRamMapCount;
 
+extern const struct mach_header_64 _mh_execute_header;
+
+uint32_t HwRomAddress(uintptr_t pointer) {
+    return 0x08000000u + (uint32_t)(pointer - (uintptr_t)&_mh_execute_header);
+}
+
 void* HwGbaPtr(uint32_t address) {
     static const struct {
         uint32_t base;

@@ -48,6 +48,13 @@ int HwDmaVBlank(void);
  */
 void* HwGbaPtr(uint32_t address);
 
+/*
+ * A 32-bit stand-in for a native pointer where GBA code keeps a ROM address as
+ * data (0x08000000 + its offset in the program). Unlike the pointer's low bits
+ * it is the same on every run, whatever address the program is loaded at.
+ */
+uint32_t HwRomAddress(uintptr_t pointer);
+
 /* BIOS calls issued through SystemCall(n) rather than a named wrapper. */
 void HwSystemCall(int number);
 

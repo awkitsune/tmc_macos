@@ -126,7 +126,9 @@ void RegisterRoomEntity(Entity* ent, const EntityData* dat) {
     {
         u8* fields = kind == MANAGER ? (u8*)ent + sizeof(Manager) + 0x10 : (u8*)&((GenericEntity*)ent)->field_0x78;
         MemCopy(dat, fields, 12);              // kind .. yPos
-        *(u32*)(fields + 12) = (u32)dat->spritePtr; // paramC as data
+        // paramC as data; a pointer (cutscene script) reads as a ROM address, as on
+        // GBA, instead of bits that vary with where the program is loaded.
+        *(u32*)(fields + 12) = dat->spritePtr > 0xFFFFFFFFu ? HwRomAddress(dat->spritePtr) : (u32)dat->spritePtr;
         *(uintptr_t*)(fields + 16) = dat->spritePtr; // paramC as a pointer
     }
 #else
