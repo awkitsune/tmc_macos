@@ -382,7 +382,7 @@ void sub_0802D3B8(GleerokEntity* this) {
                 MEMORY_BARRIER;
                 heap->ent2 = super->child;
                 heap->filler[5].unk0.HALF.HI = 0x10;
-                heap->filler2[5].unk0.HALF.HI = 0;
+                heap->unk_2c.HALF.HI = 0; // filler2[5]
                 heap->unk_30[5] = 0;
             }
 #ifndef EU

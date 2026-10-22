@@ -1385,7 +1385,11 @@ static void sub_08043C40(VaatiArmEntity* this, VaatiArm_HeapStruct1* heapStruct)
             puVar6 = gUnk_080D13E3;
         } else {
             if (heapStruct->unk04.HALF.HI < 0x78) {
+#ifdef PLATFORM_NATIVE
+                puVar6 = &gUnk_080D13E3[3]; // the arrays are not contiguous natively
+#else
                 puVar6 = &gUnk_080D13E0[6];
+#endif
             } else {
                 puVar6 = gUnk_080D13E0;
             }
