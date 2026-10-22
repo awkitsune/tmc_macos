@@ -17,17 +17,27 @@ typedef struct {
     /*0x79*/ u8 unk_79;
     /*0x7a*/ u16 unk_7a;
     /*0x7c*/ union SplitWord unk_7c;
-    /*0x80*/ union SplitWord unk_80;
-    /*0x84*/ union SplitWord unk_84;
 #ifdef PLATFORM_NATIVE
+    // A scripted player keeps its script context where ENTITY_SCRIPT_CONTEXT
+    // puts it (GenericEntity.nativeScriptContext). On GBA that pointer
+    // overwrites unk_84, so natively unk_84 shares that slot and unk_80 comes
+    // after it, out of the pointer's way.
+    union SplitWord unk_84;
+    u32 nativeScriptContextHigh;
+    union SplitWord unk_80;
     Entity* sleepBubble; // the GBA keeps this pointer in unk_6c..unk_6f
     // The player is slot 0 of the 80 entity slots that entity.c walks as one
     // GenericEntity array, so it must be exactly one slot long.
-    u8 nativeSlack[64];
+    u8 nativeSlack[56];
+#else
+    /*0x80*/ union SplitWord unk_80;
+    /*0x84*/ union SplitWord unk_84;
 #endif
 } PlayerEntity;
 #ifdef PLATFORM_NATIVE
 _Static_assert(sizeof(PlayerEntity) == sizeof(GenericEntity), "player entity must fill one entity slot");
+_Static_assert(offsetof(PlayerEntity, unk_84) == offsetof(GenericEntity, nativeScriptContext),
+               "a player script context must land on unk_84, as on GBA");
 #endif
 
 enum PlayerActions {

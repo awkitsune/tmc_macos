@@ -44,8 +44,11 @@ const s8 gShakeOffsets[] = {
     0,  1,  0, 2,  0,  0,  0,  1,  2,  0,  1,  0,  0,  0,  -1, 0,  -1, 0,  -1, 0,  0, 0,  1,  0,
 };
 
-// The 2-byte gap after the script data (code_08016984/gUnk_08016984.bin).
-const u8 gUnk_08016984[2];
+// The 2-byte gap after the script data (code_08016984/gUnk_08016984.bin): a
+// Thumb instruction that ScriptCommand_0807E8E4 reads as a u16, the base its
+// command numbers count from (the _0807E8E4_N script macros set the player's
+// animation state to 2 * N). Left zero, every N gave a wrong state.
+const u8 gUnk_08016984[2] = { 0x49, 0x04 };
 
 // ---- collision layers -----------------------------------------------------------
 
