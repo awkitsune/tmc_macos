@@ -72,11 +72,12 @@ target_compile_options(tmc_game PRIVATE
 # This needs the GBA build (build/<version>/data/*.o and tmc.elf) and the Python
 # environment from port/README.md.
 #
-# TMC_BAKE_DATA=ON (the default, for development) builds the ROM's data into the
-# programs. OFF leaves every ROM-derived byte out: the programs extract them from
-# the player's ROM on first launch (port/src/romdata.c), so the build can be
-# distributed.
-option(TMC_BAKE_DATA "Build the game data from the ROM into the programs (not distributable)" ON)
+# TMC_BAKE_DATA=ON (the default, for development) builds the game's assets (what
+# asset extraction copies out of baserom.gba) into the programs. OFF leaves them
+# out: the programs extract them from the player's ROM on first launch
+# (port/src/romdata.c), so the build can be distributed. Data written in the
+# repository's sources is built in either way.
+option(TMC_BAKE_DATA "Build the game's assets from the ROM into the programs (not distributable)" ON)
 set(TMC_PYTHON ${TMC_ROOT}/.venv/bin/python CACHE FILEPATH "Python with port/requirements.txt installed")
 set(TMC_DATA_DIR ${CMAKE_BINARY_DIR}/data)
 if(TMC_BAKE_DATA)

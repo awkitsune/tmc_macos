@@ -15,11 +15,14 @@ on what is known about it:
 Pointer targets are translated from GBA offsets to native offsets, so a pointer
 into the middle of a re-laid-out table still lands on the same element.
 
-Bytes that come from the ROM are first produced as RomBytes markers and lowered
-per section (see Emitter._lower). A baked build .incbin's them, as before. A ROM
-build leaves zeros in their place (zero-fill where a section has nothing else)
-and lists every run of them, as (destination, ROM offset, length), in the
-__DATA,__tmcruns section; port/src/romdata.c fills them in from the data cache
+Bytes carried over from the GBA objects are first produced as RomBytes markers
+and lowered per section (see Emitter._lower). A baked build .incbin's them, as
+before. A ROM build tells asset bytes, which asset extraction copied out of
+baserom.gba, from bytes written in the repository's sources (provenance.py).
+Source bytes are .incbin'd from a dump with the asset bytes zeroed. Asset bytes
+are left as zeros (zero-fill where a section holds nothing else) and every run
+of them is listed, as (destination, ROM offset, length), in the
+__DATA,__tmcruns section; port/src/romdata.c fills them in from the data
 extracted from the player's ROM before the game starts.
 """
 
@@ -349,8 +352,9 @@ class DataModel:
 
 
 class Emitter:
-    def __init__(self, model: DataModel, out_dir: Path, bake: bool = True, rom: bytes = None):
+    def __init__(self, model: DataModel, out_dir: Path, bake: bool = True, rom: bytes = None, masks: dict = None):
         self.model = model
+        self.masks = masks  # (object, section) -> asset byte mask; None: every byte is a run
         self.types = model.types
         self.out_dir = out_dir
         self.bake = bake
@@ -414,7 +418,9 @@ class Emitter:
             if self.bake:
                 bin_path.write_bytes(sec.data)
             else:
-                bin_path.unlink(missing_ok=True)  # nothing ROM-derived in a ROM build's inputs
+                # Only what the sources spell out; the asset bytes come from the player's ROM.
+                mask = self._mask(sec)
+                bin_path.write_bytes(bytes(0 if m else b for b, m in zip(sec.data, mask)))
             self._bin = bin_path.resolve()
             self._sec = sec
             body, literal = self._lower(obj, self._stream(obj, sec, script_ptrs))
@@ -469,27 +475,34 @@ class Emitter:
 
         for line in lines:
             if isinstance(line, RomBytes):
-                rom = line.sec.base - ROM_BASE + line.start
-                if self.rom is not None and self.rom[rom : rom + line.length] != line.sec.data[line.start : line.start + line.length]:
-                    raise EmitError(f"{line.sec.name}+{line.start:#x}: bytes differ from the ROM at {rom:#x}")
-                if run is not None and run[1] + run[2] == rom:
-                    run[2] += line.length
-                else:
-                    close()
-                    label = f"Ltmcrom{self._run_labels}"
-                    self._run_labels += 1
-                    out.append(f"{label}:")
-                    run = [label, rom, line.length]
-                if self.bake:
-                    out.append(f'\t.incbin "{self._bin_of(line.sec)}", {line.start}, {line.length}')
-                else:
-                    out.append(f"\t.space {line.length}")
+                for start, length, asset in self._spans(line):
+                    if not asset:
+                        close()
+                        literal = True
+                        out.append(f'\t.incbin "{self._bin_of(line.sec)}", {start}, {length}')
+                        continue
+                    rom = line.sec.base - ROM_BASE + start
+                    if self.rom is not None and self.rom[rom : rom + length] != line.sec.data[start : start + length]:
+                        raise EmitError(f"{line.sec.name}+{start:#x}: bytes differ from the ROM at {rom:#x}")
+                    if run is not None and run[1] + run[2] == rom:
+                        run[2] += length
+                    else:
+                        close()
+                        label = f"Ltmcrom{self._run_labels}"
+                        self._run_labels += 1
+                        out.append(f"{label}:")
+                        run = [label, rom, length]
+                    if self.bake:
+                        out.append(f'\t.incbin "{self._bin_of(line.sec)}", {start}, {length}')
+                    else:
+                        out.append(f"\t.space {length}")
                 if line.pad:
                     out.append(f"\t.space {line.pad}")
                     close()
             elif isinstance(line, RelocBytes):
                 close()
-                if self.bake:
+                if self.bake or self.masks is not None:
+                    literal = True
                     out.append(f'\t.incbin "{self._bin_of(line.sec)}", {line.start}, {line.length}')
                 else:
                     out.append(f"\t.space {line.length}")
@@ -502,6 +515,25 @@ class Emitter:
                 out.append(line)
         close()
         return out, literal
+
+    def _mask(self, sec) -> bytes:
+        if self.masks is None:
+            return bytes([1]) * len(sec.data)
+        return self.masks[(sec.obj.rel, sec.name)]
+
+    def _spans(self, line):
+        """(start, length, is asset) pieces of a RomBytes marker, by provenance."""
+        if self.bake or self.masks is None:
+            return [(line.start, line.length, True)]
+        mask = self._mask(line.sec)
+        spans = []
+        for i in range(line.start, line.start + line.length):
+            asset = bool(mask[i])
+            if spans and spans[-1][2] == asset:
+                spans[-1][1] += 1
+            else:
+                spans.append([i, 1, asset])
+        return [tuple(s) for s in spans]
 
     def _bin_of(self, sec) -> Path:
         assert sec is self._sec

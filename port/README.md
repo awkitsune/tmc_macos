@@ -97,10 +97,10 @@ link-report` groups the unresolved symbols by where the GBA build defines them.
 
 ### Development and distributable builds
 
-The build above is a development build: the game data from the ROM is built
-into the programs, so they run as they are, but they must not be shared.
-`-DTMC_BAKE_DATA=OFF` makes a distributable build that contains no ROM data;
-each program gets it from the player's own ROM instead (see
+The build above is a development build: the game's assets are built into the
+programs, so they run as they are, but they must not be shared.
+`-DTMC_BAKE_DATA=OFF` makes a distributable build without them; each program
+extracts them from the player's own ROM instead (see
 [First launch](#first-launch)). Use a separate build folder:
 
 ```bash
@@ -111,27 +111,42 @@ cmake -S port -B build/native-rom -DTMC_BAKE_DATA=OFF
 cmake --build build/native-rom -j
 ```
 
-Building it still needs the GBA build (datagen reads its objects, and every
-byte it leaves out is checked against `tmc.gba`), but the result is about 5 MB
-instead of 18 MB:
+What is left out is decided by where each byte comes from, not by whether it
+equals the ROM:
 
-- datagen writes zeros where ROM bytes would go (zero-fill where a section
-  holds nothing else) and lists each stretch as a run: native address, ROM
-  offset and length, about 47,000 in all.
-- Tables the decomp writes in C are compiled byte for byte as the ROM holds
-  them. These builds link them writable, and `port/tools/scrub_rom_data.py`
-  moves the ROM's bytes out of each linked program the same way (about 560
-  stretches, 73 KB).
+- **Assets** are what asset extraction (`tools/asset_processor`, `assets.json`)
+  copies out of `baserom.gba` into `build/USA/assets`, and the data sources
+  `.incbin`: graphics, tilesets, palettes, maps, entity and room data blobs,
+  sound samples and songs, text. They come from the player's ROM: 13.1 of the
+  13.8 MB of game data.
+- **Everything written in the repository** stays compiled in: the C code and
+  its tables, data spelled out in `data/*.s` (`.byte`/`.4byte` lists and
+  macros, about 670 KB), and the pointer tables datagen lays out. All of it is
+  public in the decomp.
 
-To check that a program carries no ROM data:
+To find the assets' bytes, datagen assembles every data object twice more:
+once with each extracted asset file replaced by a file of the same size full
+of `0x55`, once full of `0xaa`. The bytes that differ are asset bytes
+(`port/tools/datagen/provenance.py`). Those become zeros plus a run each
+(native address, ROM offset, length), about 1,000 runs; every run is checked
+against `tmc.gba`. Building still needs the GBA build and its extracted
+assets. The programs are about 15 MB: the zeros take file space, because
+nearly every data section also holds source-written bytes. They compress to
+almost nothing.
+
+To check that a program carries no asset content:
 
 ```bash
-python3 port/scripts/rom_overlap.py build/native-rom/TMC.app/Contents/MacOS/TMC baserom.gba
+python3 port/scripts/asset_overlap.py build/native-rom/TMC.app/Contents/MacOS/TMC build/USA/assets
 ```
 
-It lists every stretch of 64 bytes or more that the program shares with the ROM
-and exits with 1 if there is one. A distributable build has none; a
-development build shares 13.6 MB.
+It lists every stretch of 64 bytes or more that the program shares with an
+extracted asset file, with the file and the program's symbol, and exits with 1
+if there is one. A development build shares 12.7 MB. A distributable build
+shares 5 stretches, 710 bytes. These are source-written tables whose bytes
+also occur inside asset dumps: entity lists from `data/map/entity_headers.s`
+that the ROM holds again inside a blob, one equal to a USA-demo-only asset, and
+a C table in `src/manager/diggingCaveEntranceManager.c`.
 
 In a development build with `TMC_ROM=path` set, `tmc` checks every run of the
 manifest against that ROM before it starts (`built-in data: all 46923 manifest
@@ -216,7 +231,7 @@ A distributable build asks for the ROM the first time it starts:
 4. The game window opens.
 
 The data goes to `~/Library/Application Support/tmc_macos/gamedata.bin`
-(13.9 MB). It records the ROM's SHA1 and the version of the build's data
+(13.1 MB). It records the ROM's SHA1 and the version of the build's data
 manifest. Each launch fills the game data from it in about 5–20 ms.
 
 The app remembers where the ROM is, following it if it moves. When a new build
@@ -347,8 +362,8 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/macos/selftest.m` | `TMC_SELFTEST` scripted run with PNG captures |
 | `port/src/macos/romsetup.m` | First launch: ROM open panel, progress window, errors, Change ROM… |
 | `port/src/romdata.c` | ROM checks, extraction to `gamedata.bin`, filling the game data from it |
-| `port/tools/scrub_rom_data.py` | Moves the ROM's bytes out of C-written tables after linking (distributable builds) |
-| `port/scripts/rom_overlap.py` | Lists what a program shares with the ROM |
+| `port/tools/datagen/provenance.py` | Tells asset bytes (from `baserom.gba`) from source-written ones |
+| `port/scripts/asset_overlap.py` | Lists what a program shares with the extracted asset files |
 | `port/src/data_glue.c` | Code embedded in data, demo-only symbols, the save header |
 | `port/src/asm/` | C versions of every function in `asm/src/*.s` |
 | `port/src/eeprom.c` | Emulated save EEPROM (replaces `src/eeprom.c`) |
@@ -424,8 +439,8 @@ in `build/native/data`:
   element for the re-laid-out voicegroups, and the sound engine translates
   addresses through it.
 
-In a distributable build (`--no-bake`) every byte copied from the GBA data
-keeps its place but is left zero. The run tables in `__DATA,__tmcruns` say
+In a distributable build (`--no-bake`) every asset byte keeps its place but is
+left zero. The run tables in `__DATA,__tmcruns` say
 where it goes. `rom_manifest.s` holds the ROM extents the data file stores,
 and `rom_manifest.txt` lists every run.
 

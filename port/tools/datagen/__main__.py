@@ -2,9 +2,11 @@
 
 usage: python -m datagen --root . --gba-build build/USA --out build/native/data [--check] [--no-bake]
 
-By default the ROM-derived bytes are baked into the assembly (.incbin). With
---no-bake they are left as zeros and listed in a manifest instead, so that the
-program can fill them in from the player's own ROM (port/src/romdata.c).
+By default all data bytes are baked into the assembly (.incbin). With --no-bake
+the bytes that asset extraction took from baserom.gba (provenance.py) are left
+as zeros and listed in a manifest instead, so that the program can fill them in
+from the player's own ROM (port/src/romdata.c); bytes written in the sources
+stay baked.
 """
 
 import argparse
@@ -18,6 +20,7 @@ from .ctypes_db import TypeDB
 from .emit import DataModel, Emitter, EmitError
 from .gbaobj import linked_globals, linked_symbols, load_all
 from .ram import emit_ram, emit_ram_map
+from .provenance import asset_masks
 from .soundmap import emit_sound_map
 
 HINTS = Path(__file__).with_name("hints.txt")
@@ -77,7 +80,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("build/native/data"))
     ap.add_argument("--check", action="store_true", help="classify and report without writing output")
     ap.add_argument("--no-bake", dest="bake", action="store_false",
-                    help="leave ROM bytes out of the output; the program extracts them from a ROM at runtime")
+                    help="leave the extracted assets' bytes out; the program extracts them from a ROM at runtime")
     args = ap.parse_args()
 
     root = args.root.resolve()
@@ -113,7 +116,14 @@ def main() -> int:
 
     # The GBA build is byte-identical to the ROM, so every run is checked against it.
     rom_path = root / "tmc.gba"
-    emitter = Emitter(model, out, bake=args.bake, rom=rom_path.read_bytes() if rom_path.exists() else None)
+    masks = None
+    if not args.bake:
+        print("finding the bytes asset extraction took from baserom.gba")
+        masks = asset_masks(root, gba_build, objects, out / "provenance")
+        asset = sum(sum(m) for m in masks.values())
+        total = sum(len(m) for m in masks.values())
+        print(f"{asset} of {total} data bytes are extracted assets; the rest are written in the sources")
+    emitter = Emitter(model, out, bake=args.bake, rom=rom_path.read_bytes() if rom_path.exists() else None, masks=masks)
     errors = []
     sources = []
     for obj in objects:
@@ -146,7 +156,7 @@ def main() -> int:
             print("  " + e)
         return 1
     covered = sum(length for _, length, *_ in emitter.runs)
-    print(f"wrote {len(sources)} assembly files to {out} ({'ROM data baked in' if args.bake else 'ROM data left out'}; "
+    print(f"wrote {len(sources)} assembly files to {out} ({'assets baked in' if args.bake else 'assets left out'}; "
           f"{len(emitter.runs)} ROM runs, {covered} bytes)")
     return 0
 

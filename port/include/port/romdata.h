@@ -8,12 +8,14 @@
 /*
  * The game's data from the player's ROM.
  *
- * A build configured with TMC_BAKE_DATA=OFF contains no ROM bytes: datagen
- * leaves zeros where they go and a manifest of (native address, ROM offset,
- * length) runs. On first launch the ROM is checked and the bytes those runs
- * need are extracted into one cache file; every launch then fills the runs from
- * the cache before AgbMain. A baked build (the default) has the data built in
- * and needs none of this.
+ * A build configured with TMC_BAKE_DATA=OFF contains none of the assets that
+ * the decomp build extracts from baserom.gba (graphics, maps, sound, text...):
+ * datagen leaves zeros where they go and a manifest of (native address, ROM
+ * offset, length) runs. Data written in the repository's sources stays built
+ * in. On first launch the ROM is checked and the bytes those runs need are
+ * extracted into one cache file; every launch then fills the runs from the
+ * cache before AgbMain. A baked build (the default) has the assets built in and
+ * needs none of this.
  *
  * The cache is <dir>/gamedata.bin, where <dir> is $TMC_CACHE_DIR or
  * ~/Library/Application Support/tmc_macos. It is tied to the ROM's SHA1 and to
