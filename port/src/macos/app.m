@@ -7,6 +7,7 @@
 #import <MetalKit/MetalKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
+#import "debugwindows.h"
 #import "input.h"
 #import "renderer.h"
 #import "romsetup.h"
@@ -75,6 +76,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     GameView* _view;
     Renderer* _renderer;
     SettingsWindowController* _settings;
+    DebugWindows* _debugWindows;
     Input* _input;
     RomSetup* _romSetup;
     NSString* _status;     // shown as the window's subtitle until _statusUntil
@@ -188,6 +190,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         FrontendSetFastForward(input.fastForwardHeld);
         [weakSelf updateSubtitle];
     };
+    _debugWindows = [[DebugWindows alloc] initWithRenderer:_renderer];
     _view.delegate = _renderer;
     _window.contentView = _view;
     [_window makeFirstResponder:_view];
@@ -208,7 +211,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 
     NSString* selfTest = NSProcessInfo.processInfo.environment[@"TMC_SELFTEST"];
     if (selfTest.length != 0) {
-        SelfTestStart(_window, _view, _renderer, _input, selfTest);
+        SelfTestStart(_window, _view, _renderer, _input, _debugWindows, selfTest);
     }
 }
 
@@ -357,6 +360,13 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 
 - (void)debugMenuChanged:(NSNotification*)note {
     [self buildMenus];
+    if (![NSUserDefaults.standardUserDefaults boolForKey:kDebugMenuDefault]) {
+        [_debugWindows closeAll];
+    }
+}
+
+- (void)showDebugPanel:(NSMenuItem*)sender {
+    [_debugWindows showPanel:sender.tag];
 }
 
 // The checkpoints port/scripts/checkpoints.sh writes in the source tree.
@@ -459,6 +469,15 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         checkpoints.delegate = self; // filled when opened (menuNeedsUpdate:)
         [debug addItemWithTitle:checkpoints.title action:nil keyEquivalent:@""].submenu = checkpoints;
         [debug addItemWithTitle:@"Show State Folder" action:@selector(showStateFolder:) keyEquivalent:@""];
+        [debug addItem:NSMenuItem.separatorItem];
+        // Graphics viewers: Control-Command-1 .. 6.
+        for (NSInteger kind = 0; kind < DebugPanelCount; kind++) {
+            NSMenuItem* item = [debug addItemWithTitle:[DebugWindows titleForPanel:kind]
+                                                action:@selector(showDebugPanel:)
+                                         keyEquivalent:[NSString stringWithFormat:@"%ld", (long)kind + 1]];
+            item.keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
+            item.tag = kind;
+        }
         [self addSubmenu:debug toBar:bar];
     }
 

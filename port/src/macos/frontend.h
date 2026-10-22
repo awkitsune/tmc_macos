@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "port/gfxdebug.h"
 #include "port/ppu.h"
 
 /* The GBA's refresh rate: 16.78 MHz / 280896 cycles per frame. */
@@ -57,6 +58,18 @@ uint64_t FrontendFrame(void);
  */
 typedef void (*FrontendStateDone)(bool ok, const char* message, uint64_t frame, void* context);
 bool FrontendRequestState(bool save, const char* path, FrontendStateDone done, void* context);
+
+/*
+ * Graphics debug viewers (debugwindows.m). While at least one viewer holds a
+ * retain, the game thread copies the hardware into a snapshot as it draws each
+ * frame (port/gfxdebug.h); with none, nothing is copied. While paused, a retain
+ * takes one snapshot of the hardware as it stands (without per-line registers).
+ * FrontendCopyGfxSnapshot copies the newest snapshot into dest if it is newer
+ * than *sequence, updating *sequence.
+ */
+void FrontendGfxRetain(void);
+void FrontendGfxRelease(void);
+bool FrontendCopyGfxSnapshot(GfxSnapshot* dest, uint64_t* sequence);
 
 /* Stop the game thread at its next frame boundary (so no save write is cut short). */
 void FrontendStopGame(void);

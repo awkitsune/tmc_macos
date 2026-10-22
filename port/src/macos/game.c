@@ -49,6 +49,14 @@ static uint64_t sFrameSequence;
 static uint64_t sCutSequence;
 static atomic_bool sCutNext;
 
+// Graphics debug snapshots: taken by the game thread into sSnapWork while
+// viewers are open, then published into sSnapShared (guarded by sSnapLock).
+static atomic_int sGfxViewers;
+static atomic_bool sGfxSnapNow; // take one now (a viewer opened while paused)
+static os_unfair_lock sSnapLock = OS_UNFAIR_LOCK_INIT;
+static GfxSnapshot sSnapWork, sSnapShared;
+static uint64_t sSnapSequence;
+
 // Holding all four reset keys for a few frames goes through the game's own
 // DoSoftReset, which reinitialises things the way the cartridge would.
 #define RESET_KEYS (HW_KEY_A | HW_KEY_B | HW_KEY_SELECT | HW_KEY_START)
@@ -135,6 +143,45 @@ static void PublishFrame(const uint16_t* raw) {
     os_unfair_lock_unlock(&sFrameLock);
 }
 
+void FrontendGfxRetain(void) {
+    if (atomic_fetch_add(&sGfxViewers, 1) == 0) {
+        atomic_store(&sGfxSnapNow, true);
+    }
+}
+
+void FrontendGfxRelease(void) {
+    atomic_fetch_sub(&sGfxViewers, 1);
+}
+
+bool FrontendCopyGfxSnapshot(GfxSnapshot* dest, uint64_t* sequence) {
+    bool fresh;
+
+    os_unfair_lock_lock(&sSnapLock);
+    fresh = sSnapSequence != *sequence;
+    if (fresh) {
+        memcpy(dest, &sSnapShared, sizeof(*dest));
+        *sequence = sSnapSequence;
+    }
+    os_unfair_lock_unlock(&sSnapLock);
+    return fresh;
+}
+
+static void PublishSnapshot(void) {
+    os_unfair_lock_lock(&sSnapLock);
+    memcpy(&sSnapShared, &sSnapWork, sizeof(sSnapShared));
+    sSnapSequence++;
+    os_unfair_lock_unlock(&sSnapLock);
+}
+
+// The hardware as it stands, outside a frame (paused, or just loaded).
+static void SnapshotNow(void) {
+    atomic_store(&sGfxSnapNow, false);
+    GfxSnapshotBegin(&sSnapWork, gPlatformFrame);
+    GfxSnapshotEnd(&sSnapWork);
+    sSnapWork.hasLines = 0;
+    PublishSnapshot();
+}
+
 static uint16_t sRaw[PPU_WIDTH * PPU_HEIGHT];
 static uint64_t sFramePeriod; // mach ticks
 static uint64_t sNextDeadline;
@@ -185,6 +232,9 @@ static void ServiceStateRequest(void) {
             // the loaded registers, without running the game).
             PpuRenderFrame(sRaw);
             PublishFrame(sRaw);
+            if (atomic_load(&sGfxViewers) > 0) {
+                SnapshotNow();
+            }
         }
     }
     if (sStateRequest.done != NULL) {
@@ -207,6 +257,9 @@ static void WaitWhilePaused(void) {
             break;
         }
         ServiceStateRequest();
+        if (atomic_load(&sGfxSnapNow) && atomic_load(&sGfxViewers) > 0) {
+            SnapshotNow();
+        }
         usleep(5000);
     }
     sNextDeadline = mach_absolute_time();
@@ -241,7 +294,16 @@ void PlatformVBlank(void) {
     }
     HwSetKeys(keys);
     // Draw this frame line by line, running its HBlank DMA and interrupts.
-    HwRunFrame(sRaw);
+    // With debug viewers open, record the hardware it was drawn from.
+    if (atomic_load_explicit(&sGfxViewers, memory_order_relaxed) > 0) {
+        atomic_store(&sGfxSnapNow, false); // this frame's snapshot will do
+        GfxSnapshotBegin(&sSnapWork, gPlatformFrame);
+        HwRunFrame(sRaw);
+        GfxSnapshotEnd(&sSnapWork);
+        PublishSnapshot();
+    } else {
+        HwRunFrame(sRaw);
+    }
     PublishFrame(sRaw);
     gPlatformFrame++;
 }

@@ -83,7 +83,19 @@ void SelfTestSnapshotWindow(NSWindow* window, NSString* name) {
     [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToURL:url atomically:YES];
 }
 
-void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* input, NSString* dir) {
+// The newest readback of a buffer, or nil.
+static DebugReadback* Readback(Renderer* renderer, DebugBuffer buffer) {
+    DebugReadback* rb = renderer.latestReadback;
+    return rb != nil && rb.buffer == buffer ? rb : nil;
+}
+
+static BOOL Near(simd_float4 a, simd_float4 b, float tolerance) {
+    simd_float4 d = simd_abs(a - b);
+    return d.x <= tolerance && d.y <= tolerance && d.z <= tolerance;
+}
+
+void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* input, DebugWindows* debug,
+                   NSString* dir) {
     CheckGamepadMapping(input);
     NSURL* out = [NSURL fileURLWithPath:dir isDirectory:YES];
     [NSFileManager.defaultManager createDirectoryAtURL:out withIntermediateDirectories:YES attributes:nil error:nil];
@@ -99,6 +111,9 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     [renderer checkLcdResponse];
 
     NSMutableArray* steps = [NSMutableArray array];
+    // Added to every step's frame once a state from elsewhere is loaded (the
+    // frame counter jumps to the state's), so later steps keep their spacing.
+    __block int64_t shift = 0;
     __block uint64_t at = 360; // title screen is up by now
     void (^add)(uint64_t, void (^)(void)) = ^(uint64_t delay, void (^action)(void)) {
         at += delay;
@@ -150,6 +165,59 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
         };
     withParams(FilterModeCRT, @"pattern_4_integer_nobloom", ^(FilterParams* p) { p->crtBloom = 0; });
     withParams(FilterModeLCD, @"pattern_3_integer_gapbloom", ^(FilterParams* p) { p->lcdGapBloom = 1; });
+
+    // Shader buffers: copy every pipeline texture back (as the Shader Buffers
+    // window does) on the test card at 3x and log its numbers. With nearest
+    // filtering at a whole-number scale, the filter's raw output and the final
+    // drawable have the same mean colour as the uploaded frame, and the LCD
+    // response output (settled on a still picture) matches it too.
+    __block simd_float4 frameMean = 0;
+    __block int shaderFailures = 0;
+    void (^logBuffer)(FilterMode, DebugBuffer) = ^(FilterMode mode, DebugBuffer buffer) {
+        add(2, ^{ [debug selectShaderBuffer:buffer]; });
+        add(10, ^{
+            DebugReadback* rb = Readback(renderer, buffer);
+            NSLog(@"selftest: %@ filter: %@", FilterModeName(mode), [debug summaryForPanel:DebugPanelShaderBuffers]);
+            if (rb == nil) {
+                shaderFailures++;
+                return;
+            }
+            simd_float4 mean = rb.mean;
+            if (buffer == DebugBufferFrame) {
+                frameMean = mean;
+            } else if (mode == FilterModeNearest &&
+                       (buffer == DebugBufferFilterRaw || buffer == DebugBufferDrawable ||
+                        buffer == DebugBufferResponseOutput || buffer == DebugBufferPreGamma)) {
+                BOOL ok = Near(mean, frameMean, 0.004f);
+                NSLog(@"selftest: %@ mean %.4f %.4f %.4f vs frame %.4f %.4f %.4f %@", DebugBufferName(buffer), mean.x,
+                      mean.y, mean.z, frameMean.x, frameMean.y, frameMean.z, ok ? @"ok" : @"FAILED");
+                shaderFailures += !ok;
+            }
+        });
+    };
+    add(3, ^{
+        renderer.params = FilterParamsDefaults();
+        renderer.filter = FilterModeNearest;
+        renderer.lcdResponse = YES;
+        [debug showPanel:DebugPanelShaderBuffers];
+    });
+    for (NSInteger buffer = 0; buffer < DebugBufferCount; buffer++) {
+        logBuffer(FilterModeNearest, buffer);
+    }
+    add(3, ^{ SelfTestSnapshotWindow([debug windowForPanel:DebugPanelShaderBuffers], @"debug_shader_buffers"); });
+    for (FilterMode mode = FilterModeLCD; mode <= FilterModeCRT; mode++) {
+        add(3, ^{ renderer.filter = mode; });
+        for (NSInteger buffer = DebugBufferFilterRaw; buffer < DebugBufferCount; buffer++) {
+            logBuffer(mode, buffer);
+        }
+    }
+    add(3, ^{
+        [[debug windowForPanel:DebugPanelShaderBuffers] close];
+        renderer.lcdResponse = NO;
+        renderer.filter = FilterModeNearest;
+        NSLog(@"selftest: shader buffers %@ (readback %@ after closing)", shaderFailures ? @"FAILED" : @"ok",
+              renderer.debugBuffer == DebugBufferNone ? @"off" : @"STILL ON");
+    });
     add(5, ^{
         renderer.integerScaling = NO;
         [window setContentSize:NSMakeSize(PPU_WIDTH * 4.37, PPU_HEIGHT * 4.37)];
@@ -179,6 +247,42 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     add(5, ^{ FrontendRequestState(true, statePath.fileSystemRepresentation, SelfTestStateDone, "save"); });
     add(60, ^{ FrontendRequestState(false, statePath.fileSystemRepresentation, SelfTestStateDone, "load"); });
 
+    // Graphics debug windows after loading the hyrule_town checkpoint: log what each
+    // shows, draw them offscreen, outline sprite 0 in the game window.
+    NSString* town = @TMC_CHECKPOINT_DIR "/hyrule_town." STATE_EXTENSION;
+    if ([NSFileManager.defaultManager fileExistsAtPath:town]) {
+        add(10, ^{ FrontendRequestState(false, town.fileSystemRepresentation, SelfTestStateDone, "load town"); });
+        __block uint64_t loadedAt = at + 5;
+        add(5, ^{
+            shift = (int64_t)gPlatformFrame - (int64_t)loadedAt; // runs right after the load
+            for (NSInteger kind = 0; kind < DebugPanelShaderBuffers; kind++) {
+                [debug showPanel:kind];
+            }
+        });
+        add(90, ^{
+            [debug selectSprite:0 highlight:YES];
+            for (NSInteger kind = 0; kind < DebugPanelShaderBuffers; kind++) {
+                NSLog(@"selftest: %@", [debug summaryForPanel:kind]);
+            }
+        });
+        add(2, ^{ [renderer captureNextFrameToURL:file(@"debug_sprite_highlight")]; });
+        static NSString* const names[] = { @"tiles", @"sprites", @"layers", @"palettes", @"io" };
+        for (NSInteger kind = 0; kind < DebugPanelShaderBuffers; kind++) {
+            add(1, ^{ SelfTestSnapshotWindow([debug windowForPanel:kind], [@"debug_" stringByAppendingString:names[kind]]); });
+        }
+        for (NSInteger bg = 0; bg < 4; bg++) {
+            add(2, ^{
+                [debug selectLayer:bg];
+                NSLog(@"selftest: %@", [debug summaryForPanel:DebugPanelLayers]);
+            });
+        }
+        add(30, ^{
+            NSLog(@"selftest: %@ (later)", [debug summaryForPanel:DebugPanelSprites]);
+            [debug closeAll];
+            NSLog(@"selftest: debug windows closed, highlight %@", CGRectIsEmpty(renderer.highlightRect) ? @"off" : @"STILL ON");
+        });
+    }
+
     // The settings window, drawn offscreen.
     __block SettingsWindowController* settings = nil;
     add(90, ^{
@@ -192,7 +296,8 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     [NSTimer scheduledTimerWithTimeInterval:1.0 / 240
                                     repeats:YES
                                       block:^(NSTimer* timer) {
-                                          while (next < steps.count && gPlatformFrame >= [steps[next][0] unsignedLongLongValue]) {
+                                          while (next < steps.count &&
+                                                 (int64_t)gPlatformFrame >= [steps[next][0] longLongValue] + shift) {
                                               ((void (^)(void))steps[next][1])();
                                               NSLog(@"selftest: step %lu at frame %llu", (unsigned long)next,
                                                     (unsigned long long)gPlatformFrame);

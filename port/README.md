@@ -246,7 +246,9 @@ in Release builds; Settings → Show Debug menu switches it) has Step Frame (F8:
 pauses, then advances one frame per press; ⌘P resumes), Show Frame Counter (in
 the window's subtitle), Load Checkpoint (the states `port/scripts/checkpoints.sh`
 wrote in this source tree) and Show State Folder. `TMC_LOAD_STATE=path` starts
-the app from a state.
+the app from a state. It also opens the graphics viewers (see
+[Graphics debugging](#graphics-debugging)): Tiles (⌃⌘1), Sprites (⌃⌘2), Layers
+(⌃⌘3), Palettes (⌃⌘4), IO Registers (⌃⌘5) and Shader Buffers (⌃⌘6).
 
 ### First launch
 
@@ -296,7 +298,14 @@ with each filter at a whole-number scale, a fractional one and in full screen,
 using the default knob values, and an image of the settings window. It also
 runs the LCD response pass on one pixel through a black-to-white and a
 white-to-black step and logs the values per frame and the 10–90% times it
-measures against the setting (`selftest: LCD response … ok`):
+measures against the setting (`selftest: LCD response … ok`). It copies back
+every Shader Buffers texture on the test card and logs its size, crc32 and
+per-channel range and mean (`selftest: … shader buffer …`), checking that the
+filter output, the LCD response output and the drawable keep the frame's mean
+colour with nearest filtering (`selftest: shader buffers ok`). Then it loads the
+`hyrule_town` checkpoint, opens the graphics viewers, logs a line of numbers
+from each and draws them as `debug_*.png`, with sprite 0 outlined in
+`debug_sprite_highlight.png`:
 
 ```bash
 TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest build/native/TMC.app/Contents/MacOS/TMC
@@ -335,6 +344,13 @@ Environment variables control the headless runner:
 | `TMC_HASH="frame,..."` or `"every:n"` | Print `hash F state S video V`: checksums of the state and of the picture |
 | `TMC_RECORD_INPUT=path` | Write the keys held each frame as a `TMC_INPUT` script, to replay a run exactly |
 | `TMC_ASLR=1` | Keep address randomization (normally the program re-executes itself without it) |
+| `TMC_DUMP_OAM="frame,..."` or `"every:n"` | Print the decoded sprite table as that frame was drawn (`TMC_DUMP_OAM_ALL=1`: hidden entries too) |
+| `TMC_DUMP_BG="frame,..."` | Print each layer's settings and a summary of its map (tiles, palettes, flips, per-line changes) |
+| `TMC_DUMP_PAL="frame,..."` | Print the 512 palette colours (BGR555) with hashes |
+| `TMC_DUMP_REGS="frame,..."` | Print the decoded display registers (DISPCNT, BGs, windows, blending, mosaic, DMA) and the registers each line changed |
+| `TMC_DUMP_FILE=path` | Write the `TMC_DUMP_*` text there instead of stdout |
+| `TMC_DUMP_PNG=dir` | With `TMC_DUMP_BG`: also each layer's whole map and all VRAM tiles (greyscale) as PNGs |
+| `TMC_LAYER_MASK=hex` | Draw only these layers (bits 0-3 BG0-BG3, bit 4 OBJ; `1f` = all, the default) |
 
 To see the logos, title screen and file select (Start, then A to leave the title
 screen):
@@ -480,6 +496,8 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/macos/audio.c` | Core Audio output with drift control |
 | `port/src/tools/tmc_songs.c` | The song exporter |
 | `port/src/trace.c` | Game-state tracing for the headless runner |
+| `port/src/gfxdebug.c` | Graphics debugging: hardware snapshots per frame, sprite/layer/register decoders, `TMC_DUMP_*` text (see [Graphics debugging](#graphics-debugging)) |
+| `port/src/macos/debugwindows.m` | The Debug menu's Tiles, Sprites, Layers, Palettes, IO Registers and Shader Buffers windows |
 | `port/src/ppu.c` | Software GBA renderer (BG modes 0-2, sprites, windows, blending), drawn a scanline at a time, and PNG output |
 | `port/src/frame.c` | One frame of display timing: per-line VCOUNT/HBlank interrupts and HBlank DMA, then VBlank (see [Mid-frame effects](#mid-frame-effects)) |
 | `port/src/tools/scanline_test.c` | Checks of per-line scroll, affine and window effects without the game |
@@ -626,6 +644,57 @@ intro's iris wipes) and no others. Compare checksums of different builds with
 care: an NPC in Smith's house (area 0x22, around frame 8900) moves differently
 depending on leftover stack contents, so its frames change between builds
 whatever the renderer does; `TMC_PPU_COMPARE` compares within one run.
+
+## Graphics debugging
+
+The app's Debug menu opens emulator-style viewers, each a resizable window that
+remembers its frame and options and refreshes about 12 times a second:
+
+| Window | Shortcut | Shows |
+|---|---|---|
+| Tiles | ⌃⌘1 | VRAM as tiles, 32 per row: BG char blocks 0-3, one block, OBJ tiles or all of it, 4bpp or 8bpp, in greyscale or any of the 16 BG/OBJ palettes, zoomed. Hover: tile number, address, char block, pixel value |
+| Sprites | ⌃⌘2 | All 128 OAM entries: position, shape/size, tile, palette, priority, mode, affine/double-size, matrix, mosaic, depth, flips, hidden. The selected one is previewed (unrotated); "Highlight in game window" outlines its box in the game |
+| Layers | ⌃⌘3 | BG0-BG3 as whole maps (text or affine) with the visible area outlined at the current scroll (per line when the scroll changes between lines; the screen's corners for affine layers) and the layer's settings. Hover: map entry. The Draw checkboxes hide BG0-BG3/OBJ in the game while the window is open |
+| Palettes | ⌃⌘4 | The 256 BG and 256 OBJ colours. Hover: index, address, BGR555 and RGB |
+| IO Registers | ⌃⌘5 | DISPCNT, DISPSTAT, BG control/scroll/affine, windows, BLDCNT/BLDALPHA/BLDY, mosaic, interrupts and the latched DMA channels, decoded; then the registers that changed on each line |
+| Shader Buffers | ⌃⌘6 | Any texture of the Metal pipeline, live: the uploaded frame, the LCD response history (linear) and output, the filter pass's input, its output before colour correction and gamma, the CRT scanline beams, the LCD grid/subpixel or CRT grille mask, the bloom terms (spot brightness, beam width or LCD gap, scanline strength), the colour-corrected output before gamma, and the final drawable. Zoom, channel isolation (R/G/B/A/luma), exposure and false colour; hover shows the stored value (float16 or 8-bit) |
+
+How they get their data, at no cost while none is open:
+
+- **Hardware viewers.** While one is open, the game thread copies VRAM, OAM,
+  palette, I/O and the latched DMA channels into a snapshot just before it draws
+  each frame, and `HwRunFrame` copies the display registers of every line into it
+  (`gHwLineCapture`, `port/include/port/hw.h`); then it publishes the snapshot
+  under a lock (`FrontendCopyGfxSnapshot`, `game.c`). The windows decode it on
+  the main thread with `port/src/gfxdebug.c`, the same code as the headless
+  dumps. While paused, opening a viewer takes one snapshot of the hardware as it
+  stands (without per-line registers).
+- **Layer mask.** `PpuSetLayerMask` (`ppu.c`) leaves hidden layers out of the
+  picture (the OBJ window still applies); with all layers on, the picture is the
+  same as without it.
+- **Shader Buffers.** The renderer blits the chosen texture into a shared
+  readback texture every fourth display refresh, one copy at a time, and only
+  while the window is open. The filter pass is a single fragment shader, so its
+  stages are captured by drawing it a second time into a float16 texture of the
+  viewport's size with a debug stage selected (`debugStage` in `shaders.metal`);
+  the picture is drawn exactly as before. There are no separate blur or bloom
+  textures: CRT bloom is the beam width worked out per pixel, shown as a buffer.
+
+Headless, the same decoders print text for chosen frames, as the hardware was
+when that frame was drawn. For example, in Hyrule Town on the playthrough:
+
+```bash
+TMC_FRAMES=16001 TMC_INPUT=@port/scripts/play/01_new_game.txt TMC_DUMP_OAM=16000 TMC_DUMP_BG=16000 TMC_DUMP_REGS=16000 TMC_DUMP_PAL=16000 build/native/tmc
+```
+
+```
+frame 16000 oam: 1D mapping, 53 of 128 entries on screen (hash c36dda51d690a4a7)
+  obj attr0 attr1 attr2     x    y  size  shape   tile pal pri mode    flags  affine
+    0  4004  80ad  110e   173    4 32x16 wide   0x10e   1   0 normal  ......  -
+```
+
+`TMC_DUMP_PNG=dir` adds each layer's map as a PNG; with `TMC_LAYER_MASK=04`
+(BG2 only) the frame's screenshot is exactly that map cropped at the scroll.
 
 ## Sound
 
