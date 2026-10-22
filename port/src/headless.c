@@ -2,6 +2,22 @@
  * Headless platform: runs game logic with no window or sound, as fast as it can.
  * Used for automated runs (TMC_FRAMES=n stops after n frames, TMC_INPUT scripts
  * buttons, TMC_SCREENSHOT saves frames); the app is in port/src/macos.
+ *
+ * Save states (port/include/port/state.h):
+ *   TMC_LOAD_STATE=path      start from a state (at the first frame boundary)
+ *   TMC_SAVE_STATES=F,F,...  save at these frames, or every:K, into TMC_STATE_DIR
+ *                            (default states) as frame_NNNNNN.tmcs
+ *   TMC_STATE_REFERENCE=dir  states of the same run saved by a run at another
+ *                            address (TMC_ASLR=1) into dir, with the same names:
+ *                            the states saved now list their pointers exactly
+ *                            and load safely into other builds (StateSave)
+ *   TMC_HASH=F,F,... | every:K   print "hash F state S video V": checksums of the
+ *                            state and of the picture, to compare runs
+ *   TMC_FRAMES=+n            stop n frames after the start (or the loaded state)
+ *   TMC_RECORD_INPUT=path    write the keys each frame held as a TMC_INPUT
+ *                            script (absolute frames), to replay a run exactly
+ * States are taken at the main loop's frame boundary: a frame that falls in one
+ * of the game's pause loops saves at the next boundary instead.
  */
 
 #include <execinfo.h>
@@ -21,6 +37,7 @@
 #include "port/ppu.h"
 #include "port/romdata.h"
 #include "port/sound.h"
+#include "port/state.h"
 
 void TraceGameTask(uint64_t frame); // trace.c (kept apart: game headers clash with libc)
 void TraceEntities(uint64_t frame);
@@ -32,6 +49,7 @@ void AgbMain(void);
 uint64_t gPlatformFrame;
 static const char* sMapDir; // TMC_MAPDUMP
 static uint64_t sFrameLimit;
+static int sFrameLimitRelative; // TMC_FRAMES=+n
 static jmp_buf sResetPoint;
 
 // TMC_INPUT="step,step,...": scripted buttons (a b select start right left up
@@ -51,7 +69,12 @@ static jmp_buf sResetPoint;
 // COND is control (gameplay running, player free to move, no message or fade),
 // room=AA.RR (hex area and room, with control), in=AA.RR (the same without
 // control), msg (a message is shown) or nomsg. A failed step prints why and exits with status 3.
-typedef enum { STEP_KEYS, STEP_WAIT, STEP_MASH, STEP_GOX, STEP_GOY } StepKind;
+//
+//   save:NAME         save a state as TMC_STATE_DIR/NAME.tmcs at the next frame
+//                     boundary (only when TMC_STATE_DIR is set; the step takes
+//                     the same frames either way, so runs stay alike). A script
+//                     that starts from it (TMC_LOAD_STATE) carries on from there.
+typedef enum { STEP_KEYS, STEP_WAIT, STEP_MASH, STEP_GOX, STEP_GOY, STEP_SAVE } StepKind;
 typedef enum { COND_CONTROL, COND_ROOM, COND_IN, COND_MSG, COND_NOMSG } StepCond;
 typedef struct {
     StepKind kind;
@@ -62,9 +85,9 @@ typedef struct {
     int area, room, target, stable;
     char text[48];
 } ScriptStep;
-#define MAX_STEPS 8192
-static ScriptStep sSteps[MAX_STEPS];
-static int sStepCount;
+static ScriptStep* sSteps;
+static const char* const sKeyNames[] = { "a", "b", "select", "start", "right", "left", "up", "down", "r", "l" };
+static int sStepCount, sStepCapacity;
 
 static char* ReadInputFile(const char* path) {
     FILE* file = fopen(path, "r");
@@ -96,14 +119,13 @@ static char* ReadInputFile(const char* path) {
 }
 
 static uint16_t ParseKeys(const char* item, char* keys) {
-    static const char* const names[] = { "a", "b", "select", "start", "right", "left", "up", "down", "r", "l" };
     uint16_t mask = 0;
     char* rest;
 
     for (char* name = strtok_r(keys, "+", &rest); name != NULL; name = strtok_r(NULL, "+", &rest)) {
         int found = 0;
         for (int i = 0; i < 10; i++) {
-            if (strcmp(name, names[i]) == 0) {
+            if (strcmp(name, sKeyNames[i]) == 0) {
                 mask |= 1 << i;
                 found = 1;
             }
@@ -117,15 +139,16 @@ static uint16_t ParseKeys(const char* item, char* keys) {
 }
 
 static void ParseStep(const char* item) {
-    ScriptStep* step = &sSteps[sStepCount];
+    ScriptStep* step;
     char word[16] = { 0 }, arg[64] = { 0 };
     unsigned long long timeout = 3000;
     int stable = 20;
 
-    if (sStepCount == MAX_STEPS) {
-        fprintf(stderr, "TMC_INPUT: more than %d steps\n", MAX_STEPS);
-        exit(1);
+    if (sStepCount == sStepCapacity) {
+        sStepCapacity = sStepCapacity != 0 ? sStepCapacity * 2 : 1024;
+        sSteps = realloc(sSteps, sizeof(ScriptStep) * sStepCapacity);
     }
+    step = &sSteps[sStepCount];
     memset(step, 0, sizeof(*step));
     snprintf(step->text, sizeof(step->text), "%s", item);
     if (sscanf(item, "%15[a-z]:%63[^:]:%llu:%d", word, arg, &timeout, &stable) >= 2) {
@@ -147,6 +170,9 @@ static void ParseStep(const char* item) {
                 fprintf(stderr, "TMC_INPUT: unknown condition in '%s'\n", item);
                 exit(1);
             }
+        } else if (strcmp(word, "save") == 0) {
+            step->kind = STEP_SAVE;
+            snprintf(step->text, sizeof(step->text), "%s", arg);
         } else if (strcmp(word, "gox") == 0 || strcmp(word, "goy") == 0) {
             step->kind = word[2] == 'x' ? STEP_GOX : STEP_GOY;
             step->target = atoi(arg);
@@ -191,6 +217,9 @@ static int sStep;
 static uint64_t sBase;     // start of the previous step, or end of the previous wait/walk
 static uint64_t sStepSince; // when the current wait/walk began
 static int sLastPos, sStillFrames, sCondFrames;
+static const char* sStateDir; // TMC_STATE_DIR
+static const char* sStateReference; // TMC_STATE_REFERENCE
+static int sScriptSaveDone;   // the current save: step's state was written at this boundary
 
 static void StepFailed(const ScriptStep* step, const char* why) {
     HeadlessState s;
@@ -256,7 +285,12 @@ static uint16_t ScriptedKeys(void) {
             sStillFrames = 0;
             sCondFrames = 0;
         }
-        if (step->kind == STEP_WAIT || step->kind == STEP_MASH) {
+        if (step->kind == STEP_SAVE) {
+            if (!sScriptSaveDone) {
+                break; // saved at the start of the next loop boundary (HeadlessStates)
+            }
+            sScriptSaveDone = 0;
+        } else if (step->kind == STEP_WAIT || step->kind == STEP_MASH) {
             sCondFrames = CondHolds(step, &s) ? sCondFrames + 1 : 0;
             if (sCondFrames >= step->stable) {
                 printf("frame %llu: step %d '%s' done\n", (unsigned long long)gPlatformFrame, sStep, step->text);
@@ -397,8 +431,162 @@ static void Screenshot(const uint16_t* frame) {
     }
 }
 
+// Frame lists: "F,F,..." (up to 256) or "every:K".
+typedef struct {
+    uint64_t frames[256];
+    int count;
+    uint64_t every;
+} FrameList;
+
+static void ParseFrameList(const char* text, FrameList* list) {
+    if (strncmp(text, "every:", 6) == 0) {
+        list->every = strtoull(text + 6, NULL, 10);
+        return;
+    }
+    while (*text && list->count < 256) {
+        char* end;
+        list->frames[list->count++] = strtoull(text, &end, 10);
+        if (end == text) {
+            break;
+        }
+        text = *end == ',' ? end + 1 : end;
+    }
+}
+
+static int InFrameList(const FrameList* list, uint64_t frame) {
+    if (list->every != 0 && frame % list->every == 0) {
+        return 1;
+    }
+    for (int i = 0; i < list->count; i++) {
+        if (list->frames[i] == frame) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static const char* sLoadState; // TMC_LOAD_STATE, until loaded
+static FrameList sSaveFrames;  // TMC_SAVE_STATES
+static uint64_t sSaveDue = UINT64_MAX; // a listed frame that fell in a pause loop
+static FrameList sHashFrames; // TMC_HASH
+static int sHashing;
+
+static void SaveStateAs(const char* name) {
+    char path[1024], reference[1024], message[256];
+
+    mkdir(sStateDir, 0755);
+    snprintf(path, sizeof(path), "%s/%s.%s", sStateDir, name, STATE_EXTENSION);
+    snprintf(reference, sizeof(reference), "%s/%s.%s", sStateReference, name, STATE_EXTENSION);
+    if (!StateSave(path, gPlatformFrame, sStateReference != NULL ? reference : NULL, message, sizeof(message))) {
+        fprintf(stderr, "save state: %s\n", message);
+        exit(1);
+    }
+    printf("frame %llu: saved state %s (checksum %016llx)\n", (unsigned long long)gPlatformFrame, path,
+           (unsigned long long)StateChecksum());
+}
+
+// Loads, saves and checksums, at the start of a frame (before its input).
+static void HeadlessStates(void) {
+    int boundary = PlatformAtLoopBoundary();
+
+    if (sLoadState != NULL && boundary) {
+        char message[256];
+        uint64_t frame;
+
+        if (!StateLoad(sLoadState, &frame, message, sizeof(message))) {
+            fprintf(stderr, "TMC_LOAD_STATE: %s\n", message);
+            exit(1);
+        }
+        if (message[0] != 0) {
+            fprintf(stderr, "TMC_LOAD_STATE: %s\n", message);
+        }
+        printf("frame %llu: loaded state %s (checksum %016llx)\n", (unsigned long long)frame, sLoadState,
+               (unsigned long long)StateChecksum());
+        sLoadState = NULL;
+        gPlatformFrame = frame;
+        if (sFrameLimitRelative) {
+            sFrameLimit += frame;
+            sFrameLimitRelative = 0;
+        }
+        // The input script starts here: relative steps count from this frame.
+        sBase = gPlatformFrame;
+        memset(sWindows, 0, sizeof(sWindows));
+    }
+    if (sHashing && InFrameList(&sHashFrames, gPlatformFrame)) {
+        static uint16_t sPicture[PPU_WIDTH * PPU_HEIGHT];
+        PpuRenderFrame(sPicture);
+        printf("hash %llu state %016llx video %016llx%s\n", (unsigned long long)gPlatformFrame,
+               (unsigned long long)StateChecksum(), (unsigned long long)StateHashBytes(sPicture, sizeof(sPicture)),
+               boundary ? "" : " (pause loop)");
+    }
+    if (InFrameList(&sSaveFrames, gPlatformFrame) && sSaveDue == UINT64_MAX) {
+        sSaveDue = gPlatformFrame;
+    }
+    if (!boundary) {
+        return;
+    }
+    if (sSaveDue != UINT64_MAX) {
+        char name[32];
+        snprintf(name, sizeof(name), "frame_%06llu", (unsigned long long)gPlatformFrame);
+        SaveStateAs(name);
+        sSaveDue = UINT64_MAX;
+    }
+    if (sStep < sStepCount && sSteps[sStep].kind == STEP_SAVE && !sScriptSaveDone) {
+        for (int i = 0; i < 64; i++) {
+            if (sWindows[i].end > gPlatformFrame) {
+                fprintf(stderr, "TMC_INPUT: keys still held at save:%s; a state does not carry them\n",
+                        sSteps[sStep].text);
+                break;
+            }
+        }
+        if (sStateDir != NULL) {
+            SaveStateAs(sSteps[sStep].text);
+        }
+        sScriptSaveDone = 1;
+    }
+}
+
+// TMC_RECORD_INPUT: one "F:keys:D" step per run of the same keys.
+static FILE* sRecord;
+static uint64_t sRecordStart;
+static uint16_t sRecordKeys;
+
+static void RecordRun(void) {
+    if (sRecordKeys == 0) {
+        return;
+    }
+    fprintf(sRecord, "%llu:", (unsigned long long)sRecordStart);
+    for (int i = 0, first = 1; i < 10; i++) {
+        if (sRecordKeys & (1 << i)) {
+            fprintf(sRecord, "%s%s", first ? "" : "+", sKeyNames[i]);
+            first = 0;
+        }
+    }
+    fprintf(sRecord, ":%llu\n", (unsigned long long)(gPlatformFrame - sRecordStart));
+}
+
+static void RecordKeys(uint16_t keys) {
+    if (keys != sRecordKeys) {
+        RecordRun();
+        sRecordStart = gPlatformFrame;
+        sRecordKeys = keys;
+    }
+}
+
+static void FinishRecording(void) {
+    RecordRun();
+    fclose(sRecord);
+}
+
 void PlatformVBlank(void) {
-    HwSetKeys(ScriptedKeys());
+    uint16_t keys;
+
+    HeadlessStates();
+    keys = ScriptedKeys();
+    if (sRecord != NULL) {
+        RecordKeys(keys);
+    }
+    HwSetKeys(keys);
     if (sTraceTask) {
         TraceGameTask(gPlatformFrame);
     }
@@ -480,9 +668,13 @@ _Noreturn void PlatformSoftReset(void) {
     longjmp(sResetPoint, 1);
 }
 
-int main(void) {
+int main(int argc, char** argv) {
     const char* frames = getenv("TMC_FRAMES");
-    sFrameLimit = frames != NULL ? strtoull(frames, NULL, 10) : 0;
+
+    // Same addresses every run: states load byte for byte, checksums compare.
+    StateDisableAslr(argv);
+    sFrameLimitRelative = frames != NULL && frames[0] == '+';
+    sFrameLimit = frames != NULL ? strtoull(frames + sFrameLimitRelative, NULL, 10) : 0;
     setvbuf(stdout, NULL, _IOLBF, 0);
     InstallDiagnostics();
     RomDataPrepareOrExit("tmc");
@@ -510,6 +702,25 @@ int main(void) {
         exit(1);
     }
     SoundWavFromEnv();
+    if (getenv("TMC_RECORD_INPUT") != NULL) {
+        if ((sRecord = fopen(getenv("TMC_RECORD_INPUT"), "w")) == NULL) {
+            fprintf(stderr, "TMC_RECORD_INPUT: cannot write %s\n", getenv("TMC_RECORD_INPUT"));
+            exit(1);
+        }
+        fprintf(sRecord, "# Keys recorded by the headless runner (TMC_RECORD_INPUT)\n");
+        atexit(FinishRecording);
+    }
+    sLoadState = getenv("TMC_LOAD_STATE");
+    sStateDir = getenv("TMC_STATE_DIR");
+    sStateReference = getenv("TMC_STATE_REFERENCE");
+    if (getenv("TMC_SAVE_STATES") != NULL) {
+        ParseFrameList(getenv("TMC_SAVE_STATES"), &sSaveFrames);
+        sStateDir = sStateDir != NULL ? sStateDir : "states";
+    }
+    if (getenv("TMC_HASH") != NULL) {
+        ParseFrameList(getenv("TMC_HASH"), &sHashFrames);
+        sHashing = 1;
+    }
 
     HwSetKeys(0);
     setjmp(sResetPoint);
