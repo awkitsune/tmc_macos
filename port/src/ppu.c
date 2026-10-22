@@ -2,8 +2,9 @@
  * Software GBA picture processor (see port/ppu.h). Implements display modes 0-2:
  * text and affine backgrounds, regular and affine sprites, priorities, windows
  * (WIN0, WIN1, OBJ window) and colour effects (alpha blending, brighten,
- * darken). Registers are read once per frame; mid-frame changes made by HBlank
- * DMA or VCOUNT interrupts are not modelled yet.
+ * darken). Frames are drawn one scanline at a time and each line reads the
+ * registers as they are then, so changes made between lines (HBlank DMA, VCOUNT
+ * interrupts; see frame.c) show up on the lines that follow, as on hardware.
  */
 
 #include <stdio.h>
@@ -96,17 +97,21 @@ static void RenderTextBg(int bg, int line, BgLine* out) {
     }
 }
 
-static void RenderAffineBg(int bg, int line, BgLine* out) {
+// Internal reference points of BG2 and BG3 (index bg - 2), 28-bit signed 8.8.
+// Hardware copies BGxX/BGxY into these at VBlank and whenever they are written,
+// and adds PB/PD after every line.
+static int32_t sRefX[2], sRefY[2];
+
+static void RenderAffineBg(int bg, BgLine* out) {
     uint16_t cnt = Reg16(0x08 + bg * 2);
     uint32_t charBase = ((cnt >> 2) & 3) * 0x4000;
     uint32_t screenBase = ((cnt >> 8) & 0x1F) * 0x800;
     int wrap = (cnt >> 13) & 1;
     int size = 128 << (cnt >> 14);
     uint32_t regs = bg == 2 ? 0x20 : 0x30;
-    int16_t pa = Reg16(regs), pb = Reg16(regs + 2), pc = Reg16(regs + 4), pd = Reg16(regs + 6);
-    // Reference point for this line (registers hold line 0's; each line adds pb/pd).
-    int32_t refX = Reg28(regs + 8) + pb * line;
-    int32_t refY = Reg28(regs + 12) + pd * line;
+    int16_t pa = Reg16(regs), pc = Reg16(regs + 4);
+    int32_t refX = sRefX[bg - 2];
+    int32_t refY = sRefY[bg - 2];
 
     out->priority = cnt & 3;
     for (int sx = 0; sx < PPU_WIDTH; sx++) {
@@ -250,7 +255,26 @@ static uint16_t Brightness(uint16_t c, int evy, int up) {
     return ch[0] | (ch[1] << 5) | (ch[2] << 10);
 }
 
-void PpuRenderFrame(uint16_t* framebuffer) {
+void PpuBeginFrame(void) {
+    for (int i = 0; i < 2; i++) {
+        sRefX[i] = Reg28(0x28 + i * 0x10);
+        sRefY[i] = Reg28(0x2C + i * 0x10);
+    }
+}
+
+void PpuIoWritten(uint32_t offset, uint32_t size) {
+    for (int i = 0; i < 2; i++) {
+        uint32_t x = 0x28 + i * 0x10, y = x + 4;
+        if (offset < x + 4 && offset + size > x) {
+            sRefX[i] = Reg28(x);
+        }
+        if (offset < y + 4 && offset + size > y) {
+            sRefY[i] = Reg28(y);
+        }
+    }
+}
+
+static void RenderLine(int line, uint16_t* out) {
     uint16_t dispcnt = Reg16(0x00);
     int mode = dispcnt & 7;
     uint16_t bldcnt = Reg16(0x50);
@@ -262,6 +286,7 @@ void PpuRenderFrame(uint16_t* framebuffer) {
     uint16_t winin = Reg16(0x48), winout = Reg16(0x4A);
     static BgLine bgs[4];
     static ObjLine objs;
+    int bgEnabled[4] = { 0 };
 
     if (eva > 16) {
         eva = 16;
@@ -273,101 +298,114 @@ void PpuRenderFrame(uint16_t* framebuffer) {
         evy = 16;
     }
 
-    for (int line = 0; line < PPU_HEIGHT; line++) {
-        uint16_t* out = &framebuffer[line * PPU_WIDTH];
-        int bgEnabled[4] = { 0 };
-
-        if (dispcnt & 0x80) { // forced blank
-            for (int x = 0; x < PPU_WIDTH; x++) {
-                out[x] = 0x7FFF;
-            }
+    if (dispcnt & 0x80) { // forced blank
+        for (int x = 0; x < PPU_WIDTH; x++) {
+            out[x] = 0x7FFF;
+        }
+        return;
+    }
+    for (int bg = 0; bg < 4; bg++) {
+        int enabled = (dispcnt >> (8 + bg)) & 1;
+        if (!enabled || (mode == 1 && bg == 3) || (mode == 2 && bg < 2) || mode > 2) {
             continue;
         }
-        for (int bg = 0; bg < 4; bg++) {
-            int enabled = (dispcnt >> (8 + bg)) & 1;
-            if (!enabled || (mode == 1 && bg == 3) || (mode == 2 && bg < 2) || mode > 2) {
-                continue;
-            }
-            bgEnabled[bg] = 1;
-            if ((mode == 1 && bg == 2) || mode == 2) {
-                RenderAffineBg(bg, line, &bgs[bg]);
-            } else {
-                RenderTextBg(bg, line, &bgs[bg]);
-            }
-        }
-        if (dispcnt & 0x1000) {
-            RenderObjs(line, (dispcnt >> 6) & 1, &objs);
+        bgEnabled[bg] = 1;
+        if ((mode == 1 && bg == 2) || mode == 2) {
+            RenderAffineBg(bg, &bgs[bg]);
         } else {
-            memset(&objs, 0xFF, sizeof(objs.color));
-            memset(objs.window, 0, sizeof(objs.window));
+            RenderTextBg(bg, line, &bgs[bg]);
+        }
+    }
+    if (dispcnt & 0x1000) {
+        RenderObjs(line, (dispcnt >> 6) & 1, &objs);
+    } else {
+        memset(&objs, 0xFF, sizeof(objs.color));
+        memset(objs.window, 0, sizeof(objs.window));
+    }
+
+    for (int x = 0; x < PPU_WIDTH; x++) {
+        // Which layers and effects this pixel's window allows (bits 0-5).
+        int enable = 0x3F;
+        int top = LAYER_BD, second = LAYER_BD;
+        uint16_t topColor = Palette(0), secondColor = Palette(0);
+        int topPriority = 4, secondPriority = 4;
+        uint16_t color;
+
+        if (anyWindow) {
+            enable = winout & 0x3F;
+            if ((dispcnt & 0x8000) && objs.window[x]) {
+                enable = (winout >> 8) & 0x3F;
+            }
+            for (int w = 1; w >= 0; w--) {
+                if (!(dispcnt & (0x2000 << w))) {
+                    continue;
+                }
+                uint16_t h = Reg16(0x40 + w * 2), v = Reg16(0x44 + w * 2);
+                int x1 = h >> 8, x2 = h & 0xFF, y1 = v >> 8, y2 = v & 0xFF;
+                int inX = x1 <= x2 ? (x >= x1 && x < x2) : (x >= x1 || x < x2);
+                int inY = y1 <= y2 ? (line >= y1 && line < y2) : (line >= y1 || line < y2);
+                if (inX && inY) {
+                    enable = (winin >> (w * 8)) & 0x3F;
+                }
+            }
         }
 
-        for (int x = 0; x < PPU_WIDTH; x++) {
-            // Which layers and effects this pixel's window allows (bits 0-5).
-            int enable = 0x3F;
-            int top = LAYER_BD, second = LAYER_BD;
-            uint16_t topColor = Palette(0), secondColor = Palette(0);
-            int topPriority = 4, secondPriority = 4;
-            uint16_t color;
-
-            if (anyWindow) {
-                enable = winout & 0x3F;
-                if ((dispcnt & 0x8000) && objs.window[x]) {
-                    enable = (winout >> 8) & 0x3F;
-                }
-                for (int w = 1; w >= 0; w--) {
-                    if (!(dispcnt & (0x2000 << w))) {
-                        continue;
-                    }
-                    uint16_t h = Reg16(0x40 + w * 2), v = Reg16(0x44 + w * 2);
-                    int x1 = h >> 8, x2 = h & 0xFF, y1 = v >> 8, y2 = v & 0xFF;
-                    int inX = x1 <= x2 ? (x >= x1 && x < x2) : (x >= x1 || x < x2);
-                    int inY = y1 <= y2 ? (line >= y1 && line < y2) : (line >= y1 || line < y2);
-                    if (inX && inY) {
-                        enable = (winin >> (w * 8)) & 0x3F;
-                    }
+        // Find the two front-most layers: lower priority first, OBJ before
+        // BGs of equal priority, then lower BG number.
+        for (int prio = 0; prio < 4 && second == LAYER_BD; prio++) {
+            if ((enable & 0x10) && objs.color[x] != PIXEL_EMPTY && objs.priority[x] == prio) {
+                if (top == LAYER_BD) {
+                    top = LAYER_OBJ, topColor = objs.color[x], topPriority = prio;
+                } else {
+                    second = LAYER_OBJ, secondColor = objs.color[x], secondPriority = prio;
                 }
             }
-
-            // Find the two front-most layers: lower priority first, OBJ before
-            // BGs of equal priority, then lower BG number.
-            for (int prio = 0; prio < 4 && second == LAYER_BD; prio++) {
-                if ((enable & 0x10) && objs.color[x] != PIXEL_EMPTY && objs.priority[x] == prio) {
-                    if (top == LAYER_BD) {
-                        top = LAYER_OBJ, topColor = objs.color[x], topPriority = prio;
-                    } else {
-                        second = LAYER_OBJ, secondColor = objs.color[x], secondPriority = prio;
-                    }
+            for (int bg = 0; bg < 4 && second == LAYER_BD; bg++) {
+                if (!bgEnabled[bg] || !(enable & (1 << bg)) || bgs[bg].priority != prio ||
+                    bgs[bg].color[x] == PIXEL_EMPTY) {
+                    continue;
                 }
-                for (int bg = 0; bg < 4 && second == LAYER_BD; bg++) {
-                    if (!bgEnabled[bg] || !(enable & (1 << bg)) || bgs[bg].priority != prio ||
-                        bgs[bg].color[x] == PIXEL_EMPTY) {
-                        continue;
-                    }
-                    if (top == LAYER_BD) {
-                        top = bg, topColor = bgs[bg].color[x], topPriority = prio;
-                    } else {
-                        second = bg, secondColor = bgs[bg].color[x], secondPriority = prio;
-                    }
+                if (top == LAYER_BD) {
+                    top = bg, topColor = bgs[bg].color[x], topPriority = prio;
+                } else {
+                    second = bg, secondColor = bgs[bg].color[x], secondPriority = prio;
                 }
             }
-            (void)topPriority;
-            (void)secondPriority;
+        }
+        (void)topPriority;
+        (void)secondPriority;
 
-            color = topColor;
-            if (top == LAYER_OBJ && objs.semiTransparent[x] && (bldcnt & (0x100 << second))) {
+        color = topColor;
+        if (top == LAYER_OBJ && objs.semiTransparent[x] && (bldcnt & (0x100 << second))) {
+            color = Blend(topColor, secondColor, eva, evb);
+        } else if ((enable & 0x20) && (bldcnt & (1 << top))) {
+            if (effect == 1 && (bldcnt & (0x100 << second))) {
                 color = Blend(topColor, secondColor, eva, evb);
-            } else if ((enable & 0x20) && (bldcnt & (1 << top))) {
-                if (effect == 1 && (bldcnt & (0x100 << second))) {
-                    color = Blend(topColor, secondColor, eva, evb);
-                } else if (effect == 2) {
-                    color = Brightness(topColor, evy, 1);
-                } else if (effect == 3) {
-                    color = Brightness(topColor, evy, 0);
-                }
+            } else if (effect == 2) {
+                color = Brightness(topColor, evy, 1);
+            } else if (effect == 3) {
+                color = Brightness(topColor, evy, 0);
             }
-            out[x] = color;
         }
+        out[x] = color;
+    }
+}
+
+void PpuRenderLine(int line, uint16_t* out) {
+    if (out != NULL) {
+        RenderLine(line, out);
+    }
+    // Step the affine reference points to the next line.
+    for (int i = 0; i < 2; i++) {
+        sRefX[i] += (int16_t)Reg16(0x22 + i * 0x10);
+        sRefY[i] += (int16_t)Reg16(0x26 + i * 0x10);
+    }
+}
+
+void PpuRenderFrame(uint16_t* framebuffer) {
+    PpuBeginFrame();
+    for (int line = 0; line < PPU_HEIGHT; line++) {
+        PpuRenderLine(line, &framebuffer[line * PPU_WIDTH]);
     }
 }
 

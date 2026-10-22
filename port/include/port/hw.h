@@ -35,6 +35,13 @@ void HwDmaSet(int channel, const void* src, void* dest, uint32_t control);
 void HwDmaStop(int channel);
 
 /*
+ * Service the latched transfers at an HBlank (after each visible line) or at the
+ * start of VBlank. Return nonzero if any channel ran.
+ */
+int HwDmaHBlank(void);
+int HwDmaVBlank(void);
+
+/*
  * Host pointer for a fixed GBA address: hardware regions map to the buffers above,
  * EWRAM/IWRAM to the variable placed there (by symbol, from the GBA link).
  * Aborts on an address with no native counterpart.
@@ -57,10 +64,13 @@ void HwSystemCall(int number);
 #define HW_KEY_L 0x0200
 
 /*
- * Frame boundary helpers for platform layers (frame.c): latch the held keys into
- * KEYINPUT, then raise the mid-frame VCOUNT and the VBLANK interrupts.
+ * Frame helpers for platform layers (frame.c). HwSetKeys latches the held keys
+ * into KEYINPUT. HwRunFrame plays out one frame of display timing: for each of
+ * the 160 visible lines it raises the VCOUNT interrupt on its line, draws the
+ * line into framebuffer (240x160 15-bit colours; NULL to draw nothing), then
+ * services HBlank (interrupt and DMA); then VBlank DMA and interrupt.
  */
 void HwSetKeys(uint16_t held);
-void HwFrameInterrupts(void);
+void HwRunFrame(uint16_t* framebuffer);
 
 #endif // PORT_HW_H

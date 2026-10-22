@@ -13,6 +13,18 @@
  */
 void PpuRenderFrame(uint16_t* framebuffer);
 
+/*
+ * Scanline interface, for frames whose registers change between lines (frame.c):
+ * PpuBeginFrame latches the affine reference points at the start of a frame,
+ * PpuRenderLine draws one line (out may be NULL to only advance the line state),
+ * and PpuIoWritten tells the PPU that registers in [offset, offset + size) were
+ * written mid-frame, which reloads the affine reference points they cover.
+ * PpuRenderFrame is all 160 lines with no changes in between.
+ */
+void PpuBeginFrame(void);
+void PpuRenderLine(int line, uint16_t* out);
+void PpuIoWritten(uint32_t offset, uint32_t size);
+
 /* Write a framebuffer as an RGB PNG. Returns 0 on success. */
 int PpuWritePng(const uint16_t* framebuffer, const char* path);
 int PpuWritePngSize(const uint16_t* framebuffer, int width, int height, const char* path);

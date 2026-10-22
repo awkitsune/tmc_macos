@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "port/hw.h"
+#include "port/ppu.h"
 
 uint8_t gHwIo[HW_IO_SIZE];
 uint8_t gHwPltt[HW_PLTT_SIZE];
@@ -17,22 +18,33 @@ void* gHwIntrVector;
 #define CNT_DEST_MASK 0x0060
 #define CNT_DEST_DEC 0x0020
 #define CNT_DEST_FIXED 0x0040
+#define CNT_DEST_RELOAD 0x0060
 #define CNT_SRC_MASK 0x0180
 #define CNT_SRC_DEC 0x0080
 #define CNT_SRC_FIXED 0x0100
 #define CNT_REPEAT 0x0200
 #define CNT_32BIT 0x0400
 #define CNT_START_MASK 0x3000
+#define CNT_START_VBLANK 0x1000
+#define CNT_START_HBLANK 0x2000
 #define CNT_ENABLE 0x8000
 
 typedef struct {
-    const void* src;
-    void* dest;
+    const uint8_t* src;
+    uint8_t* dest;
+    uint8_t* destStart; // reloaded after each repeat with CNT_DEST_RELOAD
     uint32_t control;
 } HwDmaChannel;
 
 // Timed (non-immediate) transfers, latched for the frame loop to service.
 static HwDmaChannel sDmaChannels[4];
+
+// Advance a transfer's addresses past count units the way the DMA unit does.
+static intptr_t Step(uint16_t cnt, uint32_t mask, uint32_t dec, uint32_t fixed) {
+    int unit = (cnt & CNT_32BIT) ? 4 : 2;
+    uint32_t mode = cnt & mask;
+    return mode == dec ? -unit : mode == fixed ? 0 : unit;
+}
 
 static void RunTransfer(const void* src, void* dest, uint32_t control) {
     uint16_t cnt = control >> 16;
@@ -79,7 +91,49 @@ void HwDmaSet(int channel, const void* src, void* dest, uint32_t control) {
         RunTransfer(src, dest, control);
         return;
     }
-    sDmaChannels[channel] = (HwDmaChannel){ src, dest, control };
+    sDmaChannels[channel] = (HwDmaChannel){ src, dest, dest, control };
+}
+
+// Run the channels waiting for one start timing (HBlank or VBlank).
+static int RunTimed(uint16_t start) {
+    int ran = 0;
+
+    for (int i = 0; i < 4; i++) {
+        HwDmaChannel* ch = &sDmaChannels[i];
+        uint16_t cnt = ch->control >> 16;
+        uint32_t count = ch->control & 0xFFFF;
+
+        if (!(cnt & CNT_ENABLE) || (cnt & CNT_START_MASK) != start) {
+            continue;
+        }
+        if (count == 0) {
+            count = i == 3 ? 0x10000 : 0x4000;
+        }
+        RunTransfer(ch->src, ch->dest, (ch->control & 0xFFFF0000u) | (count & 0xFFFF));
+        if (ch->dest >= gHwIo && ch->dest < gHwIo + HW_IO_SIZE) {
+            // Assumes an incrementing or reloading destination, the only kind used.
+            PpuIoWritten(ch->dest - gHwIo, count * ((cnt & CNT_32BIT) ? 4 : 2));
+        }
+        ch->src += Step(cnt, CNT_SRC_MASK, CNT_SRC_DEC, CNT_SRC_FIXED) * (intptr_t)count;
+        if ((cnt & CNT_DEST_MASK) == CNT_DEST_RELOAD) {
+            ch->dest = ch->destStart;
+        } else {
+            ch->dest += Step(cnt, CNT_DEST_MASK, CNT_DEST_DEC, CNT_DEST_FIXED) * (intptr_t)count;
+        }
+        if (!(cnt & CNT_REPEAT)) {
+            ch->control &= ~((uint32_t)CNT_ENABLE << 16);
+        }
+        ran = 1;
+    }
+    return ran;
+}
+
+int HwDmaHBlank(void) {
+    return RunTimed(CNT_START_HBLANK);
+}
+
+int HwDmaVBlank(void) {
+    return RunTimed(CNT_START_VBLANK);
 }
 
 void HwDmaStop(int channel) {

@@ -326,15 +326,9 @@ static FILE* sHashFile; // TMC_FRAME_HASH
 
 // TMC_FRAME_HASH=path writes "frame crc32" for every frame's picture, to compare
 // renderer changes numerically between runs.
-static void MaybeHashFrame(void) {
-    static uint16_t sFrame[PPU_WIDTH * PPU_HEIGHT];
-
-    if (sHashFile == NULL) {
-        return;
-    }
-    PpuRenderFrame(sFrame);
+static void HashFrame(const uint16_t* frame) {
     fprintf(sHashFile, "%llu %08lx\n", (unsigned long long)gPlatformFrame,
-            crc32(0, (const Bytef*)sFrame, sizeof(sFrame)));
+            crc32(0, (const Bytef*)frame, PPU_WIDTH * PPU_HEIGHT * sizeof(*frame)));
 }
 
 // TMC_SCREENSHOT="frame,frame,..." or "every:n" saves PNGs to TMC_SCREENSHOT_DIR
@@ -359,17 +353,16 @@ static void ParseScreenshots(const char* text) {
     }
 }
 
-static void MaybeScreenshot(void) {
-    static uint16_t sFrame[PPU_WIDTH * PPU_HEIGHT];
+static int ScreenshotThisFrame(void) {
     int take = sShotEvery != 0 && gPlatformFrame % sShotEvery == 0;
-    char path[1024];
 
     for (int i = 0; i < sShotCount && !take; i++) {
         take = sShotFrames[i] == gPlatformFrame;
     }
-    if (!take) {
-        return;
-    }
+    return take;
+}
+
+static void DumpIo(void) {
     if (getenv("TMC_DUMP_IO") != NULL) {
         fprintf(stderr, "frame %llu io:", (unsigned long long)gPlatformFrame);
         for (int i = 0; i < 0x56; i += 2) {
@@ -393,9 +386,13 @@ static void MaybeScreenshot(void) {
         }
         fprintf(stderr, "\n");
     }
-    PpuRenderFrame(sFrame);
+}
+
+static void Screenshot(const uint16_t* frame) {
+    char path[1024];
+
     snprintf(path, sizeof(path), "%s/frame_%06llu.png", sShotDir, (unsigned long long)gPlatformFrame);
-    if (PpuWritePng(sFrame, path) != 0) {
+    if (PpuWritePng(frame, path) != 0) {
         fprintf(stderr, "screenshot: cannot write %s\n", path);
     }
 }
@@ -414,11 +411,22 @@ void PlatformVBlank(void) {
     if (sMapDir != NULL) {
         MaybeDumpMap();
     }
-    // The picture shown during this frame: registers as the last VBlank left them.
-    MaybeScreenshot();
-    MaybeHashFrame();
+    // The picture shown during this frame, drawn only when something needs it.
+    {
+        static uint16_t sFrame[PPU_WIDTH * PPU_HEIGHT];
+        int shot = ScreenshotThisFrame();
 
-    HwFrameInterrupts();
+        if (shot) {
+            DumpIo();
+        }
+        HwRunFrame(shot || sHashFile != NULL ? sFrame : NULL);
+        if (shot) {
+            Screenshot(sFrame);
+        }
+        if (sHashFile != NULL) {
+            HashFrame(sFrame);
+        }
+    }
 
     gPlatformFrame++;
     if (sFrameLimit != 0 && gPlatformFrame >= sFrameLimit) {

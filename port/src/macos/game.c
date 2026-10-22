@@ -76,13 +76,11 @@ bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence) {
     return fresh;
 }
 
-static void PublishFrame(void) {
-    static uint16_t sRaw[PPU_WIDTH * PPU_HEIGHT];
+static void PublishFrame(const uint16_t* raw) {
     static uint32_t sConverted[PPU_WIDTH * PPU_HEIGHT];
 
-    PpuRenderFrame(sRaw);
     for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) {
-        uint32_t r = sRaw[i] & 0x1F, g = (sRaw[i] >> 5) & 0x1F, b = (sRaw[i] >> 10) & 0x1F;
+        uint32_t r = raw[i] & 0x1F, g = (raw[i] >> 5) & 0x1F, b = (raw[i] >> 10) & 0x1F;
         r = (r << 3) | (r >> 2);
         g = (g << 3) | (g >> 2);
         b = (b << 3) | (b >> 2);
@@ -94,6 +92,7 @@ static void PublishFrame(void) {
     os_unfair_lock_unlock(&sFrameLock);
 }
 
+static uint16_t sRaw[PPU_WIDTH * PPU_HEIGHT];
 static uint64_t sFramePeriod; // mach ticks
 static uint64_t sNextDeadline;
 
@@ -147,9 +146,6 @@ void PlatformVBlank(void) {
     Pace();
     StopIfRequested();
 
-    // The picture shown during this frame: registers as the last VBlank left them.
-    PublishFrame();
-
     keys = atomic_load(&sHeldKeys);
     resetFrames = atomic_load(&sResetFrames);
     if (resetFrames > 0) {
@@ -157,7 +153,9 @@ void PlatformVBlank(void) {
         atomic_compare_exchange_strong(&sResetFrames, &resetFrames, resetFrames - 1);
     }
     HwSetKeys(keys);
-    HwFrameInterrupts();
+    // Draw this frame line by line, running its HBlank DMA and interrupts.
+    HwRunFrame(sRaw);
+    PublishFrame(sRaw);
     gPlatformFrame++;
 }
 
