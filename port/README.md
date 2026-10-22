@@ -95,6 +95,48 @@ This builds three programs from the same game code:
 Build just one with `--target tmc_app`, `--target tmc` or `--target tmc_songs`. If the link ever breaks, `cmake --build build/native --target
 link-report` groups the unresolved symbols by where the GBA build defines them.
 
+### Development and distributable builds
+
+The build above is a development build: the game data from the ROM is built
+into the programs, so they run as they are, but they must not be shared.
+`-DTMC_BAKE_DATA=OFF` makes a distributable build that contains no ROM data;
+each program gets it from the player's own ROM instead (see
+[First launch](#first-launch)). Use a separate build folder:
+
+```bash
+cmake -S port -B build/native-rom -DTMC_BAKE_DATA=OFF
+```
+
+```bash
+cmake --build build/native-rom -j
+```
+
+Building it still needs the GBA build (datagen reads its objects, and every
+byte it leaves out is checked against `tmc.gba`), but the result is about 5 MB
+instead of 18 MB:
+
+- datagen writes zeros where ROM bytes would go (zero-fill where a section
+  holds nothing else) and lists each stretch as a run: native address, ROM
+  offset and length, about 47,000 in all.
+- Tables the decomp writes in C are compiled byte for byte as the ROM holds
+  them. These builds link them writable, and `port/tools/scrub_rom_data.py`
+  moves the ROM's bytes out of each linked program the same way (about 560
+  stretches, 73 KB).
+
+To check that a program carries no ROM data:
+
+```bash
+python3 port/scripts/rom_overlap.py build/native-rom/TMC.app/Contents/MacOS/TMC baserom.gba
+```
+
+It lists every stretch of 64 bytes or more that the program shares with the ROM
+and exits with 1 if there is one. A distributable build has none; a
+development build shares 13.6 MB.
+
+In a development build with `TMC_ROM=path` set, `tmc` checks every run of the
+manifest against that ROM before it starts (`built-in data: all 46923 manifest
+runs ... match the ROM`).
+
 ### Playing
 
 ```bash
@@ -158,6 +200,46 @@ own scanline and the two around it, so bright lines spread into dark ones.
 The save is `~/Library/Application Support/tmc_macos/tmc.sav`, an 8 KB EEPROM
 image (*The Minish Cap* menu → Show Save Folder). `TMC_SAVE=path` overrides it.
 
+### First launch
+
+A distributable build asks for the ROM the first time it starts:
+
+1. If there is no extracted data, an open panel asks for *The Minish Cap* (USA)
+   ROM.
+2. The app checks the file's size and SHA1. It names the problem when the file
+   is the European, Japanese or a demo release, has a 512-byte copier header,
+   is patched or a bad dump, is another game or cannot be read. The alert
+   offers another file or quitting.
+3. A progress window shows the extraction, on a background thread: verifying,
+   then tables, graphics, maps and sound, then saving. It takes well under a
+   second.
+4. The game window opens.
+
+The data goes to `~/Library/Application Support/tmc_macos/gamedata.bin`
+(13.9 MB). It records the ROM's SHA1 and the version of the build's data
+manifest. Each launch fills the game data from it in about 5–20 ms.
+
+The app remembers where the ROM is, following it if it moves. When a new build
+needs different data, it extracts again from that ROM without asking, or asks
+again if the ROM is gone. *The Minish Cap* menu has Change ROM… and Re-extract
+Game Data, which rewrite the data file while the game keeps running. Deleting
+`gamedata.bin` brings back the first-launch flow.
+
+For tests, `TMC_ROM=path` uses that ROM without asking (and without remembering
+it), and `TMC_CACHE_DIR=dir` keeps the data file in `dir`. With `TMC_SELFTEST`,
+a failure prints the alert's text and exits with status 1 instead of waiting
+for a click. The progress window and any alert are saved as
+`romsetup_progress.png` and `romsetup_error.png`.
+
+A first launch from a clean data folder, through to the title screen:
+
+```bash
+TMC_CACHE_DIR=/tmp/tmc-data TMC_ROM=baserom.gba TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest build/native-rom/TMC.app/Contents/MacOS/TMC
+```
+
+`tmc` and `tmc-songs` from a distributable build read the same data file. If
+it is missing or outdated, they extract it from `TMC_ROM`, or stop and say so.
+
 `TMC_SELFTEST=dir` makes the app play itself through the title screen with
 synthesized key presses, saving what it presented as PNGs in `dir`, then quit;
 it needs no screen-recording permission. Besides the game screens it draws a
@@ -185,6 +267,9 @@ Environment variables control the headless runner:
 | `TMC_SCREENSHOT_DIR=path` | Where screenshots go (default `screenshots`) |
 | `TMC_DUMP_IO=1` | Print display and interrupt registers with each screenshot |
 | `TMC_WAV=path` | Record the run's sound to a WAV file (15768 Hz, or 48 kHz with `TMC_SOUND_QUALITY=hq`) |
+| `TMC_ROM=path` | Distributable build: extract the game data from this ROM if needed. Development build: check the built-in data against it |
+| `TMC_CACHE_DIR=dir` | Where the extracted game data lives (default `~/Library/Application Support/tmc_macos`) |
+| `TMC_ROMDATA_VERBOSE=1` | Print how the game data was loaded and how long it took |
 
 To see the logos, title screen and file select (Start, then A to leave the title
 screen):
@@ -260,6 +345,10 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/macos/input.m` | Keyboard and GameController input |
 | `port/src/macos/settings.m` | Display Settings window and the saved filter knobs |
 | `port/src/macos/selftest.m` | `TMC_SELFTEST` scripted run with PNG captures |
+| `port/src/macos/romsetup.m` | First launch: ROM open panel, progress window, errors, Change ROM… |
+| `port/src/romdata.c` | ROM checks, extraction to `gamedata.bin`, filling the game data from it |
+| `port/tools/scrub_rom_data.py` | Moves the ROM's bytes out of C-written tables after linking (distributable builds) |
+| `port/scripts/rom_overlap.py` | Lists what a program shares with the ROM |
 | `port/src/data_glue.c` | Code embedded in data, demo-only symbols, the save header |
 | `port/src/asm/` | C versions of every function in `asm/src/*.s` |
 | `port/src/eeprom.c` | Emulated save EEPROM (replaces `src/eeprom.c`) |
@@ -334,6 +423,11 @@ in `build/native/data`:
   sound data to its native counterpart, linearly for byte-for-byte data and by
   element for the re-laid-out voicegroups, and the sound engine translates
   addresses through it.
+
+In a distributable build (`--no-bake`) every byte copied from the GBA data
+keeps its place but is left zero. The run tables in `__DATA,__tmcruns` say
+where it goes. `rom_manifest.s` holds the ROM extents the data file stores,
+and `rom_manifest.txt` lists every run.
 
 About 1,100 tables have no C declaration; `hints.txt` types them, mostly by the
 data macro they start with. `build/native/data/notes.txt` lists C declarations
