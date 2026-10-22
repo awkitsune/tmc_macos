@@ -91,7 +91,12 @@ void Chuchu(ChuchuEntity* this) {
     }
     this->unk_81 = index;
     Chuchu_Functions[GetNextFunction(super)](this);
+#ifdef PLATFORM_NATIVE
+    // The child may not exist yet; the GBA reads BIOS bytes (never 0x1c) there.
+    if (CHUCHU_CHILD(this) != NULL && CHUCHU_CHILD(this)->type == 0x1c) {
+#else
     if (CHUCHU_CHILD(this)->type == 0x1c) {
+#endif
         EnemySetFXOffset(super, 0, 1, -0x10);
     } else if (super->type == 2) {
         sub_0801FB34(this);
