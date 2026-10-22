@@ -26,9 +26,11 @@ void FrontendSetSavePath(const char* path);
 
 /*
  * Copy the newest frame (PPU_WIDTH x PPU_HEIGHT, BGRA8) into dest if it is newer
- * than *sequence, updating *sequence. Returns whether a frame was copied.
+ * than *sequence, updating *sequence. Returns whether a frame was copied. The
+ * game frames since the last copy are the change in *sequence; *cut is set when
+ * a state load or a reset came in between (the picture does not follow on).
  */
-bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence);
+bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut);
 
 /* Keys held by the player (HW_KEY_* bits), read at the next frame boundary. */
 void FrontendSetKeys(uint16_t keys);

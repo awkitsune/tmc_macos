@@ -32,7 +32,37 @@ struct Uniforms {
     float crtBeamMin;       // beam width (Gaussian sigma, in scanlines) on black
     float crtBeamMax;       // beam width on white
     float lcdGapBloom;      // how much bright pixels shrink their gaps (0-1)
+    float lcdResponseMs;    // used by renderer.m for lcd_response, not here
+    float lcdDarkSlowdown;
 };
+
+// Keep in sync with ResponseUniforms in renderer.m.
+struct ResponseUniforms {
+    float keepRise; // share of the old picture left after one step, getting brighter
+    float keepFall; // the same, getting darker
+};
+
+// LCD response (ghosting): the GBA's screen takes ~20 ms to change a pixel, so
+// each new frame only partly replaces what was shown. Run once per new game
+// frame: history holds what the simulated LCD showed, in linear light; shown is
+// the new picture, gamma-encoded like the frame, for the present pass. Each
+// channel follows its own target, darker targets with keepFall.
+kernel void lcd_response(texture2d<float, access::read> frame [[texture(0)]],
+                         texture2d<float, access::read> history [[texture(1)]],
+                         texture2d<float, access::write> nextHistory [[texture(2)]],
+                         texture2d<float, access::write> shown [[texture(3)]],
+                         constant ResponseUniforms& u [[buffer(0)]],
+                         uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= frame.get_width() || gid.y >= frame.get_height()) {
+        return;
+    }
+    float3 target = pow(frame.read(gid).rgb, 2.2);
+    float3 old = history.read(gid).rgb;
+    float3 keep = select(float3(u.keepRise), float3(u.keepFall), target < old);
+    float3 now = mix(target, old, keep);
+    nextHistory.write(float4(now, 1.0), gid);
+    shown.write(float4(pow(now, 1.0 / 2.2), 1.0), gid);
+}
 
 struct VertexOut {
     float4 position [[position]];

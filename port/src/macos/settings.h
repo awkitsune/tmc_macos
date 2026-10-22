@@ -9,6 +9,8 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString* const kFilterDefault;
 extern NSString* const kIntegerScalingDefault;
 extern NSString* const kGamepadLayoutDefault;
+// LCD response (pixel ghosting) on or off; its times are filter knobs.
+extern NSString* const kLcdResponseDefault;
 // The Debug menu (save state tools); on by default in development builds.
 extern NSString* const kDebugMenuDefault;
 // Posted when the Debug menu setting changes, to rebuild the menus.
@@ -19,7 +21,7 @@ FilterParams LoadFilterParams(void);
 
 /*
  * Settings window: filter, integer scaling, every shader knob as a
- * slider, the gamepad button layout and the Debug menu. Changes apply to the running game
+ * slider, LCD response, the gamepad button layout and the Debug menu. Changes apply to the running game
  * immediately and are saved.
  */
 @interface SettingsWindowController : NSWindowController

@@ -44,6 +44,10 @@ static struct {
 static os_unfair_lock sFrameLock = OS_UNFAIR_LOCK_INIT;
 static uint32_t sFrame[PPU_WIDTH * PPU_HEIGHT];
 static uint64_t sFrameSequence;
+// The sequence of the newest frame that does not follow on from the one before
+// (after a state load or a reset), so the renderer can drop its LCD history.
+static uint64_t sCutSequence;
+static atomic_bool sCutNext;
 
 // Holding all four reset keys for a few frames goes through the game's own
 // DoSoftReset, which reinitialises things the way the cartridge would.
@@ -98,13 +102,14 @@ bool FrontendRequestState(bool save, const char* path, FrontendStateDone done, v
     return accepted;
 }
 
-bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence) {
+bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut) {
     bool fresh;
 
     os_unfair_lock_lock(&sFrameLock);
     fresh = sFrameSequence != *sequence;
     if (fresh) {
         memcpy(dest, sFrame, sizeof(sFrame));
+        *cut = sCutSequence > *sequence;
         *sequence = sFrameSequence;
     }
     os_unfair_lock_unlock(&sFrameLock);
@@ -124,6 +129,9 @@ static void PublishFrame(const uint16_t* raw) {
     os_unfair_lock_lock(&sFrameLock);
     memcpy(sFrame, sConverted, sizeof(sFrame));
     sFrameSequence++;
+    if (atomic_exchange(&sCutNext, false)) {
+        sCutSequence = sFrameSequence;
+    }
     os_unfair_lock_unlock(&sFrameLock);
 }
 
@@ -172,6 +180,7 @@ static void ServiceStateRequest(void) {
         ok = StateLoad(sStateRequest.path, &frame, message, sizeof(message));
         if (ok) {
             gPlatformFrame = frame;
+            atomic_store(&sCutNext, true);
             // Show the loaded picture, even while paused (a plain redraw of
             // the loaded registers, without running the game).
             PpuRenderFrame(sRaw);
@@ -238,6 +247,7 @@ void PlatformVBlank(void) {
 }
 
 _Noreturn void PlatformSoftReset(void) {
+    atomic_store(&sCutNext, true);
     longjmp(sResetPoint, 1);
 }
 

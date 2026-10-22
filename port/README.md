@@ -202,6 +202,8 @@ Reset to Defaults restores these:
 | CRT beam width (bright) | 0.34 | 0.05–0.6 | Beam width on white |
 | CRT aperture grille | 0.10 | 0–1 | RGB column mask, one screen pixel per column |
 | CRT brightness | 1.35 | 0.5–2 | Brightness of the scanline beams |
+| LCD response time | 22 ms | 0–40 ms | 10–90% time of a pixel getting brighter (with LCD response on) |
+| LCD darkening slowdown | 1.30 | 1–2 | Getting darker takes this much longer (1.3 × 22 = 28.6 ms) |
 | GBA colour correction | 0.00 | 0–1 | Blend towards the GBA screen's own colours (Pokefan531's gba-color matrix): less saturated and warmer |
 | Gamma | 1.00 | 0.5–2 | Output = colour^gamma; above 1 darkens mid-tones |
 
@@ -211,6 +213,27 @@ in full screen. Beam and gap sizes follow one brightness value per pixel
 (halfway between luma and the brightest channel), the same for all three
 channels, so bloom adds no colour fringes. Each CRT pixel sums the beams of its
 own scanline and the two around it, so bright lines spread into dark ones.
+
+**LCD response** (Settings → LCD response, off by default) imitates the GBA
+screen's slow pixels, which some effects count on: sprites flickered on
+alternate frames look see-through and flashes leave a short afterglow. A
+compute pass keeps what the simulated LCD shows in a 240×160 float16 texture,
+in linear light (2.2 gamma), and for every new game frame moves each channel
+towards the new picture by `shown = mix(new, shown, k)`, with
+`k = exp(-frame / τ)`, frame = 1/59.73 s and τ = response time / ln 9 (so the
+10–90% time is the setting). A channel getting darker uses the response time ×
+the darkening slowdown. At the defaults k is 0.19 rising and 0.28 falling: 81%
+of a black-to-white step shows in the first frame, 96% in the second; a 30 Hz
+on/off flicker settles at 86% / 24% of full brightness (linear) instead of
+100% / 0%. Whichever filter is chosen then draws that picture.
+
+It steps once per game frame, never per display refresh, so it looks the same
+at 60 and 120 Hz, and it holds while paused (Step Frame steps it once). When the
+display misses game frames, as with fast-forward (up to 4x), one step covers
+all of them (k^n for n frames, using the newest): the ghost lasts the same
+number of game frames, so it is shorter in real time, and fast-forwarded
+flicker can alias. The picture starts afresh from the frame itself on the first
+frame, when the option is switched on, after a state load and after a reset.
 
 The save is `~/Library/Application Support/tmc_macos/tmc.sav`, an 8 KB EEPROM
 image (*The Minish Cap* menu → Show Save Folder). `TMC_SAVE=path` overrides it.
@@ -270,7 +293,10 @@ synthesized key presses, saving what it presented as PNGs in `dir`, then quit;
 it needs no screen-recording permission. Besides the game screens it draws a
 grey/colour test card (`pattern_<filter>_<integer|fractional|fullscreen>.png`)
 with each filter at a whole-number scale, a fractional one and in full screen,
-using the default knob values, and an image of the settings window:
+using the default knob values, and an image of the settings window. It also
+runs the LCD response pass on one pixel through a black-to-white and a
+white-to-black step and logs the values per frame and the 10–90% times it
+measures against the setting (`selftest: LCD response … ok`):
 
 ```bash
 TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest build/native/TMC.app/Contents/MacOS/TMC

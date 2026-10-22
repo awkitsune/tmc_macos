@@ -34,7 +34,17 @@ FilterParams FilterParamsDefaults(void) {
         .crtBeamMin = 0.14f,
         .crtBeamMax = 0.34f,
         .lcdGapBloom = 0.0f,
+        .lcdResponseMs = 22.0f,
+        .lcdDarkSlowdown = 1.3f,
     };
+}
+
+float LcdResponseKeep(float responseMs, double frames) {
+    if (responseMs <= 0) {
+        return 0;
+    }
+    double tau = responseMs / log(9.0);
+    return (float)exp(-frames * 1000.0 / FRONTEND_FRAME_RATE / tau);
 }
 
 // Keep in sync with Uniforms in shaders.metal.
@@ -45,6 +55,12 @@ typedef struct {
     FilterParams params;
 } Uniforms;
 
+// Keep in sync with ResponseUniforms in shaders.metal.
+typedef struct {
+    float keepRise;
+    float keepFall;
+} ResponseUniforms;
+
 // Frames in flight: each has its own texture so an upload never touches one the
 // GPU may still be reading.
 #define IN_FLIGHT 3
@@ -54,6 +70,15 @@ typedef struct {
     id<MTLCommandQueue> _queue;
     id<MTLRenderPipelineState> _pipeline;
     id<MTLTexture> _textures[IN_FLIGHT];
+    // LCD response: what the simulated LCD shows, in linear light (ping-pong,
+    // _history[_historySlot] is current), and the same gamma-encoded for the
+    // present pass. One queue with tracked resources, so a pass never writes
+    // these while an earlier one still reads them.
+    id<MTLComputePipelineState> _responsePipeline;
+    id<MTLTexture> _history[2];
+    id<MTLTexture> _shown;
+    NSUInteger _historySlot;
+    BOOL _historyValid;
     dispatch_semaphore_t _inFlight;
     NSUInteger _slot;
     uint64_t _sequence;
@@ -92,6 +117,13 @@ typedef struct {
         return nil;
     }
 
+    id<MTLFunction> response = [library newFunctionWithName:@"lcd_response"];
+    _responsePipeline = response ? [_device newComputePipelineStateWithFunction:response error:&error] : nil;
+    if (_responsePipeline == nil) {
+        NSLog(@"LCD response pipeline creation failed: %@", error);
+        return nil;
+    }
+
     MTLTextureDescriptor* texDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
                                                                                        width:PPU_WIDTH
                                                                                       height:PPU_HEIGHT
@@ -101,6 +133,15 @@ typedef struct {
     for (int i = 0; i < IN_FLIGHT; i++) {
         _textures[i] = [_device newTextureWithDescriptor:texDesc];
     }
+    MTLTextureDescriptor* floatDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
+                                                                                         width:PPU_WIDTH
+                                                                                        height:PPU_HEIGHT
+                                                                                     mipmapped:NO];
+    floatDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    floatDesc.storageMode = MTLStorageModePrivate;
+    _history[0] = [_device newTextureWithDescriptor:floatDesc];
+    _history[1] = [_device newTextureWithDescriptor:floatDesc];
+    _shown = [_device newTextureWithDescriptor:floatDesc];
     _integerScaling = YES;
     _params = FilterParamsDefaults();
     return self;
@@ -136,6 +177,30 @@ typedef struct {
     return YES;
 }
 
+- (void)setLcdResponse:(BOOL)lcdResponse {
+    if (lcdResponse && !_lcdResponse) {
+        _historyValid = NO; // start from the next frame, not a stale picture
+    }
+    _lcdResponse = lcdResponse;
+}
+
+// One LCD response step: blend frame into history (keep = 0 copies it in).
+static void EncodeResponse(id<MTLCommandBuffer> commands, id<MTLComputePipelineState> pipeline, id<MTLTexture> frame,
+                           id<MTLTexture> history, id<MTLTexture> nextHistory, id<MTLTexture> shown,
+                           ResponseUniforms uniforms) {
+    id<MTLComputeCommandEncoder> encoder = [commands computeCommandEncoder];
+    [encoder setComputePipelineState:pipeline];
+    [encoder setTexture:frame atIndex:0];
+    [encoder setTexture:history atIndex:1];
+    [encoder setTexture:nextHistory atIndex:2];
+    [encoder setTexture:shown atIndex:3];
+    [encoder setBytes:&uniforms length:sizeof(uniforms) atIndex:0];
+    MTLSize group = MTLSizeMake(16, 16, 1);
+    MTLSize groups = MTLSizeMake((frame.width + 15) / 16, (frame.height + 15) / 16, 1);
+    [encoder dispatchThreadgroups:groups threadsPerThreadgroup:group];
+    [encoder endEncoding];
+}
+
 - (void)captureNextFrameToURL:(NSURL*)url {
     _captureURL = url;
 }
@@ -167,7 +232,10 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     // Upload into the next slot only when the game produced a new frame;
     // otherwise keep drawing the texture that already holds the newest one.
     NSUInteger next = (_slot + 1) % IN_FLIGHT;
-    if (self.testPattern ? [self fillTestPattern] : FrontendCopyFrame(_pixels, &_sequence)) {
+    uint64_t previous = _sequence;
+    bool cut = false;
+    BOOL fresh = self.testPattern ? [self fillTestPattern] : FrontendCopyFrame(_pixels, &_sequence, &cut);
+    if (fresh) {
         [_textures[next] replaceRegion:MTLRegionMake2D(0, 0, PPU_WIDTH, PPU_HEIGHT)
                            mipmapLevel:0
                              withBytes:_pixels
@@ -176,11 +244,37 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     }
     id<MTLTexture> texture = _textures[_slot];
 
-    id<MTLCommandBuffer> commands = [_queue commandBuffer];
     MTLRenderPassDescriptor* pass = view.currentRenderPassDescriptor;
     if (pass == nil) {
+        // Nothing is drawn, so the next frame that is starts the history afresh.
+        _historyValid = NO;
         dispatch_semaphore_signal(_inFlight);
         return;
+    }
+    id<MTLCommandBuffer> commands = [_queue commandBuffer];
+
+    // LCD response: one step per new game frame, never per display refresh (so
+    // it looks the same at 60 and 120 Hz); paused, nothing new arrives and the
+    // picture holds. When the display missed game frames (fast-forward), the
+    // step covers all of them: the ghost lasts the same number of game frames.
+    // The history restarts from the frame itself when it has none (first frame,
+    // just switched on) and after a state load or reset.
+    if (self.lcdResponse) {
+        if (fresh || !_historyValid) {
+            double frames = self.testPattern ? 1 : MIN(MAX(_sequence - previous, 1), 8);
+            BOOL restart = !_historyValid || cut;
+            ResponseUniforms response = {
+                .keepRise = restart ? 0 : LcdResponseKeep(self.params.lcdResponseMs, frames),
+                .keepFall = restart ? 0 : LcdResponseKeep(self.params.lcdResponseMs * self.params.lcdDarkSlowdown, frames),
+            };
+            EncodeResponse(commands, _responsePipeline, texture, _history[_historySlot], _history[_historySlot ^ 1], _shown,
+                           response);
+            _historySlot ^= 1;
+            _historyValid = YES;
+        }
+        texture = _shown;
+    } else {
+        _historyValid = NO;
     }
     MTLViewport viewport = [self viewportForDrawableSize:view.drawableSize];
     Uniforms uniforms = {
@@ -210,6 +304,70 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     }];
     [commands presentDrawable:view.currentDrawable];
     [commands commit];
+}
+
+- (BOOL)checkLcdResponse {
+    MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                    width:1
+                                                                                   height:1
+                                                                                mipmapped:NO];
+    desc.storageMode = MTLStorageModeShared;
+    id<MTLTexture> frame = [_device newTextureWithDescriptor:desc];
+    desc.pixelFormat = MTLPixelFormatRGBA16Float;
+    desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    NSArray<id<MTLTexture>>* history = @[ [_device newTextureWithDescriptor:desc], [_device newTextureWithDescriptor:desc] ];
+    id<MTLTexture> shown = [_device newTextureWithDescriptor:desc];
+    FilterParams params = self.params;
+    float riseMs = params.lcdResponseMs, fallMs = params.lcdResponseMs * params.lcdDarkSlowdown;
+    double frameMs = 1000.0 / FRONTEND_FRAME_RATE;
+    __block NSUInteger slot = 0;
+
+    // Show `pixel` for one game frame (restart = copy it in); returns the
+    // history's red channel (linear light).
+    float (^step)(uint32_t, BOOL) = ^(uint32_t pixel, BOOL restart) {
+        [frame replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 withBytes:&pixel bytesPerRow:4];
+        ResponseUniforms response = {
+            .keepRise = restart ? 0 : LcdResponseKeep(riseMs, 1),
+            .keepFall = restart ? 0 : LcdResponseKeep(fallMs, 1),
+        };
+        id<MTLCommandBuffer> commands = [self->_queue commandBuffer];
+        EncodeResponse(commands, self->_responsePipeline, frame, history[slot], history[slot ^ 1], shown, response);
+        [commands commit];
+        [commands waitUntilCompleted];
+        slot ^= 1;
+        __fp16 value[4];
+        [history[slot] getBytes:value bytesPerRow:8 fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
+        return (float)value[0];
+    };
+
+    // A step from `from` to `to`; the 10-90% time comes from where the
+    // remaining distance crosses 90% and 10%, interpolated on a log scale
+    // between frames (exact for an exponential response).
+    BOOL (^measure)(NSString*, uint32_t, uint32_t, float) = ^(NSString* name, uint32_t from, uint32_t to, float expectMs) {
+        float start = step(from, YES), end = (float)pow(((to >> 16) & 0xFF) / 255.0, 2.2);
+        NSMutableString* values = [NSMutableString string];
+        double previous = 1, cross90 = -1, cross10 = -1;
+        for (int n = 1; n <= 8; n++) {
+            float value = step(to, NO);
+            [values appendFormat:@" %.3f", value];
+            double remaining = fmax((end - value) / (end - start), 1e-6);
+            if (cross90 < 0 && remaining <= 0.9) {
+                cross90 = (n - 1 + log(0.9 / previous) / log(remaining / previous)) * frameMs;
+            }
+            if (cross10 < 0 && remaining <= 0.1) {
+                cross10 = (n - 1 + log(0.1 / previous) / log(remaining / previous)) * frameMs;
+            }
+            previous = remaining;
+        }
+        double measured = cross10 - cross90;
+        BOOL ok = cross90 >= 0 && cross10 >= 0 && fabs(measured - expectMs) < 0.5;
+        NSLog(@"selftest: LCD response %@ (linear, per frame):%@; 10-90%% %.1f ms (setting %.1f ms) %@", name, values,
+              measured, expectMs, ok ? @"ok" : @"FAILED");
+        return ok;
+    };
+    BOOL rise = measure(@"black to white", 0xFF000000, 0xFFFFFFFF, riseMs);
+    BOOL fall = measure(@"white to black", 0xFFFFFFFF, 0xFF000000, fallMs);
+    return rise && fall;
 }
 
 @end

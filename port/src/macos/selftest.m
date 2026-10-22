@@ -95,6 +95,8 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     // Test with the built-in knob values, not the ones saved for this user.
     renderer.params = FilterParamsDefaults();
     renderer.integerScaling = YES;
+    renderer.lcdResponse = NO;
+    [renderer checkLcdResponse];
 
     NSMutableArray* steps = [NSMutableArray array];
     __block uint64_t at = 360; // title screen is up by now
@@ -113,6 +115,10 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     add(10, ^{ PostKey(window, kVK_ANSI_X, YES); }); // A
     add(5, ^{ PostKey(window, kVK_ANSI_X, NO); });
     add(150, ^{ [renderer captureNextFrameToURL:file(@"after_a")]; });
+    // The game with LCD response on (restarts from the current frame, then ghosts).
+    add(5, ^{ renderer.lcdResponse = YES; });
+    add(30, ^{ [renderer captureNextFrameToURL:file(@"after_a_response")]; });
+    add(5, ^{ renderer.lcdResponse = NO; });
 
     // Filters on a grey test card (pattern_<filter>_<scale>.png) at a whole-number
     // scale, a fractional one, and full screen, to check neutral stays neutral.

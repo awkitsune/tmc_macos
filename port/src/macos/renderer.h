@@ -29,7 +29,16 @@ typedef struct {
     float crtBeamMin;
     float crtBeamMax;
     float lcdGapBloom;
+    float lcdResponseMs;   // LCD response: 10-90% time of a pixel getting brighter
+    float lcdDarkSlowdown; // how much longer getting darker takes
 } FilterParams;
+
+/*
+ * Share of the old picture an LCD with this response keeps after `frames` game
+ * frames: a first-order (exponential) response whose 10-90% time is
+ * responseMs, so tau = responseMs / ln 9. 0 means no ghosting.
+ */
+float LcdResponseKeep(float responseMs, double frames);
 
 FilterParams FilterParamsDefaults(void);
 
@@ -44,11 +53,17 @@ FilterParams FilterParamsDefaults(void);
 @property(nonatomic) FilterParams params;
 // Show a fixed grey/white/colour test card instead of the game (for checking filters).
 @property(nonatomic) BOOL testPattern;
+// LCD response (pixel ghosting, all filters); the times are in params.
+@property(nonatomic) BOOL lcdResponse;
 // Called on the main thread at the start of every display refresh (input polling).
 @property(nonatomic, copy) void (^beforeDraw)(void);
 - (nullable instancetype)initWithView:(MTKView*)view;
 // Save the next presented drawable as a PNG (needs view.framebufferOnly = NO).
 - (void)captureNextFrameToURL:(NSURL*)url;
+// Self-test: run the LCD response kernel on one pixel stepping black to white
+// and back with the current params; log the values per frame and the measured
+// 10-90% times. Returns whether they match the setting.
+- (BOOL)checkLcdResponse;
 @end
 
 NS_ASSUME_NONNULL_END
