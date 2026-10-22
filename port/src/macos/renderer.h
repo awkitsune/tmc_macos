@@ -14,6 +14,21 @@ typedef NS_ENUM(NSUInteger, FilterMode) {
 
 NSString* FilterModeName(FilterMode mode);
 
+/* Shader knobs, adjustable at runtime (Display Settings). */
+typedef struct {
+    float lcdGridStrength;
+    float lcdGridWidth;
+    float lcdSubpixel;
+    float lcdBrightness;
+    float crtScanlines;
+    float crtMask;
+    float crtBrightness;
+    float colorCorrection; // all filters
+    float gamma;           // all filters
+} FilterParams;
+
+FilterParams FilterParamsDefaults(void);
+
 /*
  * Presents the game's newest frame in an MTKView: uploads it to a texture when
  * it changes and draws it centred, scaled by a whole number (integerScaling) or
@@ -22,6 +37,9 @@ NSString* FilterModeName(FilterMode mode);
 @interface Renderer : NSObject <MTKViewDelegate>
 @property(nonatomic) FilterMode filter;
 @property(nonatomic) BOOL integerScaling;
+@property(nonatomic) FilterParams params;
+// Show a fixed grey/white/colour test card instead of the game (for checking filters).
+@property(nonatomic) BOOL testPattern;
 // Called on the main thread at the start of every display refresh (input polling).
 @property(nonatomic, copy) void (^beforeDraw)(void);
 - (nullable instancetype)initWithView:(MTKView*)view;

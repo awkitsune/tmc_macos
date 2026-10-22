@@ -14,10 +14,20 @@ enum : uint {
     FilterCRT = 4,
 };
 
+// Keep in sync with Uniforms in renderer.m and FilterParams in renderer.h.
 struct Uniforms {
     float2 sourceSize; // texels
     float2 outputSize; // viewport pixels
     uint filter;
+    float lcdGridStrength;  // how dark the gaps between pixels are (0-1)
+    float lcdGridWidth;     // gap width as a fraction of a pixel (0-0.5)
+    float lcdSubpixel;      // RGB stripe strength (0-1)
+    float lcdBrightness;
+    float crtScanlines;     // scanline strength (0-1)
+    float crtMask;          // aperture-grille strength (0-1)
+    float crtBrightness;
+    float colorCorrection;  // 0 = raw GBA colours, 1 = GBA LCD colour response
+    float gamma;            // output = colour ^ gamma
 };
 
 struct VertexOut {
@@ -48,9 +58,53 @@ static float3 sharpBilinear(texture2d<float> frame, float2 uv, constant Uniforms
     return frame.sample(linearSampler, (floor(texel) + offset) / u.sourceSize).rgb;
 }
 
-// Pixel coverage of [a, b] within the unit cell, smoothed by one output pixel.
-static float band(float x, float a, float b, float soft) {
-    return smoothstep(a - soft, a + soft, x) * (1.0 - smoothstep(b - soft, b + soft, x));
+// Fraction of [x - width/2, x + width/2] covered by the band [a, b] repeated
+// every unit (one texel). This is the band box-filtered over one output pixel,
+// so every repeating pattern averages to exactly its duty cycle at any scale:
+// stripes of equal width stay neutral instead of favouring the middle one.
+static float bandIntegral(float x, float a, float b) {
+    return floor(x) * (b - a) + clamp(fract(x), a, b) - a;
+}
+
+static float bandCoverage(float x, float width, float a, float b) {
+    return (bandIntegral(x + width * 0.5, a, b) - bandIntegral(x - width * 0.5, a, b)) / width;
+}
+
+// The colour response of the GBA's own screen (after Pokefan531's gba-color
+// matrix): each row sums to 1, so greys stay grey and only saturation shifts.
+static float3 gbaColour(float3 c, float amount) {
+    if (amount <= 0.0) {
+        return c;
+    }
+    float3 lin = pow(c, 2.2);
+    float3 mixed = lin.r * float3(0.82, 0.125, 0.195) + lin.g * float3(0.24, 0.665, 0.075) + lin.b * float3(-0.06, 0.21, 0.73);
+    float3 corrected = pow(saturate(mixed * 0.94), 1.0 / 2.2);
+    return mix(c, corrected, amount);
+}
+
+static float3 lcd(texture2d<float> frame, float2 uv, constant Uniforms& u) {
+    float2 texel = uv * u.sourceSize;
+    float2 footprint = u.sourceSize / u.outputSize; // texels per output pixel
+    float3 source = gbaColour(frame.sample(nearestSampler, uv).rgb, u.colorCorrection);
+
+    // Gaps of lcdGridWidth centred on the pixel edges, dimmed by lcdGridStrength.
+    float gap = u.lcdGridWidth * 0.5;
+    float insideX = bandCoverage(texel.x, footprint.x, gap, 1.0 - gap);
+    float insideY = bandCoverage(texel.y, footprint.y, gap, 1.0 - gap);
+    float grid = 1.0 - u.lcdGridStrength * (1.0 - insideX * insideY);
+
+    // Subpixels: the lit part of the pixel (between the gaps) is split into equal
+    // R, G, B thirds; each passes its channel fully and dims the other two by
+    // lcdSubpixel. Keeping the stripes clear of the gap means the gap takes the
+    // same share from every channel, so greys stay grey.
+    float third = (1.0 - 2.0 * gap) / 3.0;
+    float3 lit = float3(bandCoverage(texel.x, footprint.x, gap, gap + third),
+                        bandCoverage(texel.x, footprint.x, gap + third, gap + 2.0 * third),
+                        bandCoverage(texel.x, footprint.x, gap + 2.0 * third, 1.0 - gap));
+    // The gap itself is left to the grid term, the same for every channel.
+    float3 mask = 1.0 - u.lcdSubpixel * (insideX - lit);
+
+    return source * mask * grid * u.lcdBrightness;
 }
 
 fragment float4 present_fragment(VertexOut in [[stage_in]],
@@ -59,7 +113,6 @@ fragment float4 present_fragment(VertexOut in [[stage_in]],
     float2 texel = in.uv * u.sourceSize;
     float2 cell = fract(texel);
     float2 pixelsPerTexel = u.outputSize / u.sourceSize;
-    float2 soft = 0.5 / pixelsPerTexel;
     float3 colour;
 
     switch (u.filter) {
@@ -69,18 +122,9 @@ fragment float4 present_fragment(VertexOut in [[stage_in]],
     case FilterBilinear:
         colour = frame.sample(linearSampler, in.uv).rgb;
         break;
-    case FilterLCD: {
-        // GBA-style LCD: RGB subpixel stripes and a faint grid between pixels.
-        float3 source = frame.sample(nearestSampler, in.uv).rgb;
-        float3 stripes = float3(band(cell.x, 0.0, 1.0 / 3.0, soft.x),
-                                band(cell.x, 1.0 / 3.0, 2.0 / 3.0, soft.x),
-                                band(cell.x, 2.0 / 3.0, 1.0, soft.x));
-        float3 mask = mix(float3(1.0), 0.45 + 0.75 * stripes, saturate(pixelsPerTexel.x / 4.0));
-        float grid = band(cell.y, 0.08, 0.92, soft.y) * band(cell.x, 0.04, 0.96, soft.x);
-        grid = mix(1.0, 0.75 + 0.25 * grid, saturate(pixelsPerTexel.y / 3.0));
-        colour = source * mask * grid * 1.1;
+    case FilterLCD:
+        colour = lcd(frame, in.uv, u);
         break;
-    }
     case FilterCRT: {
         // Scanlines: each texel row is a beam whose width grows with brightness.
         float3 source = sharpBilinear(frame, in.uv, u);
@@ -90,12 +134,13 @@ fragment float4 present_fragment(VertexOut in [[stage_in]],
         float3 width = mix(float3(0.22), float3(0.36), source);
         float3 beam = exp(-(d * d) / (2.0 * width * width));
         float3 bleed = (d < 0.0 ? above : below) * exp(-((1.0 - abs(d)) * (1.0 - abs(d))) / 0.12) * 0.25;
-        float strength = saturate((pixelsPerTexel.y - 1.5) / 2.0);
-        colour = mix(source, source * beam * 1.35 + bleed, strength);
-        // Slight aperture-grille tint every output pixel column.
-        float column = fmod(in.position.x, 3.0);
-        float3 grille = column < 1.0 ? float3(1.0, 0.9, 0.9) : column < 2.0 ? float3(0.9, 1.0, 0.9) : float3(0.9, 0.9, 1.0);
-        colour *= mix(float3(1.0), grille, strength);
+        // Scanlines fade out where there are too few output rows per texel row.
+        float strength = saturate((pixelsPerTexel.y - 1.5) / 2.0) * u.crtScanlines;
+        colour = mix(source, (source * beam + bleed) * u.crtBrightness, strength);
+        // Aperture grille: R, G, B columns one output pixel wide (neutral on average).
+        float column = fmod(floor(in.position.x), 3.0);
+        float3 grille = float3(column == 0.0, column == 1.0, column == 2.0);
+        colour *= 1.0 - u.crtMask * (1.0 - grille);
         break;
     }
     case FilterNearest:
@@ -103,5 +148,8 @@ fragment float4 present_fragment(VertexOut in [[stage_in]],
         colour = frame.sample(nearestSampler, in.uv).rgb;
         break;
     }
-    return float4(saturate(colour), 1.0);
+    if (u.filter != FilterLCD) {
+        colour = gbaColour(saturate(colour), u.colorCorrection);
+    }
+    return float4(pow(saturate(colour), u.gamma), 1.0);
 }

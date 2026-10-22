@@ -19,10 +19,26 @@ NSString* FilterModeName(FilterMode mode) {
     }
 }
 
+FilterParams FilterParamsDefaults(void) {
+    return (FilterParams){
+        .lcdGridStrength = 0.35f,
+        .lcdGridWidth = 0.15f,
+        .lcdSubpixel = 0.35f,
+        .lcdBrightness = 1.3f,
+        .crtScanlines = 1.0f,
+        .crtMask = 0.1f,
+        .crtBrightness = 1.35f,
+        .colorCorrection = 0.0f,
+        .gamma = 1.0f,
+    };
+}
+
+// Keep in sync with Uniforms in shaders.metal.
 typedef struct {
     simd_float2 sourceSize;
     simd_float2 outputSize;
     uint32_t filter;
+    FilterParams params;
 } Uniforms;
 
 // Frames in flight: each has its own texture so an upload never touches one the
@@ -82,6 +98,7 @@ typedef struct {
         _textures[i] = [_device newTextureWithDescriptor:texDesc];
     }
     _integerScaling = YES;
+    _params = FilterParamsDefaults();
     return self;
 }
 
@@ -100,6 +117,19 @@ typedef struct {
         .znear = 0,
         .zfar = 1,
     };
+}
+
+// Top half: white, light grey, mid grey, dark grey columns (for checking that a
+// filter keeps neutral colours neutral). Bottom half: colour bars.
+- (BOOL)fillTestPattern {
+    static const uint32_t greys[] = { 0xFFFFFFFF, 0xFFC0C0C0, 0xFF808080, 0xFF404040 };
+    static const uint32_t bars[] = { 0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFF00, 0xFF00FFFF, 0xFFFF00FF };
+    for (int y = 0; y < PPU_HEIGHT; y++) {
+        for (int x = 0; x < PPU_WIDTH; x++) {
+            _pixels[y * PPU_WIDTH + x] = y < PPU_HEIGHT / 2 ? greys[x * 4 / PPU_WIDTH] : bars[x * 6 / PPU_WIDTH];
+        }
+    }
+    return YES;
 }
 
 - (void)captureNextFrameToURL:(NSURL*)url {
@@ -133,7 +163,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     // Upload into the next slot only when the game produced a new frame;
     // otherwise keep drawing the texture that already holds the newest one.
     NSUInteger next = (_slot + 1) % IN_FLIGHT;
-    if (FrontendCopyFrame(_pixels, &_sequence)) {
+    if (self.testPattern ? [self fillTestPattern] : FrontendCopyFrame(_pixels, &_sequence)) {
         [_textures[next] replaceRegion:MTLRegionMake2D(0, 0, PPU_WIDTH, PPU_HEIGHT)
                            mipmapLevel:0
                              withBytes:_pixels
@@ -153,6 +183,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         .sourceSize = { PPU_WIDTH, PPU_HEIGHT },
         .outputSize = { (float)viewport.width, (float)viewport.height },
         .filter = (uint32_t)self.filter,
+        .params = self.params,
     };
 
     id<MTLRenderCommandEncoder> encoder = [commands renderCommandEncoderWithDescriptor:pass];

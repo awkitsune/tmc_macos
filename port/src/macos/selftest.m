@@ -2,7 +2,10 @@
 
 #import <Carbon/Carbon.h>
 
+#import "settings.h"
+
 #include "port/platform.h"
+#include "port/ppu.h"
 
 static void PostKey(NSWindow* window, unsigned short keyCode, BOOL down) {
     NSEvent* event = [NSEvent keyEventWithType:down ? NSEventTypeKeyDown : NSEventTypeKeyUp
@@ -25,6 +28,10 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, NSString
         return [out URLByAppendingPathComponent:[name stringByAppendingString:@".png"]];
     };
     view.framebufferOnly = NO;
+    window.frameAutosaveName = @""; // the resizing below must not replace the user's window frame
+    // Test with the built-in knob values, not the ones saved for this user.
+    renderer.params = FilterParamsDefaults();
+    renderer.integerScaling = YES;
 
     NSMutableArray* steps = [NSMutableArray array];
     __block uint64_t at = 360; // title screen is up by now
@@ -43,10 +50,66 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, NSString
     add(10, ^{ PostKey(window, kVK_ANSI_X, YES); }); // A
     add(5, ^{ PostKey(window, kVK_ANSI_X, NO); });
     add(150, ^{ [renderer captureNextFrameToURL:file(@"after_a")]; });
+
+    // Filters on a grey test card (pattern_<filter>_<scale>.png) at a whole-number
+    // scale, a fractional one, and full screen, to check neutral stays neutral.
+    void (^patterns)(NSString*) = ^(NSString* scale) {
+        for (NSUInteger mode = 0; mode < FilterModeCount; mode++) {
+            add(3, ^{ renderer.filter = mode; });
+            add(3, ^{
+                [renderer captureNextFrameToURL:file([NSString stringWithFormat:@"pattern_%lu_%@", (unsigned long)mode, scale])];
+            });
+        }
+    };
+    add(5, ^{
+        renderer.testPattern = YES;
+        [window setContentSize:NSMakeSize(PPU_WIDTH * 3, PPU_HEIGHT * 3)];
+    });
+    patterns(@"integer");
+    add(5, ^{
+        renderer.integerScaling = NO;
+        [window setContentSize:NSMakeSize(PPU_WIDTH * 4.37, PPU_HEIGHT * 4.37)];
+    });
+    patterns(@"fractional");
     add(5, ^{ [window toggleFullScreen:nil]; });
-    add(120, ^{ [renderer captureNextFrameToURL:file(@"fullscreen")]; });
+    add(120, ^{ });
+    patterns(@"fullscreen");
+    add(3, ^{
+        FilterParams params = FilterParamsDefaults();
+        params.colorCorrection = 1;
+        renderer.params = params;
+        renderer.filter = FilterModeLCD;
+    });
+    add(3, ^{ [renderer captureNextFrameToURL:file(@"pattern_3_fullscreen_corrected")]; });
+    add(3, ^{
+        renderer.params = FilterParamsDefaults();
+        renderer.testPattern = NO;
+        renderer.filter = FilterModeLCD;
+    });
+    add(5, ^{ [renderer captureNextFrameToURL:file(@"fullscreen_lcd_game")]; });
     add(5, ^{ [window toggleFullScreen:nil]; });
-    add(90, ^{ [NSApp terminate:nil]; });
+
+    // The settings window, drawn offscreen.
+    __block SettingsWindowController* settings = nil;
+    add(90, ^{
+        settings = [[SettingsWindowController alloc] initWithRenderer:renderer];
+        [settings showWindow:nil];
+    });
+    add(10, ^{
+        NSView* content = settings.window.contentView;
+        NSBitmapImageRep* rep = [content bitmapImageRepForCachingDisplayInRect:content.bounds];
+        NSGraphicsContext* context = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+        [NSGraphicsContext saveGraphicsState];
+        NSGraphicsContext.currentContext = context;
+        [settings.window.effectiveAppearance performAsCurrentDrawingAppearance:^{
+            [NSColor.windowBackgroundColor setFill];
+            NSRectFill(content.bounds);
+        }];
+        [NSGraphicsContext restoreGraphicsState];
+        [content displayRectIgnoringOpacity:content.bounds inContext:context];
+        [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToURL:file(@"settings") atomically:YES];
+    });
+    add(5, ^{ [NSApp terminate:nil]; });
 
     __block NSUInteger next = 0;
     [NSTimer scheduledTimerWithTimeInterval:1.0 / 240

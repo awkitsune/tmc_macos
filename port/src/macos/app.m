@@ -9,12 +9,11 @@
 #import "input.h"
 #import "renderer.h"
 #import "selftest.h"
+#import "settings.h"
 
 #include "audio.h"
 #include "frontend.h"
 
-static NSString* const kFilterDefault = @"Filter";
-static NSString* const kIntegerScalingDefault = @"IntegerScaling";
 static NSString* const kMutedDefault = @"Muted";
 static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 
@@ -59,6 +58,7 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     NSWindow* _window;
     GameView* _view;
     Renderer* _renderer;
+    SettingsWindowController* _settings;
     Input* _input;
 }
 
@@ -123,6 +123,7 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     }
     _renderer.filter = MIN((NSUInteger)[defaults integerForKey:kFilterDefault], FilterModeCount - 1);
     _renderer.integerScaling = [defaults boolForKey:kIntegerScalingDefault];
+    _renderer.params = LoadFilterParams();
     Input* input = _input;
     _renderer.beforeDraw = ^{
         FrontendSetKeys([input pollKeys]);
@@ -212,6 +213,7 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     }
     [view addItem:NSMenuItem.separatorItem];
     [view addItemWithTitle:@"Integer Scaling" action:@selector(toggleIntegerScaling:) keyEquivalent:@"i"];
+    [view addItemWithTitle:@"Display Settings…" action:@selector(showDisplaySettings:) keyEquivalent:@","];
     [view addItem:NSMenuItem.separatorItem];
     NSMenuItem* fullScreen = [view addItemWithTitle:@"Toggle Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
     fullScreen.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
@@ -246,14 +248,25 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     return YES;
 }
 
+- (void)showDisplaySettings:(id)sender {
+    if (_settings == nil) {
+        _settings = [[SettingsWindowController alloc] initWithRenderer:_renderer];
+    }
+    [_settings refresh];
+    [_settings showWindow:sender];
+}
+
 - (void)selectFilter:(NSMenuItem*)sender {
     _renderer.filter = sender.tag;
     [NSUserDefaults.standardUserDefaults setInteger:sender.tag forKey:kFilterDefault];
+    [_settings refresh];
 }
+
 
 - (void)toggleIntegerScaling:(id)sender {
     _renderer.integerScaling = !_renderer.integerScaling;
     [NSUserDefaults.standardUserDefaults setBool:_renderer.integerScaling forKey:kIntegerScalingDefault];
+    [_settings refresh];
 }
 
 - (void)toggleMute:(id)sender {

@@ -126,12 +126,34 @@ smooth bilinear, LCD grid, CRT scanlines), ⌘I toggles integer scaling, ⌃⌘F
 toggles full screen (Escape leaves it), ⌘P pauses, ⌘R resets (the game's own
 A+B+Select+Start reset). The filter and scaling choice are remembered.
 
+View → Display Settings… (⌘,) adjusts the filters live; values are saved and
+Reset to Defaults restores these:
+
+| Knob | Default | Range | Effect |
+|---|---|---|---|
+| LCD gap strength | 0.35 | 0–1 | How dark the gaps between pixels are |
+| LCD gap width | 0.15 | 0–0.5 | Gap width, as a fraction of a GBA pixel |
+| LCD subpixel strength | 0.35 | 0–1 | How strongly each RGB stripe dims the other two channels |
+| LCD brightness | 1.30 | 0.5–2 | Makes up for the light the gaps and stripes take |
+| CRT scanline strength | 1.00 | 0–1 | Depth of the dark lines between scanlines |
+| CRT aperture grille | 0.10 | 0–1 | RGB column mask, one screen pixel per column |
+| CRT brightness | 1.35 | 0.5–2 | Brightness of the scanline beams |
+| GBA colour correction | 0.00 | 0–1 | Blend towards the GBA screen's own colours (Pokefan531's gba-color matrix): less saturated and warmer |
+| Gamma | 1.00 | 0.5–2 | Output = colour^gamma; above 1 darkens mid-tones |
+
+The LCD and CRT masks are box-filtered over each screen pixel, so they average
+to neutral at any scale: greys stay grey in a window, at fractional scales and
+in full screen.
+
 The save is `~/Library/Application Support/tmc_macos/tmc.sav`, an 8 KB EEPROM
 image (*The Minish Cap* menu → Show Save Folder). `TMC_SAVE=path` overrides it.
 
 `TMC_SELFTEST=dir` makes the app play itself through the title screen with
-synthesized key presses, saving what it presented with each filter and in full
-screen as PNGs in `dir`, then quit; it needs no screen-recording permission:
+synthesized key presses, saving what it presented as PNGs in `dir`, then quit;
+it needs no screen-recording permission. Besides the game screens it draws a
+grey/colour test card (`pattern_<filter>_<integer|fractional|fullscreen>.png`)
+with each filter at a whole-number scale, a fractional one and in full screen,
+using the default knob values, and an image of the settings window:
 
 ```bash
 TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest build/native/TMC.app/Contents/MacOS/TMC
@@ -226,6 +248,7 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/macos/app.m` | Window, menus, full screen, save location |
 | `port/src/macos/renderer.m`, `shaders.metal` | Metal presentation and filters (shaders compiled at launch) |
 | `port/src/macos/input.m` | Keyboard and GameController input |
+| `port/src/macos/settings.m` | Display Settings window and the saved filter knobs |
 | `port/src/macos/selftest.m` | `TMC_SELFTEST` scripted run with PNG captures |
 | `port/src/data_glue.c` | Code embedded in data, demo-only symbols, the save header |
 | `port/src/asm/` | C versions of every function in `asm/src/*.s` |

@@ -128,6 +128,7 @@ add_executable(tmc_app MACOSX_BUNDLE
     src/macos/input.m
     src/macos/renderer.m
     src/macos/selftest.m
+    src/macos/settings.m
     ${TMC_APP_SHADERS}
     $<TARGET_OBJECTS:tmc_game>
     $<TARGET_OBJECTS:tmc_data>
