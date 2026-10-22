@@ -270,6 +270,9 @@ bool32 sub_0804AD18(void) {
         default:
             return FALSE;
     }
+#ifdef PLATFORM_NATIVE
+    return TRUE; // GBA returns the nonzero CheckGlobalFlag result left in r0
+#endif
 }
 
 void sub_0804AD6C(RoomControls* controls) {
