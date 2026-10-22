@@ -281,6 +281,11 @@ Environment variables control the headless runner:
 | `TMC_SCREENSHOT="frame,frame,..."` or `"every:n"` | Save PNG screenshots, rendered by the software renderer |
 | `TMC_SCREENSHOT_DIR=path` | Where screenshots go (default `screenshots`) |
 | `TMC_DUMP_IO=1` | Print display and interrupt registers with each screenshot |
+| `TMC_FRAME_HASH=path` | Write `frame crc32` of every frame's picture (draws every frame) |
+| `TMC_LINE_LOG="frame,frame,..."` | For those frames, print line 0's display registers and, for each later line, the ones that differ from line 0 |
+| `TMC_LINE_STATS=1` | For every frame whose display registers change between lines, print `register/lines changed` |
+| `TMC_PPU_COMPARE=1` | Draw every frame both line by line and as a whole, and print the frames and lines where they differ |
+| `TMC_PPU_LEGACY=1` | Draw each frame as a whole before any mid-frame change (the renderer before scanline timing) |
 | `TMC_WAV=path` | Record the run's sound to a WAV file (15768 Hz, or 48 kHz with `TMC_SOUND_QUALITY=hq`) |
 | `TMC_ROM=path` | Distributable build: extract the game data from this ROM if needed. Development build: check the built-in data against it |
 | `TMC_CACHE_DIR=dir` | Where the extracted game data lives (default `~/Library/Application Support/tmc_macos`) |
@@ -371,7 +376,9 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/macos/audio.c` | Core Audio output with drift control |
 | `port/src/tools/tmc_songs.c` | The song exporter |
 | `port/src/trace.c` | Game-state tracing for the headless runner |
-| `port/src/ppu.c` | Software GBA renderer (BG modes 0-2, sprites, windows, blending) and PNG output |
+| `port/src/ppu.c` | Software GBA renderer (BG modes 0-2, sprites, windows, blending), drawn a scanline at a time, and PNG output |
+| `port/src/frame.c` | One frame of display timing: per-line VCOUNT/HBlank interrupts and HBlank DMA, then VBlank (see [Mid-frame effects](#mid-frame-effects)) |
+| `port/src/tools/scanline_test.c` | Checks of per-line scroll, affine and window effects without the game |
 | `port/tools/datagen/` | GBA data objects → native arm64 assembly (see below) |
 | `port/scripts/link_report.py` | Classifies unresolved symbols into the remaining worklist |
 
@@ -453,8 +460,8 @@ that need a pointer type natively (e.g. pointer tables declared as `u32[]`).
 The native build links with no unresolved symbols and runs, in the app or
 headless: through the Nintendo/Capcom logos and title screen into file select, and for tens of
 thousands of frames when left alone. The software renderer draws these screens
-correctly (screenshots via `TMC_SCREENSHOT`); mid-frame effects are not modelled
-yet. Every function in `asm/src` has a C
+correctly (screenshots via `TMC_SCREENSHOT`), including mid-frame effects (see
+below); mosaic is not drawn yet. Every function in `asm/src` has a C
 version, the BIOS calls are in C, and the save EEPROM is emulated.
 
 Remaining for phase 1, so that gameplay runs:
@@ -466,6 +473,55 @@ Remaining for phase 1, so that gameplay runs:
 - The C declarations listed in `build/native/data/notes.txt` (pointer tables
   declared as `u32[]`).
 - Callers that declare `DoTileInteraction`'s returned pointer as `s32`.
+
+## Mid-frame effects
+
+The game makes per-line effects with one mechanism: a table of register values
+for each line, built by the game logic in the double-buffered `gUnk_02017AA0`
+(swapped by `gUnk_03003DE4[0]`) and handed to `SetVBlankDMA`. The VBlank
+handler (`PerformVBlankDMA` in `src/interrupts.c`) copies line 0's entry and
+arms DMA 0 to copy the next entry at every HBlank. No HBlank interrupt is used;
+the VCOUNT interrupt (line 80) only runs the sound mixer.
+
+| Effect | Register | Code | Where to look |
+|---|---|---|---|
+| Iris / circle wipe | WIN0H | `sub_0801E1EC` from `fade.c` (`FADE_IRIS`, script `SetFadeIris`) | Cutscene transitions, e.g. the intro before Link wakes up (headless playthrough frames 5468-5577) |
+| Dark-room spotlight | WIN0H | `sub_0801E160` from `manager/lightManager.c` | Dark rooms (circle of light around Link) |
+| Minish portal close-up | WIN0H | `object/minishPortalCloseup.c` | Shrinking at a Minish portal |
+| White triangle | WIN0H | `sub_0801E49C` from `object/whiteTriangleEffect.c` | Scenes that spawn `WhiteTriangleEffect` |
+| Heat haze | BG3HOFS | `manager/steamOverlayManager.c` | Cave of Flames |
+| Light rays | BG3HOFS | `manager/lightRayManager.c` | West Minish Woods, the barrel Minish house |
+| Vaati appearing | BG3HOFS (affine table) | `manager/vaatiAppearingManager.c` | Vaati appearing / disappearing |
+| Rolling barrel | BG2PA..BG2Y | `manager/rollingBarrelManager.c` | Deepwood Shrine, inside the barrel |
+| BG3 band | BG3CNT | `menu/pauseMenuScreen6.c` | Pause menu screen 6 (BG3 priority changes for a band of lines) |
+
+`HwRunFrame` (`port/src/frame.c`) plays out a frame like the hardware: for each
+visible line it sets VCOUNT and raises the VCOUNT interrupt on its line, draws
+the line from the registers as they are, then raises HBlank and runs HBlank DMA
+(`HwDmaHBlank` in `hw.c`); after line 159 it runs VBlank DMA and the VBlank
+interrupt. Line 0 is drawn with the copy made at VBlank and line n with the
+entry the DMA wrote after line n-1, as on hardware. The affine reference points
+are latched at the start of the frame, step by PB/PD every line and reload when
+DMA writes BG2X/BG2Y (BG3X/BG3Y). Drawing line by line costs the same as a whole
+frame: each line reads its registers once.
+
+Checks, with no screenshots:
+
+```bash
+cmake --build build/native --target scanline_test && build/native/scanline_test
+```
+
+```bash
+TMC_FRAMES=24000 TMC_INPUT=@port/scripts/play/01_new_game.txt TMC_PPU_COMPARE=1 TMC_LINE_STATS=1 build/native/tmc
+```
+
+`scanline_test` checks every pixel of per-line scroll, affine and window tables
+(it fails with `TMC_PPU_LEGACY=1`). In the playthrough, `TMC_PPU_COMPARE` reports
+exactly the 74 frames where `TMC_LINE_STATS` sees WIN0H change between lines (the
+intro's iris wipes) and no others. Compare checksums of different builds with
+care: an NPC in Smith's house (area 0x22, around frame 8900) moves differently
+depending on leftover stack contents, so its frames change between builds
+whatever the renderer does; `TMC_PPU_COMPARE` compares within one run.
 
 ## Sound
 
