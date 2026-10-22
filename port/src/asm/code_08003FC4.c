@@ -267,9 +267,15 @@ void InitializeAnimation(Entity* this, u32 animIndex) {
 }
 
 void UpdateAnimationVariableFrames(Entity* this, u32 frames) {
-    s32 time = this->frameDuration - (s32)frames;
+    s32 time;
     const u8* p;
 
+    // Scripted NPCs (e.g. the Hyrule Castle guards) can step their animation
+    // before their script starts one. The GBA reads harmless BIOS bytes at
+    // address 0; natively leave the entity as it is until it gets an animation.
+    if (this->animPtr == NULL)
+        return;
+    time = this->frameDuration - (s32)frames;
     if (time == 0) {
         FrameZero(this);
         return;
