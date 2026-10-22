@@ -153,8 +153,6 @@ static void Pace(void) {
     sNextDeadline += period;
 }
 
-static void PublishFrame(void);
-
 // Carry out a pending save or load (at a loop boundary only).
 static void ServiceStateRequest(void) {
     char message[512];
@@ -174,7 +172,10 @@ static void ServiceStateRequest(void) {
         ok = StateLoad(sStateRequest.path, &frame, message, sizeof(message));
         if (ok) {
             gPlatformFrame = frame;
-            PublishFrame(); // show the loaded picture, even while paused
+            // Show the loaded picture, even while paused (a plain redraw of
+            // the loaded registers, without running the game).
+            PpuRenderFrame(sRaw);
+            PublishFrame(sRaw);
         }
     }
     if (sStateRequest.done != NULL) {
