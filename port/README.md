@@ -215,6 +215,16 @@ own scanline and the two around it, so bright lines spread into dark ones.
 The save is `~/Library/Application Support/tmc_macos/tmc.sav`, an 8 KB EEPROM
 image (*The Minish Cap* menu → Show Save Folder). `TMC_SAVE=path` overrides it.
 
+Save states (see [Save states](#save-states-and-checkpoints)) are in the Game
+menu: Quick Save (F5) and Quick Load (F7) use one of four slots (⌥⌘1–⌥⌘4),
+Save State As… (⇧⌘S) and Load State… (⌘O) use any file. They live in
+`~/Library/Application Support/tmc_macos/states`. The Debug menu (shown except
+in Release builds; Settings → Show Debug menu switches it) has Step Frame (F8:
+pauses, then advances one frame per press; ⌘P resumes), Show Frame Counter (in
+the window's subtitle), Load Checkpoint (the states `port/scripts/checkpoints.sh`
+wrote in this source tree) and Show State Folder. `TMC_LOAD_STATE=path` starts
+the app from a state.
+
 ### First launch
 
 A distributable build asks for the ROM the first time it starts:
@@ -290,6 +300,15 @@ Environment variables control the headless runner:
 | `TMC_ROM=path` | Distributable build: extract the game data from this ROM if needed. Development build: check the built-in data against it |
 | `TMC_CACHE_DIR=dir` | Where the extracted game data lives (default `~/Library/Application Support/tmc_macos`) |
 | `TMC_ROMDATA_VERBOSE=1` | Print how the game data was loaded and how long it took |
+| `TMC_FRAMES=+n` | Exit n frames after the start or the loaded state |
+| `TMC_LOAD_STATE=path` | Start from a save state |
+| `TMC_SAVE_STATES="frame,..."` or `"every:n"` | Save states as `frame_NNNNNN.tmcs` in `TMC_STATE_DIR` (default `states`) |
+| `TMC_STATE_DIR=dir` | Where states go; also enables the input scripts' `save:NAME` steps |
+| `TMC_STATE_REFERENCE=dir` | States of the same run from a run with `TMC_ASLR=1`: makes exact pointer lists (below) |
+| `TMC_INPUT_FROM=NAME` | Start the input script after its `save:NAME` step |
+| `TMC_HASH="frame,..."` or `"every:n"` | Print `hash F state S video V`: checksums of the state and of the picture |
+| `TMC_RECORD_INPUT=path` | Write the keys held each frame as a `TMC_INPUT` script, to replay a run exactly |
+| `TMC_ASLR=1` | Keep address randomization (normally the program re-executes itself without it) |
 
 To see the logos, title screen and file select (Start, then A to leave the title
 screen):
@@ -309,6 +328,63 @@ atos -o build/native-asan/tmc -arch arm64 0x100026464
 
 (Attaching lldb or letting ASan symbolize may wait on a macOS developer-tools
 permission prompt.)
+
+### Save states and checkpoints
+
+A save state is everything the game can change: its RAM variables, the
+emulated I/O registers, VRAM, OAM and palette, the EEPROM, the sound engine and
+the frame counter. Loading one carries on exactly as the game would have from
+that frame: the same input gives the same state and picture checksums
+(`TMC_HASH`) as a run that never stopped. The EEPROM comes back with the state
+but is only written to the save file the next time the game saves.
+
+The checkpoints along the scripted playthrough are written by
+
+```bash
+port/scripts/checkpoints.sh          # about 6 s; rerun after changing the game
+```
+
+into `port/states` (not in git): `bedroom` (frame 8387, after the intro),
+`outside_house` (13041), `hyrule_town` (15217), `town_shield` (22082) and
+`hyrule_field_north` (23041), one per `save:NAME` step of
+`port/scripts/play/01_new_game.txt`. To play on from one:
+
+```bash
+port/scripts/play.sh -s hyrule_town port/scripts/play/01_new_game.txt 3000 /tmp/run 300
+TMC_LOAD_STATE=port/states/hyrule_town.tmcs TMC_FRAMES=+600 TMC_SCREENSHOT=every:60 build/native/tmc
+```
+
+`play.sh -s` takes a checkpoint name or a `.tmcs` path; FRAMES counts from the
+state, and a script with that `save:` step carries on after it. Any script can
+save its own checkpoints with `save:NAME` steps (written when `TMC_STATE_DIR` is
+set). To check that a change keeps behaviour, compare `TMC_HASH=every:100`
+output, or diff two states variable by variable:
+
+```bash
+port/scripts/state_diff.py a.tmcs b.tmcs
+```
+
+How it works (`port/src/state.c`): everything mutable is compiled into one
+segment, `__TMCSTATE` (a forced `#pragma clang section` for the game's sources
+and the port's hardware, EEPROM and sound files; `EWRAM_DATA`/`IWRAM_DATA`;
+datagen's RAM symbols). States are taken at the main loop's VBlank wait, where
+nothing but globals is live. The programs re-execute themselves without address
+randomization, so pointers, and so checksums, are the same on every run. A
+state loads byte for byte into the program that wrote it. Into another build (a
+rebuild, or the app from a headless checkpoint) it loads by symbol: variables by
+name, pointers re-pointed at the same symbol in the new build. Telling pointers
+from data needs a second run at another address (`TMC_STATE_REFERENCE`), which
+`checkpoints.sh` does; states saved without one (quick saves, `TMC_SAVE_STATES`)
+guess, which is safe within one build but can mistake data for pointers in
+another, and say so when loaded there.
+
+Determinism: runs used to differ between attempts around frames 9000 and
+15000. The cause was the player's script context pointer overlapping
+`PlayerEntity.unk_80` (its bits decided Link's facing in the Smith cutscene),
+together with `gUnk_08016984` being zero instead of its ROM value, plus
+`EncodeBCD` reading an uninitialized "r1" and a cutscene script pointer's low
+bits copied as entity data. With those fixed, runs with and without address
+randomization give the same checksums.
 
 ### Exporting the music
 
@@ -358,6 +434,8 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/bios.c` | BIOS calls in C (copies, decompression, division, affine, VBlankIntrWait) |
 | `port/src/interrupts.c` | `IntrMain` replacement dispatching through the game's handler table |
 | `port/src/headless.c` | Headless platform and process entry; `TMC_FRAMES=n` stops after n frames |
+| `port/src/state.c`, `port/include/port/state.h` | Save states: the `__TMCSTATE` segment to a file and back |
+| `port/scripts/checkpoints.sh`, `state_diff.py` | Checkpoint states along the playthrough; comparing two states |
 | `port/src/frame.c` | Frame boundary shared by both platforms: latch keys, raise VCOUNT and VBLANK |
 | `port/src/macos/game.c` | App platform layer: game thread, 59.73 Hz pacing, frame hand-off |
 | `port/src/macos/app.m` | Window, menus, full screen, save location |
