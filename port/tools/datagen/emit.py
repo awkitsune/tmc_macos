@@ -507,14 +507,17 @@ class Emitter:
         assert sec is self._sec
         return self._bin
 
-    def write_manifest(self, out: Path, listing: Path) -> Path:
+    def write_manifest(self, out: Path, listing: Path, c_tables: list = ()) -> Path:
         """rom_manifest.s: the ROM extents the data cache holds, and its version.
 
         The cache is the ROM bytes of every run, merged into extents (sorted,
-        disjoint, one stage each) and stored back to back. Its version hash covers
-        the extents, so any change to what is extracted invalidates old caches.
+        disjoint, one stage each) and stored back to back. c_tables adds the ROM
+        ranges of tables written in C, for port/tools/scrub_rom_data.py. The
+        version hash covers the extents, so any change to what is extracted
+        invalidates old caches.
         """
-        spans = sorted((rom, rom + length, cat) for rom, length, cat, _, _ in self.runs)
+        spans = sorted([(rom, rom + length, cat) for rom, length, cat, _, _ in self.runs] +
+                       [(rom, rom + length, CATEGORY_TABLES) for rom, length in c_tables])
         extents = []  # [rom start, rom end, category]
         for start, end, cat in spans:
             if extents and start <= extents[-1][1] and cat == extents[-1][2]:

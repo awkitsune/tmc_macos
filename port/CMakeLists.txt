@@ -103,6 +103,8 @@ if(NOT EXISTS ${TMC_DATA_DIR}/sources.txt OR NOT TMC_DATA_MODE_FOUND STREQUAL TM
     endif()
 endif()
 file(STRINGS ${TMC_DATA_DIR}/sources.txt TMC_DATA_SOURCES)
+set(TMC_SCRUB_COMMAND ${TMC_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tools/scrub_rom_data.py)
+set(TMC_SCRUB_INPUTS ${TMC_ROOT}/tmc.gba ${TMC_DATA_DIR}/rom_manifest.s)
 add_custom_target(datagen
     COMMAND ${TMC_DATAGEN_COMMAND}
     COMMAND ${CMAKE_COMMAND} ${CMAKE_BINARY_DIR}
@@ -126,6 +128,7 @@ add_library(tmc_port STATIC
     src/ppu.c
     src/frame.c
     src/romdata.c
+    src/rom_scrub.s
     ${TMC_PORT_ASM_SOURCES}
     ${TMC_PORT_SOUND_SOURCES}
 )
@@ -173,8 +176,14 @@ target_link_libraries(tmc_app PRIVATE
     "-framework AudioToolbox" "-framework CoreAudio"
 )
 # Ad-hoc sign the whole bundle so macOS treats it as one app (Gatekeeper,
-# controller and window permissions).
+# controller and window permissions). ROM builds scrub the executable first (see
+# below).
+set(TMC_APP_SCRUB)
+if(NOT TMC_BAKE_DATA)
+    set(TMC_APP_SCRUB COMMAND ${TMC_SCRUB_COMMAND} $<TARGET_FILE:tmc_app> ${TMC_SCRUB_INPUTS})
+endif()
 add_custom_command(TARGET tmc_app POST_BUILD
+    ${TMC_APP_SCRUB}
     COMMAND codesign --force --sign - $<TARGET_BUNDLE_DIR:tmc_app>
     COMMENT "Signing TMC.app (ad hoc)"
 )
@@ -194,6 +203,21 @@ target_include_directories(tmc_songs PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BU
 target_compile_definitions(tmc_songs PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
 target_link_libraries(tmc_songs PRIVATE tmc_port z)
 
+
+# ROM builds: the tables the decomp writes in C go to a writable section, and
+# after linking scrub_rom_data.py moves their ROM bytes out to the extracted data
+# (port/src/romdata.c), so no program contains any. Needs the GBA build's tmc.gba.
+if(NOT TMC_BAKE_DATA)
+    foreach(target tmc tmc_app tmc_songs)
+        target_link_options(${target} PRIVATE -Wl,-rename_section,__TEXT,__const,__DATA,__tmcconst)
+    endforeach()
+    foreach(target tmc tmc_songs)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${TMC_SCRUB_COMMAND} $<TARGET_FILE:${target}> ${TMC_SCRUB_INPUTS}
+            COMMENT "Moving the ROM's bytes out of ${target}"
+        )
+    endforeach()
+endif()
 
 add_custom_target(link-report
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target tmc > ${CMAKE_BINARY_DIR}/link.log 2>&1 || true
