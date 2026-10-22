@@ -27,7 +27,12 @@ typedef struct {
     u8 rButtonX;
     u8 rButtonY;
     u8 rButtonText;
+#ifdef PLATFORM_NATIVE
+    // clang drops initializers of zero-length arrays; a flexible array keeps them.
+    u8 settingDict[];
+#else
     u8 settingDict[0];
+#endif
 } PACKED KeyButtonLayout;
 
 extern void sub_080A70AC(const KeyButtonLayout*);
