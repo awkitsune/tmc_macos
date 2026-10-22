@@ -183,13 +183,19 @@ set_target_properties(tmc_app PROPERTIES
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
 )
+# The Debug menu is on by default except in Release builds (Settings switches
+# it); its Load Checkpoint lists port/states in this source tree.
+target_compile_definitions(tmc_app PRIVATE
+    TMC_DEBUG_MENU_DEFAULT=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>
+    TMC_CHECKPOINT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/states"
+)
 target_compile_options(tmc_app PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>)
 target_compile_options(tmc_app PRIVATE -Wall -Wno-unused-parameter)
 target_link_libraries(tmc_app PRIVATE
     tmc_port z
     "-framework Cocoa" "-framework Metal" "-framework MetalKit"
     "-framework GameController" "-framework QuartzCore"
-    "-framework AudioToolbox" "-framework CoreAudio"
+    "-framework AudioToolbox" "-framework CoreAudio" "-framework UniformTypeIdentifiers"
 )
 # Ad-hoc sign the whole bundle so macOS treats it as one app (Gatekeeper,
 # controller and window permissions).

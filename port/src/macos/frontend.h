@@ -40,6 +40,22 @@ void FrontendSetFastForward(bool on);
 /* Reset the game the way the game itself does (A+B+Select+Start). */
 void FrontendRequestReset(void);
 
+/* While paused: run to the next frame boundary (one frame), then pause again. */
+void FrontendStepFrame(void);
+
+/* The frame counter (frames since start, or as a loaded state set it). */
+uint64_t FrontendFrame(void);
+
+/*
+ * Save states (port/include/port/state.h): saved or loaded by the game thread
+ * at its next main-loop frame boundary, paused or not. done (may be NULL) is
+ * called on the game thread with the outcome, a message (why it failed, or a
+ * note on a load from another build) and the frame. Returns false if another
+ * request is still pending.
+ */
+typedef void (*FrontendStateDone)(bool ok, const char* message, uint64_t frame, void* context);
+bool FrontendRequestState(bool save, const char* path, FrontendStateDone done, void* context);
+
 /* Stop the game thread at its next frame boundary (so no save write is cut short). */
 void FrontendStopGame(void);
 

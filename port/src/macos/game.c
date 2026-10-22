@@ -16,6 +16,7 @@
 #include "frontend.h"
 #include "port/hw.h"
 #include "port/platform.h"
+#include "port/state.h"
 
 void AgbMain(void);
 
@@ -28,6 +29,16 @@ static atomic_bool sFastForward;
 static atomic_int sResetFrames;
 static atomic_bool sStopRequested;
 static atomic_bool sStopped;
+static atomic_int sStepFrames;
+
+// A save or load for the game thread's next loop boundary, guarded by sStateLock.
+static os_unfair_lock sStateLock = OS_UNFAIR_LOCK_INIT;
+static struct {
+    bool pending, save;
+    char path[1024];
+    FrontendStateDone done;
+    void* context;
+} sStateRequest;
 
 // The newest finished frame, guarded by sFrameLock.
 static os_unfair_lock sFrameLock = OS_UNFAIR_LOCK_INIT;
@@ -61,6 +72,30 @@ void FrontendSetFastForward(bool on) {
 
 void FrontendRequestReset(void) {
     atomic_store(&sResetFrames, RESET_HOLD_FRAMES);
+}
+
+void FrontendStepFrame(void) {
+    atomic_fetch_add(&sStepFrames, 1);
+}
+
+uint64_t FrontendFrame(void) {
+    return gPlatformFrame;
+}
+
+bool FrontendRequestState(bool save, const char* path, FrontendStateDone done, void* context) {
+    bool accepted;
+
+    os_unfair_lock_lock(&sStateLock);
+    accepted = !sStateRequest.pending && strlen(path) < sizeof(sStateRequest.path);
+    if (accepted) {
+        sStateRequest.pending = true;
+        sStateRequest.save = save;
+        strcpy(sStateRequest.path, path);
+        sStateRequest.done = done;
+        sStateRequest.context = context;
+    }
+    os_unfair_lock_unlock(&sStateLock);
+    return accepted;
 }
 
 bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence) {
@@ -118,12 +153,51 @@ static void Pace(void) {
     sNextDeadline += period;
 }
 
+static void PublishFrame(void);
+
+// Carry out a pending save or load (at a loop boundary only).
+static void ServiceStateRequest(void) {
+    char message[512];
+    bool ok;
+
+    os_unfair_lock_lock(&sStateLock);
+    if (!sStateRequest.pending) {
+        os_unfair_lock_unlock(&sStateLock);
+        return;
+    }
+    os_unfair_lock_unlock(&sStateLock);
+
+    if (sStateRequest.save) {
+        ok = StateSave(sStateRequest.path, gPlatformFrame, NULL, message, sizeof(message));
+    } else {
+        uint64_t frame;
+        ok = StateLoad(sStateRequest.path, &frame, message, sizeof(message));
+        if (ok) {
+            gPlatformFrame = frame;
+            PublishFrame(); // show the loaded picture, even while paused
+        }
+    }
+    if (sStateRequest.done != NULL) {
+        sStateRequest.done(ok, message, gPlatformFrame, sStateRequest.context);
+    }
+    os_unfair_lock_lock(&sStateLock);
+    sStateRequest.pending = false;
+    os_unfair_lock_unlock(&sStateLock);
+}
+
+// Pausing (and stepping) happens at loop boundaries, so a paused game can
+// always save or load.
 static void WaitWhilePaused(void) {
     if (!atomic_load(&sPaused)) {
         return;
     }
     while (atomic_load(&sPaused) && !atomic_load(&sStopRequested)) {
-        usleep(10000);
+        int steps = atomic_load(&sStepFrames);
+        if (steps > 0 && atomic_compare_exchange_strong(&sStepFrames, &steps, steps - 1)) {
+            break;
+        }
+        ServiceStateRequest();
+        usleep(5000);
     }
     sNextDeadline = mach_absolute_time();
 }
@@ -142,7 +216,10 @@ void PlatformVBlank(void) {
     int resetFrames;
 
     StopIfRequested();
-    WaitWhilePaused();
+    if (PlatformAtLoopBoundary()) {
+        ServiceStateRequest();
+        WaitWhilePaused();
+    }
     Pace();
     StopIfRequested();
 

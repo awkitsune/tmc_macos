@@ -5,6 +5,8 @@
 NSString* const kFilterDefault = @"Filter";
 NSString* const kIntegerScalingDefault = @"IntegerScaling";
 NSString* const kGamepadLayoutDefault = @"GamepadLayout";
+NSString* const kDebugMenuDefault = @"ShowDebugMenu";
+NSString* const kDebugMenuChangedNotification = @"TMCDebugMenuChanged";
 
 typedef struct {
     NSString* section; // starts a new section when set
@@ -53,6 +55,7 @@ FilterParams LoadFilterParams(void) {
     NSPopUpButton* _filterPopup;
     NSPopUpButton* _gamepadPopup;
     NSButton* _integerScaling;
+    NSButton* _debugMenu;
     NSSlider* _sliders[KNOB_COUNT];
     NSTextField* _values[KNOB_COUNT];
 }
@@ -130,6 +133,11 @@ static NSTextField* Label(NSString* text, BOOL bold) {
     note.textColor = NSColor.secondaryLabelColor;
     [rows addObject:@[ NSGridCell.emptyContentView, note, NSGridCell.emptyContentView ]];
 
+    [headerRows addIndex:rows.count];
+    [rows addObject:@[ Label(@"Debug", YES) ]];
+    _debugMenu = [NSButton checkboxWithTitle:@"Show Debug menu" target:self action:@selector(debugMenuChanged:)];
+    [rows addObject:@[ NSGridCell.emptyContentView, _debugMenu, NSGridCell.emptyContentView ]];
+
     NSGridView* grid = [NSGridView gridViewWithViews:rows];
     grid.rowSpacing = 8;
     grid.columnSpacing = 10;
@@ -169,6 +177,8 @@ static NSTextField* Label(NSString* text, BOOL bold) {
     [_filterPopup selectItemAtIndex:(NSInteger)_renderer.filter];
     _integerScaling.state = _renderer.integerScaling ? NSControlStateValueOn : NSControlStateValueOff;
     [_gamepadPopup selectItemAtIndex:_input.gamepadLayout];
+    _debugMenu.state = [NSUserDefaults.standardUserDefaults boolForKey:kDebugMenuDefault] ? NSControlStateValueOn
+                                                                                          : NSControlStateValueOff;
     for (size_t i = 0; i < KNOB_COUNT; i++) {
         float value = *KnobValue(&params, &kKnobs[i]);
         _sliders[i].floatValue = value;
@@ -189,6 +199,11 @@ static NSTextField* Label(NSString* text, BOOL bold) {
 - (void)gamepadLayoutChanged:(NSPopUpButton*)sender {
     _input.gamepadLayout = (GamepadLayout)sender.indexOfSelectedItem;
     [NSUserDefaults.standardUserDefaults setInteger:sender.indexOfSelectedItem forKey:kGamepadLayoutDefault];
+}
+
+- (void)debugMenuChanged:(NSButton*)sender {
+    [NSUserDefaults.standardUserDefaults setBool:sender.state == NSControlStateValueOn forKey:kDebugMenuDefault];
+    [NSNotificationCenter.defaultCenter postNotificationName:kDebugMenuChangedNotification object:nil];
 }
 
 - (void)sliderChanged:(NSSlider*)sender {

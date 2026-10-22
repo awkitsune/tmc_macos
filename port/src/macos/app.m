@@ -5,6 +5,7 @@
 
 #import <AppKit/AppKit.h>
 #import <MetalKit/MetalKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #import "input.h"
 #import "renderer.h"
@@ -14,9 +15,13 @@
 
 #include "audio.h"
 #include "frontend.h"
+#include "port/state.h"
 
 static NSString* const kMutedDefault = @"Muted";
 static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
+static NSString* const kStateSlotDefault = @"StateSlot";
+static NSString* const kFrameCounterDefault = @"ShowFrameCounter";
+#define STATE_SLOTS 4
 
 // The game view takes the keyboard: game keys go to Input, everything else
 // (menu shortcuts, Escape) goes up the responder chain.
@@ -52,8 +57,18 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 
 @end
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate>
+- (void)stateFinished:(BOOL)ok what:(NSString*)what message:(NSString*)message frame:(uint64_t)frame;
 @end
+
+// FrontendRequestState's callback, on the game thread: report on the main one.
+static void StateDone(bool ok, const char* message, uint64_t frame, void* context) {
+    NSString* what = (__bridge_transfer NSString*)context;
+    NSString* text = @(message);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [(AppDelegate*)NSApp.delegate stateFinished:ok what:what message:text frame:frame];
+    });
+}
 
 @implementation AppDelegate {
     NSWindow* _window;
@@ -62,6 +77,9 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     SettingsWindowController* _settings;
     Input* _input;
     RomSetup* _romSetup;
+    NSString* _status;     // shown as the window's subtitle until _statusUntil
+    NSDate* _statusUntil;
+    NSUInteger _drawCount;
 }
 
 #pragma mark Launch
@@ -79,6 +97,23 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     return [dir URLByAppendingPathComponent:@"tmc.sav"].path;
 }
 
+// ~/Library/Application Support/tmc_macos/states: quick save slots and the
+// default place for states saved to a file.
+- (NSString*)stateFolder {
+    NSString* dir = [self.savePath.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"states"];
+    [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    return dir;
+}
+
+- (NSInteger)stateSlot {
+    return MAX(1, MIN(STATE_SLOTS, [NSUserDefaults.standardUserDefaults integerForKey:kStateSlotDefault]));
+}
+
+- (NSString*)slotPath {
+    return [self.stateFolder stringByAppendingPathComponent:[NSString stringWithFormat:@"slot%ld.%s", (long)self.stateSlot,
+                                                                                       STATE_EXTENSION]];
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification*)note {
     NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
     [defaults registerDefaults:@{
@@ -86,7 +121,14 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
         kIntegerScalingDefault : @YES,
         kMutedDefault : @NO,
         kHighQualityAudioDefault : @NO,
+        kStateSlotDefault : @1,
+        kFrameCounterDefault : @NO,
+        kDebugMenuDefault : @(TMC_DEBUG_MENU_DEFAULT),
     }];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(debugMenuChanged:)
+                                               name:kDebugMenuChangedNotification
+                                             object:nil];
 
     [self buildMenus];
 
@@ -139,9 +181,11 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     _renderer.integerScaling = [defaults boolForKey:kIntegerScalingDefault];
     _renderer.params = LoadFilterParams();
     Input* input = _input;
+    __weak AppDelegate* weakSelf = self;
     _renderer.beforeDraw = ^{
         FrontendSetKeys([input pollKeys]);
         FrontendSetFastForward(input.fastForwardHeld);
+        [weakSelf updateSubtitle];
     };
     _view.delegate = _renderer;
     _window.contentView = _view;
@@ -154,6 +198,12 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     AudioStart(); // without an output device the game just runs silently
     FrontendStartGame();
     [NSApp activateIgnoringOtherApps:YES];
+
+    // TMC_LOAD_STATE=path: start from a save state, as the headless runner does.
+    NSString* loadState = NSProcessInfo.processInfo.environment[@"TMC_LOAD_STATE"];
+    if (loadState.length != 0) {
+        [self requestState:NO path:loadState what:[@"Loaded " stringByAppendingString:loadState.lastPathComponent]];
+    }
 
     NSString* selfTest = NSProcessInfo.processInfo.environment[@"TMC_SELFTEST"];
     if (selfTest.length != 0) {
@@ -180,6 +230,150 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 
 - (void)applicationDidResignActive:(NSNotification*)note {
     [_input releaseAll]; // key-ups go elsewhere while another app has focus
+}
+
+#pragma mark Save states
+
+- (void)requestState:(BOOL)save path:(NSString*)path what:(NSString*)what {
+    void* context = (__bridge_retained void*)what;
+    if (!FrontendRequestState(save, path.fileSystemRepresentation, StateDone, context)) {
+        (void)(__bridge_transfer NSString*)context;
+        [self showStatus:@"Busy with the last save or load"];
+    }
+}
+
+- (void)stateFinished:(BOOL)ok what:(NSString*)what message:(NSString*)message frame:(uint64_t)frame {
+    if (!ok) {
+        NSAlert* alert = [NSAlert new];
+        alert.messageText = @"Save state failed";
+        alert.informativeText = message;
+        [alert beginSheetModalForWindow:_window completionHandler:nil];
+        return;
+    }
+    if (message.length != 0) {
+        NSLog(@"%@: %@", what, message); // loaded from another build
+    }
+    NSLog(@"%@ (frame %llu)", what, (unsigned long long)frame);
+    [self showStatus:[NSString stringWithFormat:@"%@%@", what, message.length != 0 ? @" (from another build)" : @""]];
+}
+
+- (void)showStatus:(NSString*)text {
+    _status = text;
+    _statusUntil = [NSDate dateWithTimeIntervalSinceNow:3];
+    [self updateSubtitle];
+}
+
+// The window's subtitle: a recent save/load, else the frame counter if shown.
+- (void)updateSubtitle {
+    NSString* text = @"";
+    if (_status != nil && _statusUntil.timeIntervalSinceNow > 0) {
+        text = _status;
+    } else if ([NSUserDefaults.standardUserDefaults boolForKey:kFrameCounterDefault]) {
+        if (_drawCount++ % 8 != 0 && !FrontendIsPaused()) {
+            return;
+        }
+        text = [NSString stringWithFormat:@"Frame %llu", (unsigned long long)FrontendFrame()];
+    }
+    if (![_window.subtitle isEqualToString:text]) {
+        _window.subtitle = text;
+    }
+}
+
+- (void)quickSave:(id)sender {
+    [self requestState:YES path:self.slotPath what:[NSString stringWithFormat:@"Saved slot %ld", (long)self.stateSlot]];
+}
+
+- (void)quickLoad:(id)sender {
+    if (![NSFileManager.defaultManager fileExistsAtPath:self.slotPath]) {
+        [self showStatus:[NSString stringWithFormat:@"Slot %ld is empty", (long)self.stateSlot]];
+        return;
+    }
+    [self requestState:NO path:self.slotPath what:[NSString stringWithFormat:@"Loaded slot %ld", (long)self.stateSlot]];
+}
+
+- (void)selectSlot:(NSMenuItem*)sender {
+    [NSUserDefaults.standardUserDefaults setInteger:sender.tag forKey:kStateSlotDefault];
+    [self showStatus:[NSString stringWithFormat:@"Slot %ld", (long)sender.tag]];
+}
+
+- (UTType*)stateType {
+    return [UTType typeWithFilenameExtension:@STATE_EXTENSION conformingToType:UTTypeData];
+}
+
+- (void)saveStateAs:(id)sender {
+    NSSavePanel* panel = [NSSavePanel savePanel];
+    panel.directoryURL = [NSURL fileURLWithPath:self.stateFolder];
+    panel.nameFieldStringValue = [NSString stringWithFormat:@"frame_%06llu.%s", (unsigned long long)FrontendFrame(),
+                                                            STATE_EXTENSION];
+    panel.allowedContentTypes = @[ self.stateType ];
+    [panel beginSheetModalForWindow:_window
+                  completionHandler:^(NSModalResponse result) {
+                      if (result == NSModalResponseOK) {
+                          [self requestState:YES path:panel.URL.path
+                                        what:[@"Saved " stringByAppendingString:panel.URL.lastPathComponent]];
+                      }
+                  }];
+}
+
+- (void)loadStateFromFile:(id)sender {
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    panel.directoryURL = [NSURL fileURLWithPath:self.stateFolder];
+    panel.allowedContentTypes = @[ self.stateType ];
+    [panel beginSheetModalForWindow:_window
+                  completionHandler:^(NSModalResponse result) {
+                      if (result == NSModalResponseOK) {
+                          [self loadStateAtPath:panel.URL.path];
+                      }
+                  }];
+}
+
+- (void)loadStateAtPath:(NSString*)path {
+    [self requestState:NO path:path what:[@"Loaded " stringByAppendingString:path.lastPathComponent]];
+}
+
+- (void)loadCheckpoint:(NSMenuItem*)sender {
+    [self loadStateAtPath:sender.representedObject];
+}
+
+- (void)showStateFolder:(id)sender {
+    [NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:self.stateFolder]];
+}
+
+- (void)stepFrame:(id)sender {
+    if (!FrontendIsPaused()) {
+        [self togglePause:nil];
+        return; // the first press pauses; the next ones step
+    }
+    FrontendStepFrame();
+    [self updateSubtitle];
+}
+
+- (void)toggleFrameCounter:(id)sender {
+    NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+    [defaults setBool:![defaults boolForKey:kFrameCounterDefault] forKey:kFrameCounterDefault];
+    [self updateSubtitle];
+}
+
+- (void)debugMenuChanged:(NSNotification*)note {
+    [self buildMenus];
+}
+
+// The checkpoints port/scripts/checkpoints.sh writes in the source tree.
+- (void)menuNeedsUpdate:(NSMenu*)menu {
+    NSString* dir = @TMC_CHECKPOINT_DIR;
+    NSArray<NSString*>* names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:dir error:nil];
+    [menu removeAllItems];
+    for (NSString* name in [names sortedArrayUsingSelector:@selector(compare:)]) {
+        if ([name.pathExtension isEqualToString:@STATE_EXTENSION]) {
+            NSMenuItem* item = [menu addItemWithTitle:name.stringByDeletingPathExtension
+                                               action:@selector(loadCheckpoint:)
+                                        keyEquivalent:@""];
+            item.representedObject = [dir stringByAppendingPathComponent:name];
+        }
+    }
+    if (menu.numberOfItems == 0) {
+        [menu addItemWithTitle:@"None: run port/scripts/checkpoints.sh" action:nil keyEquivalent:@""].enabled = NO;
+    }
 }
 
 #pragma mark Window
@@ -215,6 +409,22 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     [game addItemWithTitle:@"Pause" action:@selector(togglePause:) keyEquivalent:@"p"];
     [game addItemWithTitle:@"Reset" action:@selector(resetGame:) keyEquivalent:@"r"];
     [game addItem:NSMenuItem.separatorItem];
+    NSString* f5 = [NSString stringWithFormat:@"%C", (unichar)NSF5FunctionKey];
+    NSString* f7 = [NSString stringWithFormat:@"%C", (unichar)NSF7FunctionKey];
+    [game addItemWithTitle:@"Quick Save" action:@selector(quickSave:) keyEquivalent:f5].keyEquivalentModifierMask = 0;
+    [game addItemWithTitle:@"Quick Load" action:@selector(quickLoad:) keyEquivalent:f7].keyEquivalentModifierMask = 0;
+    NSMenu* slots = [[NSMenu alloc] initWithTitle:@"Quick Save Slot"];
+    for (NSInteger slot = 1; slot <= STATE_SLOTS; slot++) {
+        NSMenuItem* item = [slots addItemWithTitle:[NSString stringWithFormat:@"Slot %ld", (long)slot]
+                                            action:@selector(selectSlot:)
+                                     keyEquivalent:[NSString stringWithFormat:@"%ld", (long)slot]];
+        item.keyEquivalentModifierMask = NSEventModifierFlagOption | NSEventModifierFlagCommand;
+        item.tag = slot;
+    }
+    [game addItemWithTitle:slots.title action:nil keyEquivalent:@""].submenu = slots;
+    [game addItemWithTitle:@"Save State As…" action:@selector(saveStateAs:) keyEquivalent:@"S"];
+    [game addItemWithTitle:@"Load State…" action:@selector(loadStateFromFile:) keyEquivalent:@"o"];
+    [game addItem:NSMenuItem.separatorItem];
     NSMenuItem* help = [game addItemWithTitle:@"Hold Tab to fast-forward" action:nil keyEquivalent:@""];
     help.enabled = NO;
     [self addSubmenu:game toBar:bar];
@@ -237,6 +447,19 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
     NSMenuItem* fullScreen = [view addItemWithTitle:@"Toggle Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
     fullScreen.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
     [self addSubmenu:view toBar:bar];
+
+    if ([NSUserDefaults.standardUserDefaults boolForKey:kDebugMenuDefault]) {
+        NSMenu* debug = [[NSMenu alloc] initWithTitle:@"Debug"];
+        NSString* f8 = [NSString stringWithFormat:@"%C", (unichar)NSF8FunctionKey];
+        [debug addItemWithTitle:@"Step Frame" action:@selector(stepFrame:) keyEquivalent:f8].keyEquivalentModifierMask = 0;
+        [debug addItemWithTitle:@"Show Frame Counter" action:@selector(toggleFrameCounter:) keyEquivalent:@""];
+        [debug addItem:NSMenuItem.separatorItem];
+        NSMenu* checkpoints = [[NSMenu alloc] initWithTitle:@"Load Checkpoint"];
+        checkpoints.delegate = self; // filled when opened (menuNeedsUpdate:)
+        [debug addItemWithTitle:checkpoints.title action:nil keyEquivalent:@""].submenu = checkpoints;
+        [debug addItemWithTitle:@"Show State Folder" action:@selector(showStateFolder:) keyEquivalent:@""];
+        [self addSubmenu:debug toBar:bar];
+    }
 
     NSMenu* window = [[NSMenu alloc] initWithTitle:@"Window"];
     [window addItemWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
@@ -261,6 +484,11 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
         item.state = AudioIsMuted() ? NSControlStateValueOn : NSControlStateValueOff;
     } else if (item.action == @selector(toggleHighQualityAudio:)) {
         item.state = AudioIsHighQuality() ? NSControlStateValueOn : NSControlStateValueOff;
+    } else if (item.action == @selector(selectSlot:)) {
+        item.state = item.tag == self.stateSlot ? NSControlStateValueOn : NSControlStateValueOff;
+    } else if (item.action == @selector(toggleFrameCounter:)) {
+        item.state = [NSUserDefaults.standardUserDefaults boolForKey:kFrameCounterDefault] ? NSControlStateValueOn
+                                                                                           : NSControlStateValueOff;
     } else if (item.action == @selector(togglePause:)) {
         item.title = FrontendIsPaused() ? @"Resume" : @"Pause";
     } else if (item.action == @selector(changeRom:) || item.action == @selector(reextractGameData:)) {
@@ -325,6 +553,8 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 @end
 
 int main(int argc, const char* argv[]) {
+    // Same addresses every run, so the app's states load byte for byte.
+    StateDisableAslr((char**)argv);
     @autoreleasepool {
         NSApplication* app = NSApplication.sharedApplication;
         app.activationPolicy = NSApplicationActivationPolicyRegular;

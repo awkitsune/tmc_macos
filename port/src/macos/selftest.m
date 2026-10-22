@@ -4,8 +4,16 @@
 
 #import "settings.h"
 
+#include "frontend.h"
 #include "port/platform.h"
 #include "port/ppu.h"
+#include "port/state.h"
+
+// On the game thread, at the boundary the state was saved or loaded at.
+static void SelfTestStateDone(bool ok, const char* message, uint64_t frame, void* context) {
+    NSLog(@"selftest: state %s %s at frame %llu, checksum %016llx %s", (const char*)context, ok ? "ok" : "FAILED",
+          (unsigned long long)frame, (unsigned long long)StateChecksum(), message);
+}
 
 static void PostKey(NSWindow* window, unsigned short keyCode, BOOL down) {
     NSEvent* event = [NSEvent keyEventWithType:down ? NSEventTypeKeyDown : NSEventTypeKeyUp
@@ -158,6 +166,12 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     });
     add(5, ^{ [renderer captureNextFrameToURL:file(@"fullscreen_lcd_game")]; });
     add(5, ^{ [window toggleFullScreen:nil]; });
+
+    // Save states: save, play on, load it back. The log shows the same frame
+    // and checksum for both.
+    NSString* statePath = [dir stringByAppendingPathComponent:@"selftest." STATE_EXTENSION];
+    add(5, ^{ FrontendRequestState(true, statePath.fileSystemRepresentation, SelfTestStateDone, "save"); });
+    add(60, ^{ FrontendRequestState(false, statePath.fileSystemRepresentation, SelfTestStateDone, "load"); });
 
     // The settings window, drawn offscreen.
     __block SettingsWindowController* settings = nil;

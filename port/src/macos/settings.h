@@ -9,13 +9,17 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString* const kFilterDefault;
 extern NSString* const kIntegerScalingDefault;
 extern NSString* const kGamepadLayoutDefault;
+// The Debug menu (save state tools); on by default in development builds.
+extern NSString* const kDebugMenuDefault;
+// Posted when the Debug menu setting changes, to rebuild the menus.
+extern NSString* const kDebugMenuChangedNotification;
 
 /* Filter knobs saved in NSUserDefaults; missing values fall back to the defaults. */
 FilterParams LoadFilterParams(void);
 
 /*
  * Settings window: filter, integer scaling, every shader knob as a
- * slider, and the gamepad button layout. Changes apply to the running game
+ * slider, the gamepad button layout and the Debug menu. Changes apply to the running game
  * immediately and are saved.
  */
 @interface SettingsWindowController : NSWindowController
