@@ -44,8 +44,12 @@ const s8 gShakeOffsets[] = {
     0,  1,  0, 2,  0,  0,  0,  1,  2,  0,  1,  0,  0,  0,  -1, 0,  -1, 0,  -1, 0,  0, 0,  1,  0,
 };
 
-// The 2-byte gap after the script data (code_08016984/gUnk_08016984.bin).
-const u8 gUnk_08016984[2];
+// code_08016984/gUnk_08016984.bin: the halfword 0x0449, the command word of the
+// first of the four commands that face the player (opcodes 0x49-0x4C, one word).
+// ScriptCommand_0807E8E4 subtracts it from its own command word to get the
+// direction; left zero, the player got animation states like 0x94 and showed
+// frames from unrelated animations in cutscenes.
+const u8 gUnk_08016984[2] = { 0x49, 0x04 };
 
 // ---- collision layers -----------------------------------------------------------
 
