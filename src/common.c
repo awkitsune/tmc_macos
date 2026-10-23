@@ -901,7 +901,13 @@ void sub_0801E290(u32 param_1, u32 param_2, u32 count) {
     u32 uVar7;
     u32 index;
     u32 x;
+#ifdef PLATFORM_NATIVE
+    // param_2 is the circle's centre line, "negative" above the screen; as a u32 a 64-bit pointer adds it
+    // unwrapped (8 GB out). Only lines 0..159 are written, as on the GBA.
+    forwardAccess = &gUnk_02017AA0[gUnk_03003DE4[0]].filler[(s32)param_2 * 2];
+#else
     forwardAccess = &gUnk_02017AA0[gUnk_03003DE4[0]].filler[param_2 * 2];
+#endif
     backwardAccess = forwardAccess;
     uVar5 = uVar7 = param_2;
     puVar6 = gUnk_02018EE0;
