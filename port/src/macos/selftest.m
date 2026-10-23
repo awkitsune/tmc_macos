@@ -286,7 +286,7 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     // The settings window, drawn offscreen.
     __block SettingsWindowController* settings = nil;
     add(90, ^{
-        settings = [[SettingsWindowController alloc] initWithRenderer:renderer input:input];
+        settings = [[SettingsWindowController alloc] initWithRenderer:renderer input:input pacingStatus:nil];
         [settings showWindow:nil];
     });
     add(10, ^{ SelfTestSnapshotWindow(settings.window, @"settings"); });

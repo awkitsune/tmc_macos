@@ -3,6 +3,9 @@
 #import <Carbon/Carbon.h> // kVK_* virtual key codes
 #import <GameController/GameController.h>
 
+#include <stdatomic.h>
+
+#include "latency.h"
 #include "port/hw.h"
 
 typedef struct {
@@ -26,11 +29,16 @@ static const KeyBinding kKeyBindings[] = {
     { kVK_ANSI_Backslash, HW_KEY_SELECT },
 };
 
+static BOOL IsNintendoPad(GCController* controller);
+
 static const unsigned short kFastForwardKey = kVK_Tab;
 
+// The keyboard state is written by the main thread (key events) and read by the
+// game thread, right before each frame.
 @implementation Input {
-    uint16_t _keyboardKeys;
-    BOOL _fastForwardKey;
+    _Atomic uint16_t _keyboardKeys;
+    atomic_bool _fastForwardKey;
+    dispatch_queue_t _padQueue; // latency log only
 }
 
 - (instancetype)init {
@@ -39,6 +47,13 @@ static const unsigned short kFastForwardKey = kVK_Tab;
         [centre addObserver:self selector:@selector(controllersDidChange:) name:GCControllerDidConnectNotification object:nil];
         [centre addObserver:self selector:@selector(controllersDidChange:) name:GCControllerDidDisconnectNotification object:nil];
         [GCController startWirelessControllerDiscoveryWithCompletionHandler:nil];
+        if (LatencyEnabled()) {
+            dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
+            _padQueue = dispatch_queue_create("gamepad latency", attr);
+            for (GCController* controller in GCController.controllers) {
+                [self watchController:controller];
+            }
+        }
     }
     return self;
 }
@@ -52,9 +67,34 @@ static const unsigned short kFastForwardKey = kVK_Tab;
     BOOL connected = [note.name isEqualToString:GCControllerDidConnectNotification];
     NSLog(@"controller %@: %@ (%@)", connected ? @"connected" : @"disconnected", controller.vendorName,
           controller.productCategory);
+    if (connected && LatencyEnabled()) {
+        [self watchController:controller];
+    }
     if (self.controllersChanged) {
         self.controllersChanged();
     }
+}
+
+// Latency log: time the moment a pad's held keys change (off the main thread,
+// so a busy main thread does not skew it).
+- (void)watchController:(GCController*)controller {
+    if (controller.extendedGamepad == nil) {
+        return;
+    }
+    controller.handlerQueue = _padQueue;
+    __block uint16_t last = 0;
+    __weak Input* weakSelf = self;
+    controller.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad* pad, GCControllerElement* element) {
+        uint64_t now = LatencyNowNs();
+        uint64_t stamp = (uint64_t)(pad.lastEventTimestamp * 1e9);
+        Input* strongSelf = weakSelf;
+        uint16_t keys = [strongSelf keysForController:controller nintendo:IsNintendoPad(controller)];
+        if (keys != last) {
+            last = keys;
+            // The pad's own timestamp, when it is on the clock we compare with.
+            LatencyInputEvent(LATENCY_PAD, stamp > now - 1000000000ull && stamp <= now ? stamp : now);
+        }
+    };
 }
 
 - (NSString*)controllerName {
@@ -70,15 +110,15 @@ static const unsigned short kFastForwardKey = kVK_Tab;
     unsigned short code = event.keyCode;
 
     if (code == kFastForwardKey) {
-        _fastForwardKey = down;
+        atomic_store(&_fastForwardKey, down);
         return YES;
     }
     for (size_t i = 0; i < sizeof(kKeyBindings) / sizeof(kKeyBindings[0]); i++) {
         if (kKeyBindings[i].keyCode == code) {
-            if (down) {
-                _keyboardKeys |= kKeyBindings[i].key;
-            } else {
-                _keyboardKeys &= ~kKeyBindings[i].key;
+            uint16_t before = atomic_load(&_keyboardKeys), after = down ? before | kKeyBindings[i].key : before & ~kKeyBindings[i].key;
+            atomic_store(&_keyboardKeys, after);
+            if (after != before) {
+                LatencyInputEvent(LATENCY_KEY, (uint64_t)(event.timestamp * 1e9));
             }
             return YES;
         }
@@ -86,9 +126,16 @@ static const unsigned short kFastForwardKey = kVK_Tab;
     return NO;
 }
 
+- (void)setKeyboardKeysForTesting:(uint16_t)keys {
+    if (keys != atomic_load(&_keyboardKeys)) {
+        atomic_store(&_keyboardKeys, keys);
+        LatencyInputEvent(LATENCY_KEY, LatencyNowNs());
+    }
+}
+
 - (void)releaseAll {
-    _keyboardKeys = 0;
-    _fastForwardKey = NO;
+    atomic_store(&_keyboardKeys, 0);
+    atomic_store(&_fastForwardKey, false);
 }
 
 // GameController reports Nintendo pads by printed label (buttonA is the button
@@ -137,24 +184,29 @@ static uint16_t GamepadKeys(GCController* controller, BOOL nintendo, GamepadLayo
     return GamepadKeys(controller, nintendo, self.gamepadLayout);
 }
 
+// Called by the game thread right before each frame: no autorelease pool there.
 - (uint16_t)pollKeys {
-    uint16_t keys = _keyboardKeys;
-    for (GCController* controller in GCController.controllers) {
-        if (controller.extendedGamepad != nil) {
-            keys |= GamepadKeys(controller, IsNintendoPad(controller), self.gamepadLayout);
+    @autoreleasepool {
+        uint16_t keys = atomic_load(&_keyboardKeys);
+        for (GCController* controller in GCController.controllers) {
+            if (controller.extendedGamepad != nil) {
+                keys |= GamepadKeys(controller, IsNintendoPad(controller), self.gamepadLayout);
+            }
         }
+        return keys;
     }
-    return keys;
 }
 
 - (BOOL)fastForwardHeld {
-    if (_fastForwardKey) {
+    if (atomic_load(&_fastForwardKey)) {
         return YES;
     }
-    for (GCController* controller in GCController.controllers) {
-        // Right stick click doubles as fast-forward on a gamepad.
-        if (controller.extendedGamepad.rightThumbstickButton.pressed) {
-            return YES;
+    @autoreleasepool {
+        for (GCController* controller in GCController.controllers) {
+            // Right stick click doubles as fast-forward on a gamepad.
+            if (controller.extendedGamepad.rightThumbstickButton.pressed) {
+                return YES;
+            }
         }
     }
     return NO;

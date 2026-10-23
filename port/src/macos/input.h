@@ -19,7 +19,9 @@ typedef NS_ENUM(NSInteger, GamepadLayout) {
 - (BOOL)handleKeyEvent:(NSEvent*)event down:(BOOL)down;
 // Release everything held on the keyboard (focus lost).
 - (void)releaseAll;
-// Keyboard and gamepad state as HW_KEY_* bits; cheap, call every refresh.
+// Set the keyboard keys as a key event would (latency measurements).
+- (void)setKeyboardKeysForTesting:(uint16_t)keys;
+// Keyboard and gamepad state as HW_KEY_* bits; cheap; the game thread calls it right before each frame (any thread may).
 - (uint16_t)pollKeys;
 @property(nonatomic, readonly) BOOL fastForwardHeld;
 // GBA keys held on one controller, with the current gamepadLayout (for tests).

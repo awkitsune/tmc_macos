@@ -13,7 +13,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "audio.h"
+#include "displaysync.h"
 #include "frontend.h"
+#include "latency.h"
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/state.h"
@@ -30,6 +33,14 @@ static atomic_int sResetFrames;
 static atomic_bool sStopRequested;
 static atomic_bool sStopped;
 static atomic_int sStepFrames;
+static atomic_int sPacing; // FrontendPacing
+
+// Read by the game thread right before it hands the keys to the game.
+static uint16_t (*sInputPoll)(void*);
+static void* sInputPollContext;
+// Called by the game thread after it published a frame that a display refresh is waiting for.
+static void (*sFrameHandler)(void*);
+static void* sFrameHandlerContext;
 
 // A save or load for the game thread's next loop boundary, guarded by sStateLock.
 static os_unfair_lock sStateLock = OS_UNFAIR_LOCK_INIT;
@@ -68,6 +79,20 @@ void FrontendSetSavePath(const char* path) {
 
 void FrontendSetKeys(uint16_t keys) {
     atomic_store(&sHeldKeys, keys);
+}
+
+void FrontendSetPacing(FrontendPacing pacing) {
+    atomic_store(&sPacing, pacing);
+}
+
+void FrontendSetInputPoll(uint16_t (*poll)(void* context), void* context) {
+    sInputPollContext = context;
+    sInputPoll = poll;
+}
+
+void FrontendSetFrameHandler(void (*handler)(void* context), void* context) {
+    sFrameHandlerContext = context;
+    sFrameHandler = handler;
 }
 
 void FrontendSetPaused(bool paused) {
@@ -124,7 +149,7 @@ bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut) {
     return fresh;
 }
 
-static void PublishFrame(const uint16_t* raw) {
+static uint64_t PublishFrame(const uint16_t* raw) {
     static uint32_t sConverted[PPU_WIDTH * PPU_HEIGHT];
 
     for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) {
@@ -140,7 +165,9 @@ static void PublishFrame(const uint16_t* raw) {
     if (atomic_exchange(&sCutNext, false)) {
         sCutSequence = sFrameSequence;
     }
+    uint64_t sequence = sFrameSequence;
     os_unfair_lock_unlock(&sFrameLock);
+    return sequence;
 }
 
 void FrontendGfxRetain(void) {
@@ -184,28 +211,139 @@ static void SnapshotNow(void) {
 
 static uint16_t sRaw[PPU_WIDTH * PPU_HEIGHT];
 static uint64_t sFramePeriod; // mach ticks
+static double sTicksToNs;
+static double sMarginMs = 7; // TMC_SYNC_MARGIN_MS: room after the frame's work for the draw and the GPU
 static uint64_t sNextDeadline;
 
 static void InitPacing(void) {
     mach_timebase_info_data_t timebase;
 
     mach_timebase_info(&timebase);
+    if (getenv("TMC_SYNC_MARGIN_MS") != NULL) {
+        sMarginMs = atof(getenv("TMC_SYNC_MARGIN_MS"));
+    }
+    sTicksToNs = (double)timebase.numer / timebase.denom;
     sFramePeriod = (uint64_t)(1e9 / FRONTEND_FRAME_RATE * timebase.denom / timebase.numer);
     sNextDeadline = mach_absolute_time() + sFramePeriod;
 }
 
+// Whether a display refresh drives this frame (display sync pacing, with the
+// display link ticking, outside fast-forward).
+static bool DisplayDriven(void) {
+    return atomic_load(&sPacing) == FRONTEND_PACING_DISPLAY_SYNC && !atomic_load(&sFastForward) && DisplaySyncActive();
+}
+
+// Frames per second the game runs at now.
+static double GameFrameRate(bool driven) {
+    uint64_t period = driven ? DisplaySyncFramePeriod() : 0;
+
+    return period != 0 ? 1e9 / ((double)period * sTicksToNs) : FRONTEND_FRAME_RATE;
+}
+
 // Sleep until this frame's slot. Fast-forward runs at up to 4x; falling far
 // behind (a stall, the debugger) resynchronises instead of racing to catch up.
-static void Pace(void) {
+// Driven by the display, the frame is not held back here: the wait happened in
+// LatchInput, so that it finishes just in time for its refresh.
+static void Pace(bool driven) {
     uint64_t now = mach_absolute_time();
     uint64_t period = atomic_load(&sFastForward) ? sFramePeriod / 4 : sFramePeriod;
 
+    if (driven) {
+        sNextDeadline = now + period; // the timer takes over from here if the display stops
+        return;
+    }
     if (now < sNextDeadline) {
         mach_wait_until(sNextDeadline);
     } else if (now - sNextDeadline > 4 * sFramePeriod) {
         sNextDeadline = now;
     }
     sNextDeadline += period;
+}
+
+// How long the game needs from reading the keys to having a frame ready for the
+// display: the longest of the last few frames, and room for the main thread to
+// draw it and the GPU to finish. Frames that included a pause, a save or a load
+// do not count.
+#define WORK_SAMPLES 32
+#define WORK_MARGIN_NS (sMarginMs * 1e6)
+static uint64_t sWork[WORK_SAMPLES];
+static int sWorkCount, sWorkNext;
+static uint64_t sLatchTime;     // when the keys were last latched
+static bool sSkipWork;          // this frame is not a typical one
+static uint64_t sPublished;     // sequence of the last frame published
+static uint64_t sLastVsync;     // the refresh the last display-driven frame was aimed at
+
+static void NoteWork(uint64_t ticks) {
+    if (sSkipWork) {
+        sSkipWork = false;
+        return;
+    }
+    sWork[sWorkNext] = ticks;
+    sWorkNext = (sWorkNext + 1) % WORK_SAMPLES;
+    sWorkCount = sWorkCount < WORK_SAMPLES ? sWorkCount + 1 : WORK_SAMPLES;
+}
+
+static uint64_t WorkBudget(void) {
+    mach_timebase_info_data_t timebase;
+    uint64_t longest = 0;
+
+    if (sWorkCount < WORK_SAMPLES / 2) {
+        return 0; // no idea yet: do not hold the frame back
+    }
+    for (int i = 0; i < sWorkCount; i++) {
+        longest = sWork[i] > longest ? sWork[i] : longest;
+    }
+    mach_timebase_info(&timebase);
+    return longest + (uint64_t)(WORK_MARGIN_NS * timebase.denom / timebase.numer);
+}
+
+// Called as the last thing of a frame, which is as late as it can be before the
+// game reads the keys (ReadKeyInput, straight after PlatformVBlank returns): wait
+// until the frame the game is about to compute will just make its refresh (or,
+// with the timer, its slot), then latch the keys. The wait is what takes the
+// age out of the input: without it the keys would be sampled when the previous
+// frame was drawn, a whole frame before the next one is.
+static void LatchInput(bool driven) {
+    uint64_t budget = WorkBudget();
+    uint64_t now = mach_absolute_time();
+    uint16_t keys = 0;
+    int resetFrames;
+
+    if (budget != 0 && !atomic_load(&sPaused) && !atomic_load(&sFastForward) && !atomic_load(&sStopRequested)) {
+        uint64_t target = 0;
+        uint64_t vsync;
+
+        if (driven) {
+            if (DisplaySyncPredictVsync(now + budget, &vsync)) {
+                uint64_t grid = DisplaySyncFramePeriod();
+                if (sLastVsync != 0 && vsync < sLastVsync + grid) {
+                    vsync = sLastVsync + grid; // one frame per refresh
+                }
+                sLastVsync = vsync;
+                target = vsync - budget;
+                // The frame after the one the game is about to compute is the one that shows its effect... but this is the next one published.
+                LatencyFrameTarget(sPublished + 1, (uint64_t)(vsync * sTicksToNs));
+            }
+        } else {
+            target = sNextDeadline - budget; // the next Pace is the slot's end
+        }
+        if (target > now && target - now < 2 * sFramePeriod) {
+            mach_wait_until(target);
+        }
+    }
+    sLatchTime = mach_absolute_time();
+
+    LatencyFrameLatched(2);
+    if (sInputPoll != NULL) {
+        keys = sInputPoll(sInputPollContext);
+    }
+    keys |= atomic_load(&sHeldKeys);
+    resetFrames = atomic_load(&sResetFrames);
+    if (resetFrames > 0) {
+        keys = RESET_KEYS;
+        atomic_compare_exchange_strong(&sResetFrames, &resetFrames, resetFrames - 1);
+    }
+    HwSetKeys(keys);
 }
 
 // Carry out a pending save or load (at a loop boundary only).
@@ -220,6 +358,7 @@ static void ServiceStateRequest(void) {
     }
     os_unfair_lock_unlock(&sStateLock);
 
+    sSkipWork = true;
     if (sStateRequest.save) {
         ok = StateSave(sStateRequest.path, gPlatformFrame, NULL, message, sizeof(message));
     } else {
@@ -251,6 +390,7 @@ static void WaitWhilePaused(void) {
     if (!atomic_load(&sPaused)) {
         return;
     }
+    sSkipWork = true;
     while (atomic_load(&sPaused) && !atomic_load(&sStopRequested)) {
         int steps = atomic_load(&sStepFrames);
         if (steps > 0 && atomic_compare_exchange_strong(&sStepFrames, &steps, steps - 1)) {
@@ -275,24 +415,19 @@ static void StopIfRequested(void) {
 }
 
 void PlatformVBlank(void) {
-    uint16_t keys;
-    int resetFrames;
+    uint64_t frameStart;
+    bool driven;
 
     StopIfRequested();
     if (PlatformAtLoopBoundary()) {
         ServiceStateRequest();
         WaitWhilePaused();
     }
-    Pace();
+    driven = DisplayDriven();
+    Pace(driven);
     StopIfRequested();
 
-    keys = atomic_load(&sHeldKeys);
-    resetFrames = atomic_load(&sResetFrames);
-    if (resetFrames > 0) {
-        keys = RESET_KEYS;
-        atomic_compare_exchange_strong(&sResetFrames, &resetFrames, resetFrames - 1);
-    }
-    HwSetKeys(keys);
+    frameStart = LatencyNowNs();
     // Draw this frame line by line, running its HBlank DMA and interrupts.
     // With debug viewers open, record the hardware it was drawn from.
     if (atomic_load_explicit(&sGfxViewers, memory_order_relaxed) > 0) {
@@ -304,8 +439,19 @@ void PlatformVBlank(void) {
     } else {
         HwRunFrame(sRaw);
     }
-    PublishFrame(sRaw);
+    sPublished = PublishFrame(sRaw);
+    LatencyFrameDone(sPublished, frameStart);
     gPlatformFrame++;
+    if (sLatchTime != 0) {
+        NoteWork(mach_absolute_time() - sLatchTime);
+    }
+    if (driven && sFrameHandler != NULL) {
+        sFrameHandler(sFrameHandlerContext);
+    }
+    // The game plays at the display's rate here, a little above 59.73 Hz: tell
+    // the audio, whose clock-drift correction then has only the rest to do.
+    AudioSetRateScale(GameFrameRate(driven) / FRONTEND_FRAME_RATE);
+    LatchInput(driven);
 }
 
 _Noreturn void PlatformSoftReset(void) {

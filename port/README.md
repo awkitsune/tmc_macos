@@ -160,8 +160,9 @@ runs ... match the ROM`).
 open build/native/TMC.app
 ```
 
-The app runs the game at the GBA's 59.73 Hz and shows it scaled by a whole
-number (or, with integer scaling off, as large as the 3:2 shape allows).
+The app runs the game at the GBA's 59.73 Hz (or, in display sync, once per
+display refresh: see [Input latency](#input-latency)) and shows it scaled by a
+whole number (or, with integer scaling off, as large as the 3:2 shape allows).
 Sound comes from the game's own m4a engine (see [Sound](#sound)). The Sound
 menu has Mute (⌥⌘M) and High-Quality Audio, which mixes at 48 kHz in floating
 point instead of the GBA's 15.7 kHz 8-bit mix; both are remembered.
@@ -251,6 +252,49 @@ wrote in this source tree) and Show State Folder. `TMC_LOAD_STATE=path` starts
 the app from a state. It also opens the graphics viewers (see
 [Graphics debugging](#graphics-debugging)): Tiles (⌃⌘1), Sprites (⌃⌘2), Layers
 (⌃⌘3), Palettes (⌃⌘4), IO Registers (⌃⌘5) and Shader Buffers (⌃⌘6).
+
+### Input latency
+
+From a key press to the first picture that shows it takes about 105 ms in the
+first version of the app, measured as described below. Three things shortened
+it:
+
+- **Late input.** The game thread reads the keyboard and the gamepad itself,
+  right before the game reads its input, rather than using what was last
+  delivered to the main thread. The game thread then waits until shortly before
+  the frame has to be ready (the time the last 32 frames took, plus a margin)
+  and only then reads, so the input is as fresh as the pacing allows.
+- **Less buffering.** Two frames in flight, and no more than two frames waiting
+  for the screen: when a third would queue behind them, that refresh is left out
+  and the next one shows the newest game frame instead of an older one. The
+  compositor of a windowed Metal app needs about two refreshes between a frame
+  being committed and being on the screen; anything beyond that is just lag.
+- **Display sync** (below).
+
+**Settings → Timing → Frame pacing** chooses how the game is paced:
+
+| Mode | Behaviour |
+|---|---|
+| Accurate (59.73 Hz) | The game's own timer runs it at the GBA's rate, independent of the display. Every ~3.7 s at 60 Hz the display shows one game frame twice. |
+| Display sync (60 Hz, less lag) | One game frame per display refresh (every other refresh on a 120 Hz display), started so that it is ready for a refresh it can still reach. The game runs 0.45% faster than a GBA, and the sound follows (the resampler is told the real rate, so nothing crackles or drifts). Used only when the display's rate is a multiple of ~60 Hz (60, 120, 180, 240: within 1.5 Hz); otherwise, and while fast-forwarding, it falls back to the timer. |
+
+It can be switched while the game runs, and the note under it says whether
+display sync is in use. The default is **Display sync**: the lag is what the
+mode is for, a 0.45% speed difference cannot be heard or felt, and it falls back
+to the accurate timer by itself where it cannot work. Pick Accurate for
+recordings or comparisons with hardware timing.
+
+To measure: `TMC_LATENCY_LOG=path` writes a CSV with one line per input change
+(`source,frame,event_to_latch_ms,latch_to_present_ms,total_ms`, source `key` or
+`pad`) and, at exit, percentiles, how many frames were presented, never shown,
+shown twice or skipped, the present interval and the game-frame interval. The
+clock starts at the key or gamepad event (the event's own timestamp) and stops
+when the drawable showing the first game frame that saw it is presented.
+`TMC_LATENCY_SYNTH=1` presses and releases a key at random by itself,
+`TMC_QUIT_AFTER=seconds` quits, and `TMC_LATENCY_TRACE=1` prints the timeline
+of every 60th frame. `TMC_PACING=accurate|sync` overrides the saved setting and
+`TMC_SYNC_MARGIN_MS` (default 7) is the room display sync leaves after a frame's
+work for the draw and the GPU.
 
 ### First launch
 
@@ -487,6 +531,8 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/macos/renderer.m`, `shaders.metal` | Metal presentation and filters (shaders compiled at launch) |
 | `port/src/macos/input.m` | Keyboard and GameController input |
 | `port/src/macos/settings.m` | Settings window and the saved filter knobs |
+| `port/src/macos/displaysync.m` | Display refresh rate and present times, for display-sync pacing |
+| `port/src/macos/latency.c` | Opt-in input latency log (`TMC_LATENCY_LOG`) |
 | `port/src/macos/selftest.m` | `TMC_SELFTEST` scripted run with PNG captures |
 | `port/src/macos/romsetup.m` | First launch: ROM open panel, progress window, errors, Change ROM… |
 | `port/src/romdata.c` | ROM checks, extraction to `gamedata.bin`, filling the game data from it |
@@ -722,8 +768,9 @@ panned.
 
 In the app the samples go through a lock-free ring to an output unit whose
 render callback resamples them to the device rate. The game keeps its own
-59.73 Hz timer; the resampling ratio follows the ring's fill level (about 50 ms)
-by at most 0.5%, so the two clocks never drift apart. Fast-forward drops audio
+59.73 Hz timer (in display sync it runs at the display's rate instead, and the
+resampler is told so); the resampling ratio follows the ring's fill level (about
+50 ms) by at most 0.5%, so the two clocks never drift apart. Fast-forward drops audio
 once a quarter second is buffered; pausing fades out. `TMC_AUDIO_WAV=path`
 records what the app actually sent to the device and prints underrun, drop and
 drift statistics on quit.

@@ -5,8 +5,8 @@
  * Interface between the game thread (game.c) and the AppKit/Metal side.
  *
  * The game runs AgbMain on its own thread; every VBlankIntrWait it renders the
- * frame with the software PPU, publishes it, latches the keys and sleeps to keep
- * 59.73 Hz. The main thread presents the newest published frame at the display's
+ * frame with the software PPU, publishes it, latches the keys and keeps the frame rate
+ * (see FrontendPacing). The main thread presents the newest published frame at the display's
  * rate and feeds input.
  */
 
@@ -18,6 +18,33 @@
 
 /* The GBA's refresh rate: 16.78 MHz / 280896 cycles per frame. */
 #define FRONTEND_FRAME_RATE (16777216.0 / 280896.0)
+
+/*
+ * How the game keeps its frame rate. Accurate: its own timer at the GBA's
+ * 59.73 Hz. Display sync: one game frame per display refresh (displaysync.h), 60 Hz
+ * on a 60 Hz display, about 0.45% fast, with each frame finished just before the
+ * refresh that shows it. The game falls back to the timer by itself while the
+ * display cannot be followed (a rate that is not a multiple of 60 Hz, a hidden
+ * window), and in fast-forward. Takes effect at the next frame.
+ */
+typedef enum {
+    FRONTEND_PACING_ACCURATE = 0,
+    FRONTEND_PACING_DISPLAY_SYNC = 1,
+} FrontendPacing;
+void FrontendSetPacing(FrontendPacing pacing);
+
+/*
+ * The game thread calls poll for the keys (HW_KEY_* bits) as the last thing of
+ * each frame, right before the game reads them: the keys are as young as they
+ * can be. poll runs on the game thread.
+ */
+void FrontendSetInputPoll(uint16_t (*poll)(void* context), void* context);
+
+/*
+ * Called on the game thread after it published a frame that is paced by the
+ * display, so that the frame can be drawn at once.
+ */
+void FrontendSetFrameHandler(void (*handler)(void* context), void* context);
 
 /* Start the game thread. Call once, after FrontendSetSavePath. */
 void FrontendStartGame(void);
@@ -33,7 +60,7 @@ void FrontendSetSavePath(const char* path);
  */
 bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut);
 
-/* Keys held by the player (HW_KEY_* bits), read at the next frame boundary. */
+/* Keys to hold in addition to the polled ones (HW_KEY_* bits), read at the next frame boundary. */
 void FrontendSetKeys(uint16_t keys);
 
 void FrontendSetPaused(bool paused);

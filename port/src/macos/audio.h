@@ -19,6 +19,11 @@ void AudioStop(void);
 void AudioSetMuted(bool muted);
 bool AudioIsMuted(void);
 
+// The game thread's frame rate relative to the 59.73 Hz the sound engine mixes
+// for (display sync pacing runs it at the display's rate): the resampler plays
+// the samples that much faster. The drift correction does the rest.
+void AudioSetRateScale(double scale);
+
 // High-quality mixing (48 kHz float) instead of the GBA's 15.7 kHz 8-bit mix.
 void AudioSetHighQuality(bool on);
 bool AudioIsHighQuality(void);

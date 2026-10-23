@@ -189,8 +189,10 @@ add_executable(tmc_app MACOSX_BUNDLE
     src/macos/app.m
     src/macos/audio.c
     src/macos/debugwindows.m
+    src/macos/displaysync.m
     src/macos/game.c
     src/macos/input.m
+    src/macos/latency.c
     src/macos/renderer.m
     src/macos/romsetup.m
     src/macos/selftest.m
