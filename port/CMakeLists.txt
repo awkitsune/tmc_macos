@@ -55,6 +55,8 @@ target_compile_definitions(tmc_game PRIVATE
 target_compile_options(tmc_game PRIVATE
     # Writable globals into the save state segment (port/include/port/state.h).
     -include ${CMAKE_CURRENT_SOURCE_DIR}/include/port/state_segment.h
+    # The game relies on signed overflow and sign-bit shifts wrapping, as on the GBA.
+    -fwrapv
     # Decomp idioms that are fine on GBA but noisy here; revisit as code gets ported.
     -Wno-missing-braces
     -Wno-deprecated-non-prototype

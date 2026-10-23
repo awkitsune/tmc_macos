@@ -29,6 +29,10 @@ void MinishSizedEntranceManager_Main(MinishSizedEntranceManager* this) {
         this->field_0x20 = 0;
     }
     spawnData = (MinishEntranceSpawnData*)GetCurrentRoomProperty(super->type);
+#ifdef PLATFORM_NATIVE
+    if (spawnData == NULL)
+        return;
+#endif
 
     for (count = 0; (spawnData->x != 0) && (count < 0x20); ++count) {
         if (CheckRectOnScreen(spawnData->x, spawnData->y, 4, 4) != 0) {

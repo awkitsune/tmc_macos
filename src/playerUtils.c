@@ -3779,7 +3779,11 @@ u32 sub_0807BDB8(Entity* this, u32 param_2) {
 u32 sub_0807BEEC(u32 param_1, u32 param_2, u32 param_3) {
     u32 index;
     RoomResInfo* ptr;
+#ifdef PLATFORM_NATIVE
+    if ((*((u8*)&gArea + offsetof(Area, filler3) - 1) & 1) != 0) { // the bitfield byte before filler3
+#else
     if ((gArea.filler3[-1] & 1) != 0) {
+#endif
         return gRoomControls.room;
     }
     switch (param_3) {

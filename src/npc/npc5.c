@@ -624,6 +624,9 @@ void ZeldaDoLostAnim(NPC5Entity* this) {
     };
     u32 uVar2;
     u32 bVar4;
+#ifdef PLATFORM_NATIVE
+    bVar4 = 0;
+#endif
 
     switch (super->subAction) {
         case 0:

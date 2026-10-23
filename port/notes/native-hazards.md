@@ -4,8 +4,20 @@ Static audit of `src/` and `port/src/` against the seven patterns in the task, w
 UBSan run as runtime evidence. Nothing here is fixed; each hit has a suggested fix.
 Branch base: `macos` at 29154401. Line numbers refer to that tree.
 
-**Status:** H1, H2, M1, M2, M3, M4 and M5 are fixed in the commit after this report, all under
-`#ifdef PLATFORM_NATIVE` (the preprocessed GBA source of each touched file is unchanged). Low items are open.
+**Status:** every hit below is fixed except the ones listed as left alone. H1, H2, M1-M5 are in the first fix commit and
+the Low items in the second, all under `#ifdef PLATFORM_NATIVE` (the preprocessed GBA source of each touched game file is
+unchanged) except `-fwrapv` in `port/CMakeLists.txt`. The playthrough trace (new game to frame 24000, five checkpoints x 3000
+frames) is identical to before the fixes. None of the new guards fires in those runs.
+
+Left alone on purpose:
+- `demo.c:178`: demo-only pointer arithmetic that is deliberate.
+- The bitfield and `s8` constant-truncation warnings (takkuri.c:162, npc4E.c:56, floatingBlock.c:13, mazaalBossObject.c:145,
+  player.c:354/827/1588/1741): the C truncation is the same on the GBA, so behaviour already matches.
+- `lakituCloud.c:85`: only copies the property pointer.
+- `movement.c` gSineTable[64], `gleerok.c:385`, `vaatiArm.c:1388` from `crash-patterns.md`: no longer reported by `-Warray-bounds`.
+- Extra finds fixed with the Low items: four functions that fall off the end without a value (`sub_080A7CFC`, `sub_080A4418`,
+  `AdvanceIntroSequence`, `sub_08059F9C`; callers ignore the value) and three unsequenced expressions (armos.c:431, mazaalHead.c:811,
+  townsperson.c:92). For mazaalHead the ROM disassembly confirms ptr[0] then ptr[1], which is what the native fix does.
 
 How the evidence was gathered (all reproducible):
 

@@ -88,7 +88,13 @@ void LinkEmptyingBottle_Action1(LinkEmptyingBottleEntity* this) {
         NULL,
         sub_080948E8,
     };
+#ifdef PLATFORM_NATIVE
+    if (super->type < ARRAY_COUNT(gUnk_08122A20) && gUnk_08122A20[super->type] != NULL) {
+        gUnk_08122A20[super->type](this);
+    }
+#else
     gUnk_08122A20[super->type](this);
+#endif
 }
 
 void sub_080948E8(LinkEmptyingBottleEntity* this) {

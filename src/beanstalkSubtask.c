@@ -787,7 +787,11 @@ u32 sub_0801A570(Entity* this, u32 param_2) {
             if ((index1 - 0x369) > 1) {
                 position = 0xffff;
             } else {
+#ifdef PLATFORM_NATIVE
+                collisionData = layer->collisionData + ((s32)position - 0x40);
+#else
                 collisionData = layer->collisionData - 0x40 + position;
+#endif
                 for (index1 = 0; index1 < index2; index1++) {
                     if (collisionData[index1] != 0) {
                         position = 0xffff;
@@ -889,7 +893,11 @@ u32 sub_0801A570(Entity* this, u32 param_2) {
             if (!(index1 == 0x369) && !(index1 == 0x36c))
                 position = 0xffff;
             else {
+#ifdef PLATFORM_NATIVE
+                collisionData = layer->collisionData + ((s32)position - 1);
+#else
                 collisionData = layer->collisionData - 1 + position;
+#endif
                 for (index1 = 0; index1 < index2; index1++) {
                     if (collisionData[index1 * 0x40] != 0) {
                         position = 0xffff;

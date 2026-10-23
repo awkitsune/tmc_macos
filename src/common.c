@@ -484,6 +484,12 @@ void zFree(void* ptr) {
     s32 numEntries;
     u16* lastEntryPtr;
 
+#ifdef PLATFORM_NATIVE
+    // 64-bit distance: a far-away pointer must not wrap into the heap
+    if ((uintptr_t)ptr - (uintptr_t)gzHeap >= 0x1000) {
+        return;
+    }
+#endif
     uVar1 = (intptr_t)ptr - (intptr_t)gzHeap;
     if (uVar1 < 0x1000) {
         entryPtr = (u16*)gzHeap;
@@ -491,7 +497,11 @@ void zFree(void* ptr) {
 
         for (i = 0; i < numEntries; entryPtr += 2, i++) {
             if (*entryPtr == uVar1) {
+#ifdef PLATFORM_NATIVE
+                lastEntryPtr = &((u16*)gzHeap)[numEntries * 2 - 1];
+#else
                 lastEntryPtr = &((u16*)(gzHeap - 2))[numEntries * 2];
+#endif
                 *entryPtr = *lastEntryPtr;
                 *lastEntryPtr++ = 0;
                 *(entryPtr + 1) = *lastEntryPtr;

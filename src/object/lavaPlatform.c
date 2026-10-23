@@ -235,6 +235,10 @@ void LavaPlatform_Type1Action7(LavaPlatformEntity* this) {
 
 void LavaPlatform_SpawnPlatforms(LavaPlatformEntity* this) {
     LavaPlatformEntry* entry = (LavaPlatformEntry*)GetCurrentRoomProperty(super->type2);
+#ifdef PLATFORM_NATIVE
+    if (entry == NULL)
+        return;
+#endif
     while (entry->type2 != 0xff) {
         LavaPlatformEntity* platform = (LavaPlatformEntity*)CreateObject(LAVA_PLATFORM, 1, entry->type2);
         if (platform != NULL) {

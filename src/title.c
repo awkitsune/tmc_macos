@@ -133,6 +133,9 @@ static u32 AdvanceIntroSequence(u32 transition) {
     gMain.state = GAMETASK_MAIN;
     MemClear(&gIntroState, sizeof(gIntroState));
     SetFade(FADE_IN_OUT | FADE_BLACK_WHITE | FADE_INSTANT, 8);
+#ifdef PLATFORM_NATIVE
+    return 0;
+#endif
 }
 
 void TitleTask(void) {

@@ -100,7 +100,13 @@ void TempleOfDropletsManager_Type1(TempleOfDropletsManager* this) {
             gScreen.lcd.displayControl |= DISPCNT_WIN1_ON | DISPCNT_BG3_ON;
         }
     } else {
+#ifdef PLATFORM_NATIVE
+        if (super->action < ARRAY_COUNT(TempleOfDropletsManager_Type1_Actions) && TempleOfDropletsManager_Type1_Actions[super->action] != NULL) {
+            TempleOfDropletsManager_Type1_Actions[super->action](this);
+        }
+#else
         TempleOfDropletsManager_Type1_Actions[super->action](this);
+#endif
     }
     if (super->next) {
         sub_0805A8EC(this);
@@ -159,7 +165,13 @@ void TempleOfDropletsManager_Type2(TempleOfDropletsManager* this) {
             gScreen.lcd.displayControl |= DISPCNT_WIN1_ON | DISPCNT_BG3_ON;
         }
     } else {
+#ifdef PLATFORM_NATIVE
+        if (super->action < ARRAY_COUNT(TempleOfDropletsManager_Type2_Actions) && TempleOfDropletsManager_Type2_Actions[super->action] != NULL) {
+            TempleOfDropletsManager_Type2_Actions[super->action](this);
+        }
+#else
         TempleOfDropletsManager_Type2_Actions[super->action](this);
+#endif
     }
     sub_0805A8EC(this);
 }
@@ -234,7 +246,13 @@ void TempleOfDropletsManager_Type4(TempleOfDropletsManager* this) {
         }
         sub_0805AAF0(this->unk_23);
     } else {
+#ifdef PLATFORM_NATIVE
+        if (super->action < ARRAY_COUNT(TempleOfDropletsManager_Type4_Actions) && TempleOfDropletsManager_Type4_Actions[super->action] != NULL) {
+            TempleOfDropletsManager_Type4_Actions[super->action](this);
+        }
+#else
         TempleOfDropletsManager_Type4_Actions[super->action](this);
+#endif
     }
     sub_0805AA58(this);
     sub_0805A9CC(this);
@@ -292,7 +310,13 @@ void TempleOfDropletsManager_Type6(TempleOfDropletsManager* this) {
         TempleOfDropletsManager_Type6_Action2,
         TempleOfDropletsManager_Type6_Action3,
     };
+#ifdef PLATFORM_NATIVE
+    if (super->action < ARRAY_COUNT(TempleOfDropletsManager_Type6_Actions) && TempleOfDropletsManager_Type6_Actions[super->action] != NULL) {
+        TempleOfDropletsManager_Type6_Actions[super->action](this);
+    }
+#else
     TempleOfDropletsManager_Type6_Actions[super->action](this);
+#endif
     sub_0805A8EC(this);
     sub_0805A68C(this);
 }

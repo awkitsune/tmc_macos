@@ -102,6 +102,9 @@ u32 sub_08059F9C(SteamOverlayManager* this) {
         default:
             return 0;
     }
+#ifdef PLATFORM_NATIVE
+    return 0;
+#endif
 }
 
 void SteamOverlayManager_Action1(SteamOverlayManager* this) {

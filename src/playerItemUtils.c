@@ -98,6 +98,9 @@ u32 sub_080A7CFC(u32 a1) {
         } while (t->tilePos != 0);
     }
     InitTileMessage(msg, hint);
+#ifdef PLATFORM_NATIVE
+    return 0;
+#endif
 }
 
 static void InitTileMessage(u32 msg, u32 hint) {

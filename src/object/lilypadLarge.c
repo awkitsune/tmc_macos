@@ -185,8 +185,13 @@ void LilypadLarge_Action1(LilypadLargeEntity* this) {
         }
         super->contactFlags = 0;
     }
+#ifdef PLATFORM_NATIVE
+    this->prevX = super->x.WORD;
+    this->prevY = super->y.WORD;
+#else
     super->child = (Entity*)super->x.WORD;
     super->parent = (Entity*)super->y.WORD;
+#endif
     if (this->unk_6c != 0 || this->unk_70 != 0) {
         if ((this->unk_70 < -0x10000)) {
             this->unk_70 = -0x10000;
@@ -232,7 +237,11 @@ void LilypadLarge_Action1(LilypadLargeEntity* this) {
 
         sub_08085EFC(this);
         ProcessMovement4(super);
+#ifdef PLATFORM_NATIVE
+        if (this->prevX == super->x.WORD) {
+#else
         if (super->child == (Entity*)super->x.WORD) {
+#endif
             if (this->unk_85 == 2) {
                 this->unk_6c = 0;
             } else {
@@ -242,7 +251,11 @@ void LilypadLarge_Action1(LilypadLargeEntity* this) {
             this->unk_85 = 0;
         }
 
+#ifdef PLATFORM_NATIVE
+        if (this->prevY == super->y.WORD) {
+#else
         if (super->parent == (Entity*)super->y.WORD) {
+#endif
             if (this->unk_85 == 2) {
                 this->unk_70 = 0;
             } else {

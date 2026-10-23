@@ -67,6 +67,10 @@ void HouseDoorExterior_Type0(HouseDoorExteriorEntity* this) {
     }
 
     prop = GetCurrentRoomProperty(this->unk_6c);
+#ifdef PLATFORM_NATIVE
+    if (prop == NULL)
+        return;
+#endif
     for (i = 0; prop->unk0 != 0xFFFF && i < 32; prop++, i++) {
         int mask = 1 << i;
         if ((*((u32*)(&this->unk_68)) & mask) == 0 && sub_080867CC(prop->unk5) &&

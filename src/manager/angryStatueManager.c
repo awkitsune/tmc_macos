@@ -37,6 +37,11 @@ void AngryStatueManager_Init(AngryStatueManager* this) {
     }
     if (gEntCount < 0x44) {
         objectData = GetCurrentRoomProperty(super->type);
+#ifdef PLATFORM_NATIVE
+        if (objectData == NULL) {
+            DeleteThisEntity();
+        }
+#endif
         counter = 0;
         while (counter < 4) {
             object = CreateObject(ANGRY_STATUE, objectData[2], counter);

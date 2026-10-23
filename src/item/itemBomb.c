@@ -12,7 +12,13 @@ void ItemBomb(ItemBehavior* this, u32 index) {
     static void (*const stateFuncs[])(ItemBehavior*, u32) = {
         sub_08075FF8, NULL, sub_08076488, sub_08076518, sub_080765E0,
     };
+#ifdef PLATFORM_NATIVE
+    if (this->stateID < ARRAY_COUNT(stateFuncs) && stateFuncs[this->stateID] != NULL) {
+        stateFuncs[this->stateID](this, index);
+    }
+#else
     stateFuncs[this->stateID](this, index);
+#endif
 }
 
 void sub_08075FF8(ItemBehavior* this, u32 index) {

@@ -72,7 +72,13 @@ void UpdateScroll(void) {
     };
 
     gRoomControls.scroll_flags &= 0xfb;
+#ifdef PLATFORM_NATIVE
+    if (gRoomControls.scrollAction < ARRAY_COUNT(gUnk_0811E768) && gUnk_0811E768[gRoomControls.scrollAction] != NULL) {
+        gUnk_0811E768[gRoomControls.scrollAction](&gRoomControls);
+    }
+#else
     gUnk_0811E768[gRoomControls.scrollAction](&gRoomControls);
+#endif
 }
 
 void Scroll0(RoomControls* controls) {

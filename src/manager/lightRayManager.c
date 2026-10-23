@@ -87,6 +87,10 @@ void LightRayManager_Action1(LightRayManager* this) {
     s32 x;
     s32 y;
 
+#ifdef PLATFORM_NATIVE
+    if (prop == NULL)
+        return;
+#endif
     if (prop->unk0 == 0xff)
         return;
 

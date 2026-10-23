@@ -31,7 +31,13 @@ void DirtParticle(DirtParticleEntity* this) {
         NULL,
         DirtParticle_Action3,
     };
+#ifdef PLATFORM_NATIVE
+    if (super->action < ARRAY_COUNT(DirtParticle_Actions) && DirtParticle_Actions[super->action] != NULL) {
+        DirtParticle_Actions[super->action](this);
+    }
+#else
     DirtParticle_Actions[super->action](this);
+#endif
     GetNextFrame(super);
     if (super->timer != 0) {
         super->timer--;
