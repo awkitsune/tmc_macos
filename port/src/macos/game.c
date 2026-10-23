@@ -280,6 +280,7 @@ static void StopIfRequested(void) {
 void PlatformVBlank(void) {
     uint16_t keys;
     int resetFrames;
+    uint64_t frameStart;
 
     StopIfRequested();
     if (PlatformAtLoopBoundary()) {
@@ -289,7 +290,8 @@ void PlatformVBlank(void) {
     Pace();
     StopIfRequested();
 
-    LatencyFrameLatched();
+    LatencyFrameLatched(2);
+    frameStart = LatencyNowNs();
     keys = atomic_load(&sHeldKeys);
     resetFrames = atomic_load(&sResetFrames);
     if (resetFrames > 0) {
@@ -308,7 +310,7 @@ void PlatformVBlank(void) {
     } else {
         HwRunFrame(sRaw);
     }
-    LatencyFrameDone(PublishFrame(sRaw));
+    LatencyFrameDone(PublishFrame(sRaw), frameStart);
     gPlatformFrame++;
 }
 

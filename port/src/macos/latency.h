@@ -30,10 +30,14 @@ uint64_t LatencyNowNs(void);
 // A key or gamepad change that altered the held keys (any thread).
 void LatencyInputEvent(int source, uint64_t eventNs);
 
-// Game thread: just before sampling the keys for a frame, and after that
-// frame has been published as frame sequence seq.
-void LatencyFrameLatched(void);
-void LatencyFrameDone(uint64_t seq);
+// Game thread: the keys are being latched; framesToGo is how many LatencyFrameDone
+// calls from now (1: the next) publish the first frame that shows them. The game
+// reads the latched keys after PlatformVBlank returns, so a latch before the
+// frame is drawn is shown two frames on, one at its end by the next.
+void LatencyFrameLatched(int framesToGo);
+// A game frame has been published as sequence seq, its game-thread work having
+// begun at startNs (LatencyNowNs()).
+void LatencyFrameDone(uint64_t seq, uint64_t startNs);
 
 // A game frame sequence went onto the screen (any thread). presentedSeconds is
 // the drawable's presentedTime (0: the drawable was never shown).

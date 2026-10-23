@@ -22,9 +22,14 @@ static os_unfair_lock sLock = OS_UNFAIR_LOCK_INIT;
 
 static _Atomic uint64_t sPendingEvent[LATENCY_SOURCES];
 
-// Game thread only: the events the frame being run will have seen.
-static uint64_t sStashEvent[LATENCY_SOURCES];
-static uint64_t sStashLatch;
+// Game thread only: latched events waiting for the frame that shows them.
+typedef struct {
+    uint64_t eventNs[LATENCY_SOURCES];
+    uint64_t latchNs;
+    int framesToGo; // published frames until the one that shows them
+} Latched;
+static Latched sLatched[4];
+static int sLatchedCount;
 static uint64_t sLastLatch;
 
 // Guarded by sLock.
@@ -85,30 +90,47 @@ void LatencyInputEvent(int source, uint64_t eventNs) {
     }
 }
 
-void LatencyFrameLatched(void) {
+void LatencyFrameLatched(int framesToGo) {
+    Latched latched = { .framesToGo = framesToGo };
+    bool any = false;
+
     if (sLog == NULL) {
         return;
     }
     for (int i = 0; i < LATENCY_SOURCES; i++) {
-        sStashEvent[i] = atomic_exchange(&sPendingEvent[i], 0);
+        latched.eventNs[i] = atomic_exchange(&sPendingEvent[i], 0);
+        any |= latched.eventNs[i] != 0;
     }
-    sStashLatch = LatencyNowNs();
-    if (sLastLatch != 0 && sLatchIntervalCount < MAX_SAMPLES) {
-        sLatchIntervals[sLatchIntervalCount++] = (sStashLatch - sLastLatch) / 1e6;
+    latched.latchNs = LatencyNowNs();
+    if (any && sLatchedCount < 4) {
+        sLatched[sLatchedCount++] = latched;
     }
-    sLastLatch = sStashLatch;
 }
 
-void LatencyFrameDone(uint64_t seq) {
+void LatencyFrameDone(uint64_t seq, uint64_t startNs) {
+    int kept = 0;
+
     if (sLog == NULL) {
         return;
     }
+    if (sLastLatch != 0 && sLatchIntervalCount < MAX_SAMPLES) {
+        sLatchIntervals[sLatchIntervalCount++] = (startNs - sLastLatch) / 1e6;
+    }
+    sLastLatch = startNs;
     os_unfair_lock_lock(&sLock);
-    for (int i = 0; i < LATENCY_SOURCES; i++) {
-        if (sStashEvent[i] != 0 && sEntryCount < MAX_PENDING) {
-            sEntries[sEntryCount++] = (Entry){ i, sStashEvent[i], sStashLatch, seq };
+    for (int n = 0; n < sLatchedCount; n++) {
+        Latched* latched = &sLatched[n];
+        if (--latched->framesToGo > 0) {
+            sLatched[kept++] = *latched;
+            continue;
+        }
+        for (int i = 0; i < LATENCY_SOURCES; i++) {
+            if (latched->eventNs[i] != 0 && sEntryCount < MAX_PENDING) {
+                sEntries[sEntryCount++] = (Entry){ i, latched->eventNs[i], latched->latchNs, seq };
+            }
         }
     }
+    sLatchedCount = kept;
     os_unfair_lock_unlock(&sLock);
 }
 
