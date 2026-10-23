@@ -221,10 +221,14 @@ void sub_08028528(SpearMoblinEntity* this) {
     } else {
         sub_080288C0(this);
         box = gUnk_080CC944[super->animationState >> 1];
+#ifndef PLATFORM_NATIVE
+        // The hitbox is gUnk_080FD258 from the enemy definition, in ROM, so on hardware these writes are
+        // ignored. Natively it is read-only memory.
         super->hitbox->offset_x = box->offset_x;
         super->hitbox->offset_y = box->offset_y;
         super->hitbox->width = box->width;
         super->hitbox->height = box->height;
+#endif
 
         if (this->unk_7a != 0) {
             this->unk_7a = 0;
@@ -384,10 +388,13 @@ void sub_08028858(SpearMoblinEntity* this) {
 
     sub_080288C0(this);
     box = gUnk_080CC944[super->animationState >> 1];
+#ifndef PLATFORM_NATIVE
+    // gUnk_080FD258 (ROM), as in sub_08028528.
     super->hitbox->offset_x = box->offset_x;
     super->hitbox->offset_y = box->offset_y;
     super->hitbox->width = box->width;
     super->hitbox->height = box->height;
+#endif
 
     if (this->unk_82 == 0) {
         super->speed = 0;

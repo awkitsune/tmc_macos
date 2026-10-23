@@ -202,3 +202,54 @@ New game to frame 24000 plus 5 checkpoints x 3000 frames: no crash, no `null`, n
 2. M2: guard `ManagerUpdate` (and add a log of the id), because the failure is a silent NULL call.
 3. M4, M5, L1: initialise `n`/`ret`/`itemPrice`; replace the removableDust overlay.
 4. L4, L5: defensive checks and `-fwrapv` only if the port moves to optimised builds.
+
+## Writes into ROM data
+
+The GBA ignores a store to ROM; natively the game's data is in read-only `__DATA_CONST,__const` / `__TEXT,__const`, so the same
+store is a SIGBUS (KERN_PROTECTION_FAILURE). The fix is to skip the store natively (`#ifndef PLATFORM_NATIVE` around it, with a
+comment), which is exactly what the hardware does.
+
+| Site | Target (ROM) | Triggered by | Fix |
+|---|---|---|---|
+| [playerItemGustJar.c](../../src/playerItem/playerItemGustJar.c) `PlayerItemGustJar_Init` | `gUnk_08132B28` (`hitbox->unk2[0..3]`) | using the Gust Jar | c0eb6fbc |
+| [spearMoblin.c](../../src/enemy/spearMoblin.c) `sub_08028858` (three of its states call it every frame) and `sub_08028528` (when it spots Link) | `gUnk_080FD258`, the hitbox from `gEnemyDefinition_15` (offset, width, height) | any Spear Moblin, as soon as it updates: Trilby Highlands and Western Woods (Hyrule Field), Lake Hylia, Palace of Winds, Dark Hyrule Castle | writes skipped |
+
+Spear Moblin: on the GBA its hitbox never follows the spear direction table `gUnk_080CC944` (the writes are lost), so every moblin
+keeps `gUnk_080FD258` as is. Skipping the writes keeps that. Verified with a Spear Moblin spawned next to Link from
+`hyrule_field_north.tmcs` (a scratch hack, not committed): before the fix SIGBUS in `sub_08028858` two frames after the spawn, and
+with `TMC_ROM_WRITES=1` both sites are logged; after the fix 600 frames and no ROM write.
+
+**How it was found** (static, all game TUs under the native flags):
+1. ROM symbols: every symbol `nm -m` puts in `__DATA_CONST,__const` or `__TEXT,__const` (21k).
+2. libclang: every declaration of such a symbol (file scope and block scope) whose type is not const, including pointer tables
+   whose pointees are not const (575 declarations in 97 files).
+3. Scratch copy of `src/`, `include/`, `port/`: make those declarations const (also the pointer level), then `clang -fsyntax-only
+   -Wcast-qual -Wincompatible-pointer-types-discards-qualifiers`. A direct store is an error; every place a ROM address goes into a
+   non-const pointer (assignment, initialiser, argument, return value, cast) is a warning.
+4. For each warning, libclang finds the destination (local, field, parameter, return type) and that is made const too. Repeat
+   until nothing changes (15 rounds), with pointer-to-pointer destinations (`RoomInfo.properties`, `gCurrentRoomProperties`)
+   made `T* const*` by hand. Also constified by hand: the pointer fields of every struct type that ROM data contains (from
+   `types.json`: `SpritePtr`, `Figurine`, `struct_080D8E54`, the m4a `ToneData`/`WaveData`/`cmdPtr`), the `ColSettings` argument
+   of every collision handler, and the results of `GetCurrentRoomProperty`/`GetRoomProperty`.
+5. The 74 remaining errors are stores through a pointer that can hold a ROM address. All are `->hitbox` writes plus two others:
+   - `entity->hitbox`: enemies and projectiles get it from their definition (ROM), objects and NPCs from `gObjectHitboxes`/
+     `gNPCHitboxes` (ROM), and many entities point it at a ROM `Hitbox`. Writes are safe only after `AllocMutableHitbox` (zMalloc).
+     Safe: PlayerItemSword, PlayerItemLantern, PlayerItemBottle (empty bottle only, the only branch that writes), MoblinSpear,
+     MineralWaterSource, GleerokParticle (type 1 allocates, type 0 has a NULL definition hitbox and checks for NULL), ChuchuBoss
+     (types 0-3 allocate, type 4 shares a part's), PlayerClone (writes its sword's, which allocates), Dust (type 0 heap hitbox).
+     **Not safe: SpearMoblin** (above) and GustJar (fixed before).
+   - `dust.c:245` writes into the type-0 heap hitbox; `kinstoneMenu.c:632` writes `currentObject->kinstoneId` after a fusion,
+     when `currentObject` is the fuser's candidate (RAM), not `gNoInteraction` (ROM).
+
+Checked and only read: the room-property consumers (`super->child = GetCurrentRoomProperty()` rails in BladeTrap, Bombarossa,
+LightableSwitch, LilypadSmall, LakituCloud via `UpdateRailMovement`), NPC paths set by `sub_0806EE04`, the Flame whose `child`
+points at tile data, script pointers (every `scriptInstructionPointer` use), and `zFree(ROM hitbox)` (returns early, the pointer
+is outside the heap). No game data is in a writable native section (`__DATA,__data`/`__TMCSTATE,__data` hold only port
+variables), so there is no case of a ROM write silently taking effect natively.
+
+Blind spots: a ROM address that reaches a pointer through an integer (script words, `u32` fields) and is then written is
+invisible to the const pass; the script commands only read through such pointers.
+
+**Dynamic check:** `TMC_ROM_WRITES=1` (headless runner) logs a store into read-only game data as `rom write: <symbol+off> from
+<function+off>, frame N` and skips it (applying the base-register writeback of pre/post-indexed `STR`/`STP`) instead of crashing.
+No ROM write in the 24000-frame playthrough, the Ezlo replay or the gust jar repro.

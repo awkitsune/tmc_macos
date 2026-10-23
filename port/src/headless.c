@@ -16,6 +16,9 @@
  *   TMC_FRAMES=+n            stop n frames after the start (or the loaded state)
  *   TMC_RECORD_INPUT=path    write the keys each frame held as a TMC_INPUT
  *                            script (absolute frames), to replay a run exactly
+ *   TMC_ROM_WRITES=1         log stores into the game's read-only data (ROM on
+ *                            the GBA) as "rom write: symbol from function" and
+ *                            skip them, instead of crashing with SIGBUS
  *
  * Graphics dumps (port/gfxdebug.h), each a frame list (F,F,... or every:K), of
  * the hardware as that frame was drawn:
@@ -31,14 +34,18 @@
  * of the game's pause loops saves at the next boundary instead.
  */
 
+#include <dlfcn.h>
 #include <execinfo.h>
 #include <mach-o/dyld.h>
+#include <mach-o/getsect.h>
+#include <mach-o/ldsyms.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/ucontext.h>
 #include <unistd.h>
 #include <zlib.h>
 
@@ -721,7 +728,98 @@ static void ReportAndExit(const char* what, void* address) {
     _exit(2);
 }
 
+// TMC_ROM_WRITES=log: a store into the game's read-only data (__DATA_CONST, __TEXT,__const) is
+// logged (address and pc, as symbol+offset) and skipped, which is what the GBA does with a write
+// to ROM. Without it such a store crashes, as the game's data is mapped read-only.
+static int sRomWrites;
+
+static int InRomData(uintptr_t address) {
+    static const char* const kSections[][2] = { { "__DATA_CONST", "__const" }, { "__TEXT", "__const" } };
+    for (size_t i = 0; i < sizeof(kSections) / sizeof(kSections[0]); i++) {
+        unsigned long size;
+        uintptr_t start = (uintptr_t)getsectiondata(&_mh_execute_header, kSections[i][0], kSections[i][1], &size);
+        if (address >= start && address - start < size) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void PrintSymbol(char* out, size_t len, uintptr_t address) {
+    Dl_info dl;
+    if (dladdr((void*)address, &dl) && dl.dli_sname != NULL) {
+        snprintf(out, len, "%s+0x%lx", dl.dli_sname, (unsigned long)(address - (uintptr_t)dl.dli_saddr));
+    } else {
+        snprintf(out, len, "%p", (void*)address);
+    }
+}
+
+// Skips the faulting store, applying its base register writeback. Returns 0 if pc is not a
+// store this knows (the crash is then reported as usual).
+static int SkipStore(ucontext_t* uc) {
+    uint32_t op = *(const uint32_t*)uc->uc_mcontext->__ss.__pc;
+    uint64_t* regs = uc->uc_mcontext->__ss.__x;
+    uint32_t rn = (op >> 5) & 31;
+    int64_t offset = 0;
+    int writeback = 0;
+
+    // Single register stores: opc (bits 23:22) is 00, or x0 for SIMD registers (STR Q is 10).
+    int store = (op & (1u << 26)) ? !((op >> 22) & 1) : ((op >> 22) & 3) == 0;
+
+    if ((op & 0x3b000000) == 0x38000000 && store) {
+        // STR/STRB/STRH/STUR (immediate pre/post-index, unscaled) and register offset
+        if (!(op & (1u << 21)) && (((op >> 10) & 3) == 1 || ((op >> 10) & 3) == 3)) {
+            writeback = 1;
+            offset = (int32_t)(op << 11) >> 23;
+        }
+    } else if ((op & 0x3b000000) == 0x39000000 && store) {
+        // STR (immediate, unsigned offset): no writeback
+    } else if ((op & 0x38400000) == 0x28000000) {
+        // STP/STNP: bits 25:23 = 001 post-index, 011 pre-index
+        uint32_t mode = (op >> 23) & 7;
+        uint32_t opc = op >> 30;
+        int scale = (op & (1u << 26)) ? 2 + opc : 2 + (opc >> 1);
+        if (mode == 1 || mode == 3) {
+            writeback = 1;
+            offset = (int64_t)((int32_t)(op << 10) >> 25) * (1 << scale);
+        }
+    } else {
+        return 0;
+    }
+    if (writeback) {
+        uint64_t* base = rn == 31 ? &uc->uc_mcontext->__ss.__sp : &regs[rn];
+        *base += offset;
+    }
+    uc->uc_mcontext->__ss.__pc += 4;
+    return 1;
+}
+
 static void OnCrash(int sig, siginfo_t* info, void* context) {
+    if (sRomWrites && (sig == SIGBUS || sig == SIGSEGV) && InRomData((uintptr_t)info->si_addr)) {
+        ucontext_t* uc = context;
+        static uintptr_t sSeen[256];
+        static int sSeenCount;
+        uintptr_t pc = uc->uc_mcontext->__ss.__pc;
+        int seen = 0;
+
+        for (int i = 0; i < sSeenCount; i++) {
+            seen |= sSeen[i] == pc;
+        }
+        if (!seen) {
+            char target[128], where[128], line[320];
+            PrintSymbol(target, sizeof(target), (uintptr_t)info->si_addr);
+            PrintSymbol(where, sizeof(where), pc);
+            int len = snprintf(line, sizeof(line), "rom write: %s from %s, frame %llu\n", target, where,
+                               (unsigned long long)gPlatformFrame);
+            write(STDERR_FILENO, line, len);
+            if (sSeenCount < 256) {
+                sSeen[sSeenCount++] = pc;
+            }
+        }
+        if (SkipStore(uc)) {
+            return;
+        }
+    }
     ReportAndExit(sig == SIGSEGV ? "SIGSEGV" : sig == SIGBUS ? "SIGBUS" : "signal", info->si_addr);
 }
 
@@ -736,6 +834,7 @@ static void InstallDiagnostics(void) {
     struct sigaction action = { 0 };
 
     sigaltstack(&alt, NULL);
+    sRomWrites = getenv("TMC_ROM_WRITES") != NULL;
     action.sa_sigaction = OnCrash;
     action.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigaction(SIGSEGV, &action, NULL);
