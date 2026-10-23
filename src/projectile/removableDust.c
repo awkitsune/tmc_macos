@@ -153,9 +153,17 @@ void sub_080AA544(RemovableDustEntity* this) {
 
 void sub_080AA654(RemovableDustEntity* this, u32 param) {
     EntityData* entityData;
+#ifdef PLATFORM_NATIVE
+    // The native EntityData is 24 bytes and would overrun the slot field it was built over.
+    EntityData localData = { 0 };
+    entityData = &localData;
+
+    MemCopy(&gUnk_0812A004, entityData, 12);
+#else
     entityData = (EntityData*)&this->unk_68;
 
     MemCopy(&gUnk_0812A004, entityData, 0x10);
+#endif
 
     entityData->xPos = ((u16)param & 0x3f) * 0x10 + 8;
     entityData->yPos = ((param & 0xfc0) >> 2) + 8;

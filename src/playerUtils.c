@@ -2596,6 +2596,11 @@ u32 sub_0807A180(Entity* param_1, Entity* param_2, u32 param_3, u32 param_4) {
 
 void UpdateFloorType(void) {
     gPlayerState.floor_type = GetSurfaceCalcType(&gPlayerEntity.base, 0, 0);
+#ifdef PLATFORM_NATIVE
+    if (gPlayerState.floor_type >= ARRAY_COUNT(gSurfaceActions) || gSurfaceActions[gPlayerState.floor_type] == NULL) {
+        return;
+    }
+#endif
     gSurfaceActions[gPlayerState.floor_type](&gPlayerEntity.base);
 }
 

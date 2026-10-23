@@ -3462,6 +3462,9 @@ void SurfaceAction_14(PlayerEntity* this) {
 void SurfaceAction_CloneTile(PlayerEntity* this) {
     if (gPlayerState.chargeState.action == 4) {
         u32 item, n, i;
+#ifdef PLATFORM_NATIVE
+        n = 0;
+#endif
         if (ItemIsSword(gSave.stats.equipped[SLOT_A])) {
             item = gSave.stats.equipped[SLOT_A];
         } else {

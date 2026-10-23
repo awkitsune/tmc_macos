@@ -1,4 +1,7 @@
 #include "manager.h"
+#ifdef PLATFORM_NATIVE
+#include <stdio.h>
+#endif
 
 // TODO: change all manager arguments to be Entity* and cast to specific type later.
 void (*const gMiscManagerunctions[])() = {
@@ -63,6 +66,13 @@ void (*const gMiscManagerunctions[])() = {
 };
 
 void ManagerUpdate(Entity* this) {
+#ifdef PLATFORM_NATIVE
+    // The GBA calls whatever is at the slot; natively id 0 is NULL and ids past the table are wild.
+    if (this->id >= ARRAY_COUNT(gMiscManagerunctions) || gMiscManagerunctions[this->id] == NULL) {
+        fprintf(stderr, "ManagerUpdate: manager id %u has no handler\n", this->id);
+        DeleteThisEntity();
+    }
+#endif
     if (!EntityDisabled(this))
         gMiscManagerunctions[this->id](this);
 }

@@ -4,6 +4,9 @@ Static audit of `src/` and `port/src/` against the seven patterns in the task, w
 UBSan run as runtime evidence. Nothing here is fixed; each hit has a suggested fix.
 Branch base: `macos` at 29154401. Line numbers refer to that tree.
 
+**Status:** H1, H2, M1, M2, M3, M4 and M5 are fixed in the commit after this report, all under
+`#ifdef PLATFORM_NATIVE` (the preprocessed GBA source of each touched file is unchanged). Low items are open.
+
 How the evidence was gathered (all reproducible):
 
 - `clang -fsyntax-only` over every game source with the native flags

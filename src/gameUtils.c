@@ -248,6 +248,9 @@ bool32 AreaHasKeys(void) {
 
 bool32 HasDungeonSmallKey(void) {
     u32 tmp;
+#ifdef PLATFORM_NATIVE
+    tmp = 0;
+#endif
 
     if (AreaHasKeys())
         tmp = gSave.dungeonKeys[gArea.dungeon_idx];
@@ -256,6 +259,9 @@ bool32 HasDungeonSmallKey(void) {
 
 bool32 HasDungeonBigKey(void) {
     u32 tmp;
+#ifdef PLATFORM_NATIVE
+    tmp = 0;
+#endif
 
     if (AreaHasKeys())
         tmp = gSave.dungeonItems[gArea.dungeon_idx] & 4;

@@ -26,7 +26,12 @@ static void sub_08037D54(Entity* this);
 
 void OctorokGolden(Entity* this) {
     u32 index;
+#ifdef PLATFORM_NATIVE
+    index = sub_080012DC(this);
+    if (index) {
+#else
     if (sub_080012DC(this)) {
+#endif
         //! @bug index (r4) is uninitialized
         gUnk_080012C8[index](this);
     } else {

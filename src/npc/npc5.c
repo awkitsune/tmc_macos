@@ -230,6 +230,7 @@ void ZeldaIdleAction(NPC5Entity* this) {
 void ZeldaFollowAction(NPC5Entity* this) {
     Entity* r5;
     //! @bug: r5 is uninitialized
+    // Natively an indeterminate pointer is a wild read, so it points at the player (the thing Zelda follows).
 
     if (CheckIsFlinching(this)) {
         return;
@@ -251,17 +252,26 @@ void ZeldaFollowAction(NPC5Entity* this) {
             if (EntityWithinDistance(super, HEAP->playerJumpedX, HEAP->playerJumpedY, kPoiDistance)) {
                 HEAP->flags &= ~FLAG_GOTO_JUMPED;
                 super->action = ZELDA_STATE_WALK_PRE_JUMP;
+#ifdef PLATFORM_NATIVE
+                r5 = &gPlayerEntity.base;
+#endif
                 super->direction = r5->direction;
                 super->speed = kMidSpeed;
                 ZeldaSetAnim(this, 8);
             } else {
                 // walk to jump location
                 super->speed = kNavigateSpeed;
+#ifdef PLATFORM_NATIVE
+                r5 = &gPlayerEntity.base;
+#endif
                 ZeldaCalcWalkAnim(this, r5->x.HALF.HI, r5->y.HALF.HI, 0xc);
                 ZeldaProcessMovement(this);
             }
         } else {
             // navigate to jump location (bugged)
+#ifdef PLATFORM_NATIVE
+            r5 = &gPlayerEntity.base;
+#endif
             ZeldaInitNavigate(this, r5->x.HALF.HI, r5->y.HALF.HI);
         }
     } else if (CheckDirectPathUnblocked(super, gPlayerEntity.base.x.HALF.HI, gPlayerEntity.base.y.HALF.HI)) {
