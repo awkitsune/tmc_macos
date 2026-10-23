@@ -41,10 +41,13 @@ void PlayerItemGustJar_Init(Entity* this) {
     this->action = 1;
     this->subtimer = 15;
     this->hitbox = &gUnk_08132B28;
+#ifndef PLATFORM_NATIVE
+    // gUnk_08132B28 is in ROM, so on hardware these writes are ignored. Natively it is read-only memory.
     this->hitbox->unk2[2] = 3;
     this->hitbox->unk2[1] = 3;
     this->hitbox->unk2[3] = 6;
     this->hitbox->unk2[0] = 6;
+#endif
     sub_080ADC84(this);
     LoadSwapGFX(this, 1, 3);
     InitAnimationForceUpdate(this, this->animationState >> 1);
