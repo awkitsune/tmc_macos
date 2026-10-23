@@ -4142,7 +4142,12 @@ void sub_0807C69C(u8* data, u32 width, u32 height) {
 
     for (index = 0; index < height; index++) {
         for (innerIndex = 0; innerIndex < width; innerIndex++) {
+#ifdef PLATFORM_NATIVE
+            // -innerIndex is a u32, which a 64-bit pointer adds unwrapped (4 GB past the map).
+            ptr1[-(s32)innerIndex] = ptr2[-(s32)innerIndex];
+#else
             ptr1[-innerIndex] = ptr2[-innerIndex];
+#endif
         }
         ptr1 -= 0x40;
         ptr2 -= width;
