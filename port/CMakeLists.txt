@@ -254,6 +254,12 @@ add_executable(scanline_test EXCLUDE_FROM_ALL src/tools/scanline_test.c src/fram
 target_include_directories(scanline_test PRIVATE include)
 target_link_libraries(scanline_test PRIVATE z)
 
+# Mosaic and tile-fetch checks of the picture processor without the game:
+#   cmake --build build/native --target ppu_test && build/native/ppu_test
+add_executable(ppu_test EXCLUDE_FROM_ALL src/tools/ppu_test.c src/frame.c src/hw.c src/ppu.c)
+target_include_directories(ppu_test PRIVATE include)
+target_link_libraries(ppu_test PRIVATE z)
+
 
 add_custom_target(link-report
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target tmc > ${CMAKE_BINARY_DIR}/link.log 2>&1 || true

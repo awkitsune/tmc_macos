@@ -547,9 +547,10 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/trace.c` | Game-state tracing for the headless runner |
 | `port/src/gfxdebug.c` | Graphics debugging: hardware snapshots per frame, sprite/layer/register decoders, `TMC_DUMP_*` text (see [Graphics debugging](#graphics-debugging)) |
 | `port/src/macos/debugwindows.m` | The Debug menu's Tiles, Sprites, Layers, Palettes, IO Registers and Shader Buffers windows |
-| `port/src/ppu.c` | Software GBA renderer (BG modes 0-2, sprites, windows, blending), drawn a scanline at a time, and PNG output |
+| `port/src/ppu.c` | Software GBA renderer (BG modes 0-2, sprites, windows, blending, mosaic), drawn a scanline at a time, and PNG output |
 | `port/src/frame.c` | One frame of display timing: per-line VCOUNT/HBlank interrupts and HBlank DMA, then VBlank (see [Mid-frame effects](#mid-frame-effects)) |
 | `port/src/tools/scanline_test.c` | Checks of per-line scroll, affine and window effects without the game |
+| `port/src/tools/ppu_test.c` | Checks of BG and OBJ mosaic (with windows, blending, the OBJ window) and tile fetches without the game |
 | `port/tools/datagen/` | GBA data objects → native arm64 assembly (see below) |
 | `port/scripts/link_report.py` | Classifies unresolved symbols into the remaining worklist |
 
@@ -632,7 +633,7 @@ The native build links with no unresolved symbols and runs, in the app or
 headless: through the Nintendo/Capcom logos and title screen into file select, and for tens of
 thousands of frames when left alone. The software renderer draws these screens
 correctly (screenshots via `TMC_SCREENSHOT`), including mid-frame effects (see
-below); mosaic is not drawn yet. Every function in `asm/src` has a C
+below) and mosaic. Every function in `asm/src` has a C
 version, the BIOS calls are in C, and the save EEPROM is emulated.
 
 Remaining for phase 1, so that gameplay runs:
@@ -683,11 +684,17 @@ cmake --build build/native --target scanline_test && build/native/scanline_test
 ```
 
 ```bash
+cmake --build build/native --target ppu_test && build/native/ppu_test
+```
+
+```bash
 TMC_FRAMES=24000 TMC_INPUT=@port/scripts/play/01_new_game.txt TMC_PPU_COMPARE=1 TMC_LINE_STATS=1 build/native/tmc
 ```
 
 `scanline_test` checks every pixel of per-line scroll, affine and window tables
-(it fails with `TMC_PPU_LEGACY=1`). In the playthrough, `TMC_PPU_COMPARE` reports
+(it fails with `TMC_PPU_LEGACY=1`). `ppu_test` draws scenes with and without
+mosaic and checks every pixel against the block pattern (see
+`port/notes/ppu-audit.md` for what the renderer does and does not cover). In the playthrough, `TMC_PPU_COMPARE` reports
 exactly the 74 frames where `TMC_LINE_STATS` sees WIN0H change between lines (the
 intro's iris wipes) and no others. Compare checksums of different builds with
 care: an NPC in Smith's house (area 0x22, around frame 8900) moves differently

@@ -1,8 +1,8 @@
 /*
  * Software GBA picture processor (see port/ppu.h). Implements display modes 0-2:
  * text and affine backgrounds, regular and affine sprites, priorities, windows
- * (WIN0, WIN1, OBJ window) and colour effects (alpha blending, brighten,
- * darken). Frames are drawn one scanline at a time and each line reads the
+ * (WIN0, WIN1, OBJ window), colour effects (alpha blending, brighten, darken)
+ * and mosaic. Frames are drawn one scanline at a time and each line reads the
  * registers as they are then, so changes made between lines (HBlank DMA, VCOUNT
  * interrupts; see frame.c) show up on the lines that follow, as on hardware.
  */
@@ -46,17 +46,36 @@ typedef struct {
     uint8_t window[PPU_WIDTH]; // pixel belongs to the OBJ window
 } ObjLine;
 
-// A pixel of a 4bpp or 8bpp tile; returns the palette index or 0 (transparent).
-static uint32_t TilePixel(uint32_t tileBase, uint32_t tile, int x, int y, int is8bpp) {
+// BGs can only fetch tiles from the first 64 KB of VRAM; in modes 0-2 the rest is
+// OBJ VRAM, and BG tiles that would reach into it are transparent.
+#define BG_VRAM_SIZE 0x10000
+
+// A pixel of a 4bpp or 8bpp tile at addr; returns the palette index or 0
+// (transparent). limit is the end of the VRAM the layer can read.
+static uint32_t TilePixel(uint32_t addr, int x, int y, int is8bpp, uint32_t limit) {
     if (is8bpp) {
-        uint32_t addr = tileBase + tile * 64 + y * 8 + x;
-        return addr < HW_VRAM_SIZE ? gHwVram[addr] : 0;
+        addr += y * 8 + x;
+        return addr < limit ? gHwVram[addr] : 0;
     } else {
-        uint32_t addr = tileBase + tile * 32 + y * 4 + x / 2;
-        if (addr >= HW_VRAM_SIZE) {
+        addr += y * 4 + x / 2;
+        if (addr >= limit) {
             return 0;
         }
         return (x & 1) ? gHwVram[addr] >> 4 : gHwVram[addr] & 0xF;
+    }
+}
+
+// Mosaic (REG_MOSAIC). Each layer with mosaic on shows, for every block of H x V
+// pixels, the pixel at the block's top-left. Blocks are aligned to the screen:
+// horizontally they start at x = 0, vertically a counter per frame starts at line
+// 0 and restarts every V lines (as the hardware's, so a size changed mid-frame
+// takes effect when the counter next wraps). sMosaicBgY / sMosaicObjY are the
+// lines since the current block started.
+static int sMosaicBgY, sMosaicObjY;
+
+static void MosaicLine(BgLine* line, int h) {
+    for (int sx = 0; sx < PPU_WIDTH; sx++) {
+        line->color[sx] = line->color[sx - sx % h];
     }
 }
 
@@ -88,7 +107,7 @@ static void RenderTextBg(int bg, int line, BgLine* out) {
         if (entry & 0x800) {
             ty = 7 - ty;
         }
-        index = TilePixel(charBase, entry & 0x3FF, tx, ty, is8bpp);
+        index = TilePixel(charBase + (entry & 0x3FF) * (is8bpp ? 64 : 32), tx, ty, is8bpp, BG_VRAM_SIZE);
         if (index == 0) {
             out->color[sx] = PIXEL_EMPTY;
         } else {
@@ -99,8 +118,10 @@ static void RenderTextBg(int bg, int line, BgLine* out) {
 
 // Internal reference points of BG2 and BG3 (index bg - 2), 28-bit signed 8.8.
 // Hardware copies BGxX/BGxY into these at VBlank and whenever they are written,
-// and adds PB/PD after every line.
+// and adds PB/PD after every line. sMosaicRef* are their values on the first line
+// of the current vertical mosaic block, which a BG with mosaic is drawn from.
 static int32_t sRefX[2], sRefY[2];
+static int32_t sMosaicRefX[2], sMosaicRefY[2];
 
 static void RenderAffineBg(int bg, BgLine* out) {
     uint16_t cnt = Reg16(0x08 + bg * 2);
@@ -110,8 +131,9 @@ static void RenderAffineBg(int bg, BgLine* out) {
     int size = 128 << (cnt >> 14);
     uint32_t regs = bg == 2 ? 0x20 : 0x30;
     int16_t pa = Reg16(regs), pc = Reg16(regs + 4);
-    int32_t refX = sRefX[bg - 2];
-    int32_t refY = sRefY[bg - 2];
+    int mosaic = (cnt >> 6) & 1;
+    int32_t refX = mosaic ? sMosaicRefX[bg - 2] : sRefX[bg - 2];
+    int32_t refY = mosaic ? sMosaicRefY[bg - 2] : sRefY[bg - 2];
 
     out->priority = cnt & 3;
     for (int sx = 0; sx < PPU_WIDTH; sx++) {
@@ -126,8 +148,8 @@ static void RenderAffineBg(int bg, BgLine* out) {
             out->color[sx] = PIXEL_EMPTY;
             continue;
         }
-        tile = gHwVram[(screenBase + (y >> 3) * (size >> 3) + (x >> 3)) % HW_VRAM_SIZE];
-        index = TilePixel(charBase, tile, x & 7, y & 7, 1);
+        tile = gHwVram[(screenBase + (y >> 3) * (size >> 3) + (x >> 3)) % BG_VRAM_SIZE];
+        index = TilePixel(charBase + tile * 64, x & 7, y & 7, 1, BG_VRAM_SIZE);
         out->color[sx] = index ? Palette(index) : PIXEL_EMPTY;
     }
 }
@@ -138,7 +160,12 @@ static const uint8_t sObjSizes[3][4][2] = {
     { { 8, 16 }, { 8, 32 }, { 16, 32 }, { 32, 64 } }, // vertical
 };
 
-static void RenderObjs(int line, int oneDimensional, ObjLine* out) {
+// OBJ mosaic (attr0 bit 12) uses the same screen-aligned blocks as BG mosaic,
+// with its own sizes. A block that starts left of or above a sprite's box takes
+// the box's first column or row, so a sprite never shows pixels from outside its
+// box; this holds for affine sprites too, whose box is sampled before the
+// transform.
+static void RenderObjs(int line, int oneDimensional, int mosaicH, ObjLine* out) {
     for (int i = 0; i < PPU_WIDTH; i++) {
         out->color[i] = PIXEL_EMPTY;
         out->priority[i] = 4;
@@ -157,7 +184,8 @@ static void RenderObjs(int line, int oneDimensional, ObjLine* out) {
         int is8bpp = (attr0 >> 13) & 1;
         int shape = attr0 >> 14;
         int sizeIndex = attr1 >> 14;
-        int width, height, boxWidth, boxHeight, top, left;
+        int mosaic = (attr0 >> 12) & 1;
+        int width, height, boxWidth, boxHeight, top, left, boxY;
         int16_t pa = 0x100, pb = 0, pc = 0, pd = 0x100;
         uint32_t tileBase = attr2 & 0x3FF;
         int priority = (attr2 >> 10) & 3;
@@ -176,6 +204,11 @@ static void RenderObjs(int line, int oneDimensional, ObjLine* out) {
         if (line < top || line >= top + boxHeight) {
             continue;
         }
+        boxY = line - top;
+        if (mosaic) {
+            boxY -= sMosaicObjY;
+            boxY = boxY < 0 ? 0 : boxY;
+        }
         left = attr1 & 0x1FF;
         if (left >= 240) {
             left -= 512;
@@ -189,22 +222,26 @@ static void RenderObjs(int line, int oneDimensional, ObjLine* out) {
         }
         for (int bx = 0; bx < boxWidth; bx++) {
             int sx = left + bx;
-            int tx, ty;
+            int tx, ty, sampleX = bx;
             uint32_t tile, index, color;
 
             if (sx < 0 || sx >= PPU_WIDTH) {
                 continue;
             }
+            if (mosaic) {
+                sampleX -= sx % mosaicH;
+                sampleX = sampleX < 0 ? 0 : sampleX;
+            }
             if (affine) {
-                int cx = bx - boxWidth / 2, cy = line - top - boxHeight / 2;
+                int cx = sampleX - boxWidth / 2, cy = boxY - boxHeight / 2;
                 tx = ((pa * cx + pb * cy) >> 8) + width / 2;
                 ty = ((pc * cx + pd * cy) >> 8) + height / 2;
                 if (tx < 0 || ty < 0 || tx >= width || ty >= height) {
                     continue;
                 }
             } else {
-                tx = bx;
-                ty = line - top;
+                tx = sampleX;
+                ty = boxY;
                 if (attr1 & 0x1000) {
                     tx = width - 1 - tx;
                 }
@@ -219,8 +256,7 @@ static void RenderObjs(int line, int oneDimensional, ObjLine* out) {
                 tile = tileBase + (ty >> 3) * 32 + (tx >> 3) * (is8bpp ? 2 : 1);
             }
             tile &= 0x3FF;
-            index = is8bpp ? TilePixel(0x10000, tile / 2, tx & 7, ty & 7, 1)
-                           : TilePixel(0x10000, tile, tx & 7, ty & 7, 0);
+            index = TilePixel(0x10000 + tile * 32, tx & 7, ty & 7, is8bpp, HW_VRAM_SIZE);
             if (index == 0) {
                 continue;
             }
@@ -271,6 +307,7 @@ void PpuBeginFrame(void) {
         sRefX[i] = Reg28(0x28 + i * 0x10);
         sRefY[i] = Reg28(0x2C + i * 0x10);
     }
+    sMosaicBgY = sMosaicObjY = 0;
 }
 
 void PpuIoWritten(uint32_t offset, uint32_t size) {
@@ -299,6 +336,7 @@ static void RenderLine(int line, uint16_t* out) {
     static ObjLine objs;
     int bgEnabled[4] = { 0 };
     unsigned layerMask = sLayerMask;
+    uint16_t mosaic = Reg16(0x4C);
 
     if (eva > 16) {
         eva = 16;
@@ -322,14 +360,18 @@ static void RenderLine(int line, uint16_t* out) {
             continue;
         }
         bgEnabled[bg] = 1;
+        int bgMosaic = (Reg16(0x08 + bg * 2) >> 6) & 1;
         if ((mode == 1 && bg == 2) || mode == 2) {
             RenderAffineBg(bg, &bgs[bg]);
         } else {
-            RenderTextBg(bg, line, &bgs[bg]);
+            RenderTextBg(bg, bgMosaic ? line - sMosaicBgY : line, &bgs[bg]);
+        }
+        if (bgMosaic && (mosaic & 0xF)) {
+            MosaicLine(&bgs[bg], (mosaic & 0xF) + 1);
         }
     }
     if (dispcnt & 0x1000) {
-        RenderObjs(line, (dispcnt >> 6) & 1, &objs);
+        RenderObjs(line, (dispcnt >> 6) & 1, ((mosaic >> 8) & 0xF) + 1, &objs);
         if (!(layerMask & 0x10)) {
             memset(&objs, 0xFF, sizeof(objs.color)); // hidden; the OBJ window stays
         }
@@ -407,13 +449,25 @@ static void RenderLine(int line, uint16_t* out) {
 }
 
 void PpuRenderLine(int line, uint16_t* out) {
+    uint16_t mosaic = Reg16(0x4C);
+
+    if (sMosaicBgY == 0) {
+        memcpy(sMosaicRefX, sRefX, sizeof(sRefX));
+        memcpy(sMosaicRefY, sRefY, sizeof(sRefY));
+    }
     if (out != NULL) {
         RenderLine(line, out);
     }
-    // Step the affine reference points to the next line.
+    // Step the affine reference points and the mosaic counters to the next line.
     for (int i = 0; i < 2; i++) {
         sRefX[i] += (int16_t)Reg16(0x22 + i * 0x10);
         sRefY[i] += (int16_t)Reg16(0x26 + i * 0x10);
+    }
+    if (++sMosaicBgY > ((mosaic >> 4) & 0xF)) {
+        sMosaicBgY = 0;
+    }
+    if (++sMosaicObjY > (mosaic >> 12)) {
+        sMosaicObjY = 0;
     }
 }
 
