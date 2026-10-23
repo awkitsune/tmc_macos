@@ -1645,7 +1645,7 @@ void sub_StateChange_TownMinishHoles_5(void) {
     sub_0801AFE4();
 }
 
-extern u32 gUnk_080DB910;
+extern EntityData gUnk_080DB910;
 
 u32 sub_unk3_TownMinishHoles_LibraryBookshelf(void) {
     if (CheckGlobalFlag(MIZUKAKI_START) && !CheckLocalFlag(MIZUKAKI_BOOK_ALLBACK)) {
@@ -2468,7 +2468,7 @@ u32 sub_unk3_CaveOfFlames_RollobiteSwitch(void) {
 void sub_StateChange_CaveOfFlames_RollobiteSwitch(void) {
 }
 
-extern u32 gUnk_080E103C;
+extern EntityData gUnk_080E103C;
 
 u32 sub_unk3_CaveOfFlames_BeforeGleerok(void) {
     if (CheckGlobalFlag(LV2_CLEAR)) {
@@ -4576,7 +4576,7 @@ u32 sub_unk3_HyruleTownUnderground_Well(void) {
 void sub_StateChange_HyruleTownUnderground_Well(void) {
 }
 
-extern u32 gUnk_080F09A0;
+extern EntityData gUnk_080F09A0;
 
 u32 sub_unk3_CastleGarden_Main(void) {
     if (GetInventoryValue(ITEM_FOURSWORD)) {
@@ -4646,7 +4646,7 @@ u32 sub_unk3_SimonsSimulation_Main(void) {
 }
 
 extern u8* gUnk_080F0D58[4];
-extern Entity* gUnk_080F0CB8[15];
+extern EntityData* gUnk_080F0CB8[15];
 extern u8* gUnk_080F0E08[];
 extern TileEntity gUnk_080F0E1C[];
 
@@ -4666,7 +4666,7 @@ void sub_StateChange_SimonsSimulation_Main(void) {
     }
     r = Random();
     index = gUnk_080F0D58[index][r & 0x1f];
-    LoadRoomEntityList((EntityData*)gUnk_080F0CB8[index & 0xF]);
+    LoadRoomEntityList(gUnk_080F0CB8[index & 0xF]);
     index >>= 4;
     r >>= 8;
     index = gUnk_080F0E08[index][r & 0x1F];
@@ -5034,7 +5034,7 @@ void sub_StateChange_HouseInteriors4_MayorLakeCabin(void) {
 }
 
 extern u32 Enemies_LakeHylia_Main;
-extern u32 gUnk_080F3EA4;
+extern EntityData gUnk_080F3EA4;
 
 u32 sub_unk3_LakeHylia_Main(void) {
     if (CheckGlobalFlag(LV4_CLEAR) && !CheckLocalFlag(4)) {
@@ -5699,7 +5699,7 @@ void sub_StateChange_HyruleField_EasternHillsCenter(void) {
     CloudOverlayManager_Main(NULL);
 }
 
-extern u32 gUnk_080F7680;
+extern EntityData gUnk_080F7680;
 
 u32 sub_unk3_HyruleField_EasternHillsNorth(void) {
     if (GetInventoryValue(ITEM_GUST_JAR) && !GetInventoryValue(ITEM_PACCI_CANE)) {
