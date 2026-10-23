@@ -203,7 +203,13 @@ void sub_0806D164(Entity* this) {
     puVar1 = &ptr[0];
     puVar2 = &ptr[-0x4000];
 
+#ifdef PLATFORM_NATIVE
+    // xOffset goes "negative" when the Goron is far right of the camera. The GBA's DMA drops the
+    // top address bits, so it reads just before the buffer; a 64-bit pointer would land 1 GB past it.
+    for (index = 0x20, ptr = &puVar1[((s32)xOffset >> 4) * 4]; index != 0; index--) {
+#else
     for (index = 0x20, ptr = &puVar1[(xOffset >> 4) * 4]; index != 0; index--) {
+#endif
         DmaCopy16(3, ptr, puVar2, 0x20 * 2);
         ptr += 0x100;
         puVar2 += 0x40;
