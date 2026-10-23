@@ -657,7 +657,12 @@ bool32 sub_0801A370(MapLayer* mapLayer, u32 position) {
         case SPECIAL_TILE_44 ... SPECIAL_TILE_47:
             return TRUE;
     }
+#ifdef PLATFORM_NATIVE
+    // A tile in the top two rows checks before the array, as on the GBA, not 4 GB on
+    if (topLayer->collisionData[(s32)pos - 0x80] == 0x46) {
+#else
     if (topLayer->collisionData[pos - 0x80] == 0x46) {
+#endif
         return FALSE;
     }
     switch ((u16)GetActTileForTileType(GetTileTypeAtTilePos(pos, gPlayerEntity.base.collisionLayer))) {

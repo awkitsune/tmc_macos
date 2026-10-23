@@ -50,23 +50,25 @@ void UpdateScrollVram(void) {
     }
 }
 
+// Tile positions index signed, as the asm's 32-bit address adds wrap: a caller's
+// tilePos - 0x40 on the room's top row lands just before the array, not 4 GB on.
 void SetCollisionData(u32 collisionData, u32 tilePos, u32 layer) {
-    LayerMap(layer)->collisionData[tilePos] = collisionData;
+    LayerMap(layer)->collisionData[(s32)tilePos] = collisionData;
 }
 
 void SetActTileAtTilePos(u32 actTile, u32 tilePos, u32 layer) {
-    LayerMap(layer)->actTiles[tilePos] = actTile;
+    LayerMap(layer)->actTiles[(s32)tilePos] = actTile;
 }
 
 u32 GetTileIndex(u32 tilePos, u32 layer) {
-    return LayerMap(layer)->mapData[tilePos];
+    return LayerMap(layer)->mapData[(s32)tilePos];
 }
 
 void SetTile(u32 tileIndex, u32 tilePos, u32 layer) {
     MapLayer* map = LayerMap(layer);
-    u32 oldTile = map->mapData[tilePos];
+    u32 oldTile = map->mapData[(s32)tilePos];
 
-    map->mapData[tilePos] = tileIndex;
+    map->mapData[(s32)tilePos] = tileIndex;
     if (tileIndex >= 0x4000) {
         SetActTileAtTilePos(gMapSpecialTileToActTile[tileIndex - 0x4000], tilePos, layer);
         SetCollisionData(gMapSpecialTileToCollisionData[tileIndex - 0x4000], tilePos, layer);

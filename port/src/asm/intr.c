@@ -57,8 +57,9 @@ static u32 RoomCoordsToTilePos(u32 roomX, u32 roomY) {
     return ((roomX >> 4) & 0x3F) + (((roomY >> 4) & 0x3F) << 6);
 }
 
+// Tile positions index signed, as the ARM address adds wrap (see veneer.c).
 static u32 TileTypeAt(u16* const map, u16* const types, u32 tilePos) {
-    u32 tile = map[tilePos];
+    u32 tile = map[(s32)tilePos];
     if (tile >= 0x4000) {
         return tile; // special tiles are their own type
     }
@@ -123,7 +124,7 @@ u32 GetActTileRelativeToEntity(Entity* entity, s32 xOffset, s32 yOffset) {
 }
 
 u32 GetCollisionDataAtTilePos(u32 tilePos, u32 layer) {
-    return CollisionDataFor(layer)[tilePos];
+    return CollisionDataFor(layer)[(s32)tilePos];
 }
 
 u32 GetCollisionDataAtRoomTile(u32 roomTileX, u32 roomTileY, u32 layer) {

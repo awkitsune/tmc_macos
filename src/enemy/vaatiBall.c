@@ -492,7 +492,12 @@ void sub_08044DEC(VaatiBallEntity* this) {
     this->unk_78 = 0;
     super->speed = 0x300;
     off = ((VaatiBallEntity*)super->parent)->unk_80 - 1;
+#ifdef PLATFORM_NATIVE
+    // off is -1 when the ball count is 0: index backwards as the GBA does, not 16 GB on
+    super->direction = gUnk_080D1628[(s32)off][this->unk_79];
+#else
     super->direction = gUnk_080D1628[off][this->unk_79];
+#endif
     PositionRelative(super->parent, super, 0, Q_16_16(-16.0));
 }
 
