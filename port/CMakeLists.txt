@@ -148,6 +148,7 @@ add_library(tmc_port STATIC
     src/eeprom.c
     src/trace.c
     src/mapdump.c
+    src/entitylistcheck.c
     src/ppu.c
     src/frame.c
     src/gfxdebug.c

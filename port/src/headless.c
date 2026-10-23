@@ -54,6 +54,7 @@
 void TraceGameTask(uint64_t frame); // trace.c (kept apart: game headers clash with libc)
 void TraceEntities(uint64_t frame);
 void DumpRoomMap(const char* path); // mapdump.c
+void CheckEntityLists(const char* path); // entitylistcheck.c
 void TracePlayer(uint64_t frame);
 
 void AgbMain(void);
@@ -842,6 +843,10 @@ int main(int argc, char** argv) {
         if ((sDumpPngDir = getenv("TMC_DUMP_PNG")) != NULL) {
             mkdir(sDumpPngDir, 0755);
         }
+    }
+
+    if (getenv("TMC_CHECK_ENTITY_LISTS") != NULL) {
+        CheckEntityLists(getenv("TMC_CHECK_ENTITY_LISTS"));
     }
 
     HwSetKeys(0);

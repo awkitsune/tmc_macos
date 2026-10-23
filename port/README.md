@@ -353,6 +353,7 @@ Environment variables control the headless runner:
 | `TMC_DUMP_FILE=path` | Write the `TMC_DUMP_*` text there instead of stdout |
 | `TMC_DUMP_PNG=dir` | With `TMC_DUMP_BG`: also each layer's whole map and all VRAM tiles (greyscale) as PNGs |
 | `TMC_LAYER_MASK=hex` | Draw only these layers (bits 0-3 BG0-BG3, bit 4 OBJ; `1f` = all, the default) |
+| `TMC_CHECK_ENTITY_LISTS=path` | Before starting, write every room's entity lists as the native loader reads them (entry counts, invalid kinds); `port/scripts/entity_list_check.py` compares them with tmc.gba |
 
 To see the logos, title screen and file select (Start, then A to leave the title
 screen):
