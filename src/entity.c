@@ -283,6 +283,16 @@ Entity* GetEmptyEntity() {
     LinkedList* listPtr;
     LinkedList* endListPtr;
 
+#ifdef PLATFORM_NATIVE
+    {
+        // Debug switch TMC_ENTITY_LIMIT (port/include/port/platform.h): simulate a full entity list.
+        extern int PlatformEntityLimit(void);
+        int limit = PlatformEntityLimit();
+        if (limit >= 0 && gEntCount >= limit) {
+            return NULL;
+        }
+    }
+#endif
     if (gEntCount < MAX_ENTITIES - 1) {
         currentEnt = gEntities;
         end = currentEnt + ARRAY_COUNT(gEntities);

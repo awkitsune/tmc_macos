@@ -26,4 +26,10 @@ _Noreturn void PlatformSoftReset(void);
 /* Frames since start; the headless platform stops after TMC_FRAMES frames if set. */
 extern uint64_t gPlatformFrame;
 
+/*
+ * Debug switch TMC_ENTITY_LIMIT=n: GetEmptyEntity() returns NULL once n entities
+ * are live, so code paths where a create fails can be reproduced. -1 when unset.
+ */
+int PlatformEntityLimit(void);
+
 #endif // PORT_PLATFORM_H
