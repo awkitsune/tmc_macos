@@ -6,6 +6,8 @@ NSString* const kFilterDefault = @"Filter";
 NSString* const kIntegerScalingDefault = @"IntegerScaling";
 NSString* const kGamepadLayoutDefault = @"GamepadLayout";
 NSString* const kLcdResponseDefault = @"LCDResponse";
+NSString* const kPacingDefault = @"FramePacing";
+NSString* const kPacingChangedNotification = @"TMCPacingChanged";
 NSString* const kDebugMenuDefault = @"ShowDebugMenu";
 NSString* const kDebugMenuChangedNotification = @"TMCDebugMenuChanged";
 
@@ -64,6 +66,9 @@ FilterParams LoadFilterParams(void) {
     Input* _input;
     NSPopUpButton* _filterPopup;
     NSPopUpButton* _gamepadPopup;
+    NSPopUpButton* _pacingPopup;
+    NSTextField* _pacingNote;
+    NSString* (^_pacingStatus)(void);
     NSButton* _integerScaling;
     NSButton* _debugMenu;
     NSButton* _lcdResponse;
@@ -71,7 +76,7 @@ FilterParams LoadFilterParams(void) {
     NSTextField* _values[KNOB_COUNT];
 }
 
-- (instancetype)initWithRenderer:(Renderer*)renderer input:(Input*)input {
+- (instancetype)initWithRenderer:(Renderer*)renderer input:(Input*)input pacingStatus:(NSString* (^)(void))pacingStatus {
     NSPanel* panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 420, 400)
                                                 styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                                           NSWindowStyleMaskUtilityWindow
@@ -83,6 +88,7 @@ FilterParams LoadFilterParams(void) {
     if ((self = [super initWithWindow:panel]) != nil) {
         _renderer = renderer;
         _input = input;
+        _pacingStatus = [pacingStatus copy];
         [self buildContent];
         [self refresh];
         [panel center];
@@ -136,6 +142,19 @@ static NSTextField* Label(NSString* text, BOOL bold) {
         _values[i] = value;
         [rows addObject:@[ Label(kKnobs[i].title, NO), slider, value ]];
     }
+
+    [headerRows addIndex:rows.count];
+    [rows addObject:@[ Label(@"Timing", YES) ]];
+    _pacingPopup = [NSPopUpButton new];
+    [_pacingPopup addItemsWithTitles:@[ @"Accurate (59.73 Hz)", @"Display sync (60 Hz, less lag)" ]];
+    _pacingPopup.target = self;
+    _pacingPopup.action = @selector(pacingChanged:);
+    [rows addObject:@[ Label(@"Frame pacing", NO), _pacingPopup, NSGridCell.emptyContentView ]];
+    _pacingNote = Label(@"", NO);
+    _pacingNote.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    _pacingNote.textColor = NSColor.secondaryLabelColor;
+    _pacingNote.preferredMaxLayoutWidth = 260;
+    [rows addObject:@[ NSGridCell.emptyContentView, _pacingNote, NSGridCell.emptyContentView ]];
 
     [headerRows addIndex:rows.count];
     [rows addObject:@[ Label(@"Controls", YES) ]];
@@ -194,6 +213,8 @@ static NSTextField* Label(NSString* text, BOOL bold) {
     _integerScaling.state = _renderer.integerScaling ? NSControlStateValueOn : NSControlStateValueOff;
     _lcdResponse.state = _renderer.lcdResponse ? NSControlStateValueOn : NSControlStateValueOff;
     [_gamepadPopup selectItemAtIndex:_input.gamepadLayout];
+    [_pacingPopup selectItemAtIndex:[NSUserDefaults.standardUserDefaults integerForKey:kPacingDefault] == 0 ? 0 : 1];
+    _pacingNote.stringValue = _pacingStatus != nil ? _pacingStatus() : @"";
     _debugMenu.state = [NSUserDefaults.standardUserDefaults boolForKey:kDebugMenuDefault] ? NSControlStateValueOn
                                                                                           : NSControlStateValueOff;
     for (size_t i = 0; i < KNOB_COUNT; i++) {
@@ -221,6 +242,16 @@ static NSTextField* Label(NSString* text, BOOL bold) {
 - (void)gamepadLayoutChanged:(NSPopUpButton*)sender {
     _input.gamepadLayout = (GamepadLayout)sender.indexOfSelectedItem;
     [NSUserDefaults.standardUserDefaults setInteger:sender.indexOfSelectedItem forKey:kGamepadLayoutDefault];
+}
+
+- (void)pacingChanged:(NSPopUpButton*)sender {
+    [NSUserDefaults.standardUserDefaults setInteger:sender.indexOfSelectedItem forKey:kPacingDefault];
+    [NSNotificationCenter.defaultCenter postNotificationName:kPacingChangedNotification object:nil];
+    // The display link needs a moment to measure the display.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2), dispatch_get_main_queue(), ^{
+        self->_pacingNote.stringValue = self->_pacingStatus != nil ? self->_pacingStatus() : @"";
+    });
+    _pacingNote.stringValue = _pacingStatus != nil ? _pacingStatus() : @"";
 }
 
 - (void)debugMenuChanged:(NSButton*)sender {

@@ -42,6 +42,7 @@ static _Atomic uint64_t sRead;    // frames consumed, ever
 static _Atomic int sSourceRate;
 static _Atomic uint32_t sGeneration; // bumped when the source rate changes
 static atomic_bool sMuted;
+static _Atomic double sRateScale = 1;
 static _Atomic uint64_t sDropped;
 static _Atomic uint64_t sUnderruns;
 
@@ -123,9 +124,9 @@ static OSStatus Render(void* refCon, AudioUnitRenderActionFlags* flags, const Au
     }
 
     sFillAverage += ((double)(written - read) - sFillAverage) * 0.02;
-    step = rate / sDeviceRate * (1 + MAX_DRIFT * fmax(-1, fmin(1, (sFillAverage - target) / target)));
+    step = rate * atomic_load(&sRateScale) / sDeviceRate * (1 + MAX_DRIFT * fmax(-1, fmin(1, (sFillAverage - target) / target)));
     if (sRecord != NULL) {
-        double ratio = step * sDeviceRate / rate;
+        double ratio = step * sDeviceRate / (rate * atomic_load(&sRateScale));
         sFillMin = fmin(sFillMin, (written - read) / rate);
         sFillMax = fmax(sFillMax, (written - read) / rate);
         sStepMin = fmin(sStepMin, ratio);
@@ -261,6 +262,10 @@ void AudioStop(void) {
         free(sRecord);
         sRecord = NULL;
     }
+}
+
+void AudioSetRateScale(double scale) {
+    atomic_store(&sRateScale, fmax(0.98, fmin(1.02, scale)));
 }
 
 void AudioSetMuted(bool muted) {

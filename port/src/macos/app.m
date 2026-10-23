@@ -8,11 +8,14 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #import "debugwindows.h"
+#import "displaysync.h"
 #import "input.h"
 #import "renderer.h"
 #import "romsetup.h"
 #import "selftest.h"
 #import "settings.h"
+
+#include <stdatomic.h>
 
 #include "audio.h"
 #include "frontend.h"
@@ -62,7 +65,20 @@ static NSString* const kFrameCounterDefault = @"ShowFrameCounter";
 
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate>
 - (void)stateFinished:(BOOL)ok what:(NSString*)what message:(NSString*)message frame:(uint64_t)frame;
+- (void)drawPublishedFrame;
 @end
+
+// The game thread's input poll, right before the game reads its keys.
+static uint16_t PollInput(void* context) {
+    Input* input = (__bridge Input*)context;
+    FrontendSetFastForward(input.fastForwardHeld);
+    return [input pollKeys];
+}
+
+// Called on the game thread after a frame paced by the display: draw it now.
+static void FramePublished(void* context) {
+    [(__bridge AppDelegate*)context drawPublishedFrame];
+}
 
 // FrontendRequestState's callback, on the game thread: report on the main one.
 static void StateDone(bool ok, const char* message, uint64_t frame, void* context) {
@@ -84,6 +100,9 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     NSString* _status;     // shown as the window's subtitle until _statusUntil
     NSDate* _statusUntil;
     NSUInteger _drawCount;
+    DisplaySync* _displaySync;
+    atomic_bool _drawQueued;
+    CFTimeInterval _lastDraw;
 }
 
 #pragma mark Launch
@@ -127,8 +146,13 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         kHighQualityAudioDefault : @NO,
         kStateSlotDefault : @1,
         kFrameCounterDefault : @NO,
+        kPacingDefault : @(FRONTEND_PACING_DISPLAY_SYNC),
         kDebugMenuDefault : @(TMC_DEBUG_MENU_DEFAULT),
     }];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(applyPacing)
+                                               name:kPacingChangedNotification
+                                             object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(debugMenuChanged:)
                                                name:kDebugMenuChangedNotification
@@ -185,13 +209,14 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _renderer.integerScaling = [defaults boolForKey:kIntegerScalingDefault];
     _renderer.params = LoadFilterParams();
     _renderer.lcdResponse = [defaults boolForKey:kLcdResponseDefault];
-    Input* input = _input;
     __weak AppDelegate* weakSelf = self;
     _renderer.beforeDraw = ^{
-        FrontendSetKeys([input pollKeys]);
-        FrontendSetFastForward(input.fastForwardHeld);
-        [weakSelf updateSubtitle];
+        AppDelegate* strongSelf = weakSelf;
+        [strongSelf updateSubtitle];
+        strongSelf->_lastDraw = CACurrentMediaTime();
     };
+    FrontendSetInputPoll(PollInput, (__bridge void*)_input);
+    FrontendSetFrameHandler(FramePublished, (__bridge void*)self);
     _debugWindows = [[DebugWindows alloc] initWithRenderer:_renderer];
     _view.delegate = _renderer;
     _window.contentView = _view;
@@ -199,6 +224,21 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [_window makeKeyAndOrderFront:nil];
 
     [self startLatencyTools];
+    _displaySync = [DisplaySync new];
+    [_displaySync attachToWindow:_window];
+    _displaySync.usableChanged = ^{
+        [weakSelf updateDrawMode];
+    };
+    [self applyPacing];
+    // With the view paused (display sync) nothing draws it unless a game frame
+    // comes in: this covers resizing, pausing and a display that stalls.
+    NSTimer* idle = [NSTimer timerWithTimeInterval:0.05
+                                           repeats:YES
+                                             block:^(NSTimer* timer) {
+                                                 [weakSelf idleTick];
+                                             }];
+    [NSRunLoop.mainRunLoop addTimer:idle forMode:NSRunLoopCommonModes];
+
     FrontendSetSavePath(self.savePath.fileSystemRepresentation);
     AudioSetMuted([defaults boolForKey:kMutedDefault]);
     AudioSetHighQuality([defaults boolForKey:kHighQualityAudioDefault]);
@@ -218,6 +258,66 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     }
 }
 
+#pragma mark Pacing
+
+- (FrontendPacing)pacing {
+    NSString* forced = NSProcessInfo.processInfo.environment[@"TMC_PACING"];
+    if ([forced isEqualToString:@"accurate"]) {
+        return FRONTEND_PACING_ACCURATE;
+    }
+    if ([forced isEqualToString:@"sync"]) {
+        return FRONTEND_PACING_DISPLAY_SYNC;
+    }
+    return [NSUserDefaults.standardUserDefaults integerForKey:kPacingDefault] == FRONTEND_PACING_ACCURATE
+               ? FRONTEND_PACING_ACCURATE
+               : FRONTEND_PACING_DISPLAY_SYNC;
+}
+
+- (void)applyPacing {
+    FrontendPacing pacing = self.pacing;
+
+    FrontendSetPacing(pacing);
+    _displaySync.enabled = pacing == FRONTEND_PACING_DISPLAY_SYNC;
+    [self updateDrawMode];
+    LatencyNote(pacing == FRONTEND_PACING_DISPLAY_SYNC ? "pacing: display sync" : "pacing: accurate");
+}
+
+// The view draws by itself, at the display's rate, except while the game
+// follows the display: then it is drawn when a frame is ready (see below).
+- (void)updateDrawMode {
+    BOOL paused = _displaySync.enabled && DisplaySyncActive();
+    if (_view.paused != paused) {
+        _view.paused = paused;
+    }
+}
+
+// Game thread: a frame that a display refresh is waiting for is ready.
+- (void)drawPublishedFrame {
+    if (!DisplaySyncActive() || atomic_exchange(&_drawQueued, true)) {
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        atomic_store(&self->_drawQueued, false);
+        if (self->_view.paused) {
+            [self->_view draw];
+        }
+    });
+}
+
+- (void)idleTick {
+    [self updateDrawMode];
+    if (_view.paused && CACurrentMediaTime() - _lastDraw > 0.05) {
+        [_view draw];
+    }
+}
+
+- (NSString*)pacingStatus {
+    if (self.pacing == FRONTEND_PACING_ACCURATE) {
+        return @"The game keeps to the GBA's own 59.73 Hz.";
+    }
+    return _displaySync.statusText;
+}
+
 // Measurement helpers (see latency.h). TMC_LATENCY_SYNTH=1 presses and releases
 // a key at random times by itself; TMC_QUIT_AFTER=seconds quits the app.
 - (void)startLatencyTools {
@@ -230,6 +330,13 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     if ([env[@"TMC_LATENCY_SYNTH"] boolValue]) {
         [self scheduleSyntheticKey:YES];
     }
+    // Unattended runs: keep the window in front, or nothing is shown and nothing measured.
+    _window.level = NSStatusWindowLevel;
+    _window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary;
+    [NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer* timer) {
+        [NSApp activateIgnoringOtherApps:YES];
+        [self->_window orderFrontRegardless];
+    }];
     for (int seconds = 2; seconds <= 30; seconds += 14) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, seconds * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             NSString* text = [NSString stringWithFormat:@"at %d s: window %s, %s, active app %d, screen %@ %ld Hz", seconds,
@@ -562,7 +669,11 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 
 - (void)showSettings:(id)sender {
     if (_settings == nil) {
-        _settings = [[SettingsWindowController alloc] initWithRenderer:_renderer input:_input];
+        _settings = [[SettingsWindowController alloc] initWithRenderer:_renderer
+                                                         input:_input
+                                                  pacingStatus:^NSString* {
+                                                      return [self pacingStatus];
+                                                  }];
     }
     [_settings refresh];
     [_settings showWindow:sender];

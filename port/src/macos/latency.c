@@ -43,6 +43,11 @@ static bool sHavePresent;
 static uint64_t sPresented, sUnpresented, sRepeated, sSkipped;
 static double sPresentIntervals[MAX_SAMPLES];
 static int sPresentIntervalCount;
+static uint64_t sPublishNs[256]; // when each game frame sequence was published
+static double sPublishToPresent[MAX_SAMPLES];
+static int sPublishToPresentCount;
+static _Atomic uint64_t sStageNs[256][4];
+static _Atomic uint64_t sTargetNs[256]; // the refresh each frame was aimed at (display sync)
 
 // Game thread only, read at the end.
 static double sLatchIntervals[MAX_SAMPLES];
@@ -118,6 +123,7 @@ void LatencyFrameDone(uint64_t seq, uint64_t startNs) {
     }
     sLastLatch = startNs;
     os_unfair_lock_lock(&sLock);
+    sPublishNs[seq & 255] = LatencyNowNs();
     for (int n = 0; n < sLatchedCount; n++) {
         Latched* latched = &sLatched[n];
         if (--latched->framesToGo > 0) {
@@ -155,6 +161,18 @@ void LatencyPresented(uint64_t seq, double presentedSeconds) {
             sSkipped += seq - sLastSeq - 1;
         }
     }
+    if (getenv("TMC_LATENCY_TRACE") != NULL && seq % 60 == 0) {
+        double publish = (double)sPublishNs[seq & 255];
+        fprintf(sLog, "# trace seq %llu (ms after publish): target %+.2f, draw %+.2f, committed %+.2f, scheduled %+.2f, gpu done %+.2f, shown %+.2f\n",
+                (unsigned long long)seq, ((double)atomic_load(&sTargetNs[seq & 255]) - publish) / 1e6,
+                ((double)atomic_load(&sStageNs[seq & 255][0]) - publish) / 1e6,
+                ((double)atomic_load(&sStageNs[seq & 255][1]) - publish) / 1e6,
+                ((double)atomic_load(&sStageNs[seq & 255][2]) - publish) / 1e6,
+                ((double)atomic_load(&sStageNs[seq & 255][3]) - publish) / 1e6, (presentedSeconds * 1e9 - publish) / 1e6);
+    }
+    if (sPublishToPresentCount < MAX_SAMPLES && sPublishNs[seq & 255] != 0) {
+        sPublishToPresent[sPublishToPresentCount++] = (presentedSeconds * 1e9 - (double)sPublishNs[seq & 255]) / 1e6;
+    }
     sHavePresent = true;
     sLastPresent = presentedSeconds;
     sLastSeq = seq;
@@ -178,6 +196,20 @@ void LatencyPresented(uint64_t seq, double presentedSeconds) {
     sEntryCount = kept;
     fflush(sLog);
     os_unfair_lock_unlock(&sLock);
+}
+
+void LatencyStageAt(uint64_t seq, int stage, uint64_t ns) {
+    if (sLog != NULL) {
+        atomic_store(&sStageNs[seq & 255][stage], ns);
+    }
+}
+
+void LatencyStage(uint64_t seq, int stage) {
+    LatencyStageAt(seq, stage, LatencyNowNs());
+}
+
+void LatencyFrameTarget(uint64_t seq, uint64_t targetNs) {
+    atomic_store(&sTargetNs[seq & 255], targetNs);
 }
 
 void LatencyTick(bool dropped) {
@@ -236,6 +268,7 @@ void LatencyFinish(void) {
         fprintf(sLog, "# present intervals above 1.5x the median (%.2f ms): %d\n", median, late);
         free(copy);
     }
+    Describe(sLog, "published to shown", sPublishToPresent, sPublishToPresentCount);
     Describe(sLog, "game frame interval", sLatchIntervals, sLatchIntervalCount);
     if (sLatchIntervalCount > 0) {
         double median = sLatchIntervals[sLatchIntervalCount / 2];

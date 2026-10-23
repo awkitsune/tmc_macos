@@ -1,8 +1,10 @@
 #import "renderer.h"
 
 #include <os/lock.h>
+#include <stdatomic.h>
 #include <zlib.h>
 
+#include "displaysync.h"
 #include "frontend.h"
 #include "latency.h"
 
@@ -186,8 +188,14 @@ typedef struct {
 } ResponseUniforms;
 
 // Frames in flight: each has its own texture so an upload never touches one the
-// GPU may still be reading.
-#define IN_FLIGHT 3
+// GPU may still be reading. Two is the least that keeps the GPU busy; every
+// further frame queued is another refresh of input lag. Frames waiting for the
+// screen are limited separately (MAX_PENDING_PRESENTS), which is what holds the
+// queue short: with it, two or three drawables on the layer measure the same,
+// so the layer keeps its default.
+#define IN_FLIGHT 2
+#define MAX_PENDING_PRESENTS 2
+#define PRESENT_STALL_NS 100000000ull
 
 @implementation Renderer {
     id<MTLDevice> _device;
@@ -219,6 +227,8 @@ typedef struct {
     BOOL _latestTaken; // the viewer has fetched _latestReadback: time for another
     uint64_t _readbackSerial;
     NSUInteger _drawCount;
+    _Atomic int _presentsPending;
+    _Atomic uint64_t _lastPresentedNs; // committed frames not on the screen yet
 }
 
 - (nullable instancetype)initWithView:(MTKView*)view {
@@ -376,6 +386,29 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     if (self.beforeDraw) {
         self.beforeDraw();
     }
+    uint64_t drawStart = LatencyNowNs();
+    // Two frames waiting for the screen is all the compositor can use: the first
+    // is shown at the next refresh, the second behind it. A third is only a
+    // queue the player's input waits in, and it never drains while frames keep
+    // coming at the display's rate, so this refresh is left out and the frame
+    // not drawn is replaced by a newer one. A display that stopped reporting
+    // (window hidden, asleep) must not hold the counter up: after PRESENT_STALL_NS
+    // without a report the frames count as lost.
+    if (!self.testPattern && atomic_load(&_presentsPending) >= MAX_PENDING_PRESENTS) {
+        if (drawStart - atomic_load(&_lastPresentedNs) < PRESENT_STALL_NS) {
+            return;
+        }
+        atomic_store(&_presentsPending, 0);
+    }
+    // Take the drawable first: that is where a draw waits when the display is
+    // behind, and the game frame is copied only afterwards, so that the newest
+    // one is shown rather than one that went stale while waiting.
+    MTLRenderPassDescriptor* pass = view.currentRenderPassDescriptor;
+    if (pass == nil) {
+        // Nothing is drawn, so the next frame that is starts the history afresh.
+        _historyValid = NO;
+        return;
+    }
     dispatch_semaphore_wait(_inFlight, DISPATCH_TIME_FOREVER);
 
     // Upload into the next slot only when the game produced a new frame;
@@ -392,14 +425,10 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         _slot = next;
     }
     id<MTLTexture> texture = _textures[_slot];
-
-    MTLRenderPassDescriptor* pass = view.currentRenderPassDescriptor;
-    if (pass == nil) {
-        // Nothing is drawn, so the next frame that is starts the history afresh.
-        _historyValid = NO;
-        dispatch_semaphore_signal(_inFlight);
-        return;
+    if (LatencyEnabled()) {
+        LatencyStageAt(_sequence, 0, drawStart);
     }
+
     id<MTLCommandBuffer> commands = [_queue commandBuffer];
 
     // LCD response: one step per new game frame, never per display refresh (so
@@ -470,21 +499,34 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     id<MTLTexture> captureTexture = _captureURL ? view.currentDrawable.texture : nil;
     NSURL* captureURL = _captureURL;
     _captureURL = nil;
+    uint64_t traced = _sequence;
+    if (LatencyEnabled()) {
+        [commands addScheduledHandler:^(id<MTLCommandBuffer> buffer) {
+            LatencyStage(traced, 2);
+        }];
+    }
     [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+        LatencyStage(traced, 3);
         if (captureTexture != nil) {
             WriteTexturePNG(captureTexture, captureURL);
         }
         dispatch_semaphore_signal(inFlight);
     }];
     id<CAMetalDrawable> drawable = view.currentDrawable;
-    if (LatencyEnabled() && !self.testPattern) {
-        uint64_t presentedSequence = _sequence;
-        [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
-            LatencyPresented(presentedSequence, shown.presentedTime);
-        }];
-    }
+    uint64_t presentedSequence = _sequence;
+    atomic_fetch_add(&_presentsPending, 1);
+    [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
+        atomic_store(&self->_lastPresentedNs, LatencyNowNs());
+        int pending = atomic_load(&self->_presentsPending);
+        while (pending > 0 && !atomic_compare_exchange_weak(&self->_presentsPending, &pending, pending - 1)) {
+        }
+        // When the frame went onto the screen: display sync paces the game by it.
+        DisplaySyncNotePresented(shown.presentedTime);
+        LatencyPresented(presentedSequence, shown.presentedTime);
+    }];
     [commands presentDrawable:drawable];
     [commands commit];
+    LatencyStage(traced, 1);
 }
 
 - (nullable DebugReadback*)latestReadback {
