@@ -3,6 +3,7 @@
 #import <Carbon/Carbon.h> // kVK_* virtual key codes
 #import <GameController/GameController.h>
 
+#include "latency.h"
 #include "port/hw.h"
 
 typedef struct {
@@ -75,15 +76,26 @@ static const unsigned short kFastForwardKey = kVK_Tab;
     }
     for (size_t i = 0; i < sizeof(kKeyBindings) / sizeof(kKeyBindings[0]); i++) {
         if (kKeyBindings[i].keyCode == code) {
+            uint16_t before = _keyboardKeys;
             if (down) {
                 _keyboardKeys |= kKeyBindings[i].key;
             } else {
                 _keyboardKeys &= ~kKeyBindings[i].key;
             }
+            if (_keyboardKeys != before) {
+                LatencyInputEvent(LATENCY_KEY, (uint64_t)(event.timestamp * 1e9));
+            }
             return YES;
         }
     }
     return NO;
+}
+
+- (void)setKeyboardKeysForTesting:(uint16_t)keys {
+    if (keys != _keyboardKeys) {
+        _keyboardKeys = keys;
+        LatencyInputEvent(LATENCY_KEY, LatencyNowNs());
+    }
 }
 
 - (void)releaseAll {

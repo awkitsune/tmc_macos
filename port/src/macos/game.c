@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "frontend.h"
+#include "latency.h"
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/state.h"
@@ -124,7 +125,7 @@ bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut) {
     return fresh;
 }
 
-static void PublishFrame(const uint16_t* raw) {
+static uint64_t PublishFrame(const uint16_t* raw) {
     static uint32_t sConverted[PPU_WIDTH * PPU_HEIGHT];
 
     for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) {
@@ -140,7 +141,9 @@ static void PublishFrame(const uint16_t* raw) {
     if (atomic_exchange(&sCutNext, false)) {
         sCutSequence = sFrameSequence;
     }
+    uint64_t sequence = sFrameSequence;
     os_unfair_lock_unlock(&sFrameLock);
+    return sequence;
 }
 
 void FrontendGfxRetain(void) {
@@ -286,6 +289,7 @@ void PlatformVBlank(void) {
     Pace();
     StopIfRequested();
 
+    LatencyFrameLatched();
     keys = atomic_load(&sHeldKeys);
     resetFrames = atomic_load(&sResetFrames);
     if (resetFrames > 0) {
@@ -304,7 +308,7 @@ void PlatformVBlank(void) {
     } else {
         HwRunFrame(sRaw);
     }
-    PublishFrame(sRaw);
+    LatencyFrameDone(PublishFrame(sRaw));
     gPlatformFrame++;
 }
 

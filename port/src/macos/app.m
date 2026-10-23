@@ -16,6 +16,8 @@
 
 #include "audio.h"
 #include "frontend.h"
+#include "latency.h"
+#include "port/hw.h"
 #include "port/state.h"
 
 static NSString* const kMutedDefault = @"Muted";
@@ -196,6 +198,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [_window makeFirstResponder:_view];
     [_window makeKeyAndOrderFront:nil];
 
+    [self startLatencyTools];
     FrontendSetSavePath(self.savePath.fileSystemRepresentation);
     AudioSetMuted([defaults boolForKey:kMutedDefault]);
     AudioSetHighQuality([defaults boolForKey:kHighQualityAudioDefault]);
@@ -215,6 +218,44 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     }
 }
 
+// Measurement helpers (see latency.h). TMC_LATENCY_SYNTH=1 presses and releases
+// a key at random times by itself; TMC_QUIT_AFTER=seconds quits the app.
+- (void)startLatencyTools {
+    NSDictionary* env = NSProcessInfo.processInfo.environment;
+
+    LatencyStart();
+    if (!LatencyEnabled()) {
+        return;
+    }
+    if ([env[@"TMC_LATENCY_SYNTH"] boolValue]) {
+        [self scheduleSyntheticKey:YES];
+    }
+    for (int seconds = 2; seconds <= 30; seconds += 14) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, seconds * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            NSString* text = [NSString stringWithFormat:@"at %d s: window %s, %s, active app %d, screen %@ %ld Hz", seconds,
+                                                        self->_window.visible ? "visible" : "hidden",
+                                                        (self->_window.occlusionState & NSWindowOcclusionStateVisible) ? "unoccluded" : "occluded",
+                                                        NSApp.active, self->_window.screen.localizedName,
+                                                        (long)self->_window.screen.maximumFramesPerSecond];
+            LatencyNote(text.UTF8String);
+        });
+    }
+    double quitAfter = [env[@"TMC_QUIT_AFTER"] doubleValue];
+    if (quitAfter > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(quitAfter * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [NSApp terminate:nil];
+        });
+    }
+}
+
+- (void)scheduleSyntheticKey:(BOOL)press {
+    double delay = 0.15 + 0.25 * (arc4random() / 4294967295.0);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self->_input setKeyboardKeysForTesting:press ? HW_KEY_L : 0];
+        [self scheduleSyntheticKey:!press];
+    });
+}
+
 - (void)fail:(NSString*)message {
     NSAlert* alert = [NSAlert new];
     alert.messageText = @"Cannot start";
@@ -230,6 +271,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 - (void)applicationWillTerminate:(NSNotification*)note {
     FrontendStopGame();
     AudioStop();
+    LatencyFinish();
 }
 
 - (void)applicationDidResignActive:(NSNotification*)note {

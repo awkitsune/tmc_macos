@@ -4,6 +4,7 @@
 #include <zlib.h>
 
 #include "frontend.h"
+#include "latency.h"
 
 NSString* FilterModeName(FilterMode mode) {
     switch (mode) {
@@ -475,7 +476,14 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         }
         dispatch_semaphore_signal(inFlight);
     }];
-    [commands presentDrawable:view.currentDrawable];
+    id<CAMetalDrawable> drawable = view.currentDrawable;
+    if (LatencyEnabled() && !self.testPattern) {
+        uint64_t presentedSequence = _sequence;
+        [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
+            LatencyPresented(presentedSequence, shown.presentedTime);
+        }];
+    }
+    [commands presentDrawable:drawable];
     [commands commit];
 }
 
