@@ -360,6 +360,9 @@ void ChuchuBoss_OnTick(ChuchuBossEntity* this) {
 }
 
 void sub_08025DD8(ChuchuBossEntity* this) {
+#ifdef PLATFORM_NATIVE
+    Entity* parts[3];
+#endif
     super->action = 1;
     if (super->type == 8) {
         super->type = 4;
@@ -378,9 +381,32 @@ void sub_08025DD8(ChuchuBossEntity* this) {
         switch (super->type & 3) {
             Hitbox* hitbox;
             case 0:
+#ifdef PLATFORM_NATIVE
+                // The three body parts are linked and later used as a set without checks; the GBA reads BIOS
+                // through a missing one. Create them up front (same order, nothing else creates entities in
+                // between) and, if the entity list is full, drop them and retry next frame.
+                parts[0] = CreateEnemy(CHUCHU_BOSS, super->type | 3);
+                parts[1] = parts[0] != NULL ? CreateEnemy(CHUCHU_BOSS, super->type | 2) : NULL;
+                parts[2] = parts[1] != NULL ? CreateEnemy(CHUCHU_BOSS, super->type | 1) : NULL;
+                if (parts[2] == NULL) {
+                    if (parts[0] != NULL) {
+                        DeleteEntity(parts[0]);
+                    }
+                    if (parts[1] != NULL) {
+                        DeleteEntity(parts[1]);
+                    }
+                    super->action = 0;
+                    return;
+                }
+#endif
                 super->type2 = super->type;
                 this->unk_84 = zMalloc(sizeof(Helper));
                 if (!this->unk_84 || !AllocMutableHitbox(super)) {
+#ifdef PLATFORM_NATIVE
+                    DeleteEntity(parts[0]);
+                    DeleteEntity(parts[1]);
+                    DeleteEntity(parts[2]);
+#endif
                     GenericDeath(super);
                     return;
                 }
@@ -401,7 +427,11 @@ void sub_08025DD8(ChuchuBossEntity* this) {
                 this->unk_84->unk_03 = 0;
                 this->unk_84->unk_04 = 0;
                 this->unk_84->unk_0e = super->x.HALF.HI;
+#ifdef PLATFORM_NATIVE
+                this->unk_68 = (ChuchuBossEntity*)parts[0];
+#else
                 this->unk_68 = (ChuchuBossEntity*)CreateEnemy(CHUCHU_BOSS, super->type | 3);
+#endif
                 if (this->unk_68) {
                     this->unk_68->base.collisionLayer = super->collisionLayer;
                     this->unk_68->base.x.HALF.HI = super->x.HALF.HI;
@@ -411,7 +441,11 @@ void sub_08025DD8(ChuchuBossEntity* this) {
                     MEMORY_BARRIER;
                     this->unk_68->unk_68 = this;
                 }
+#ifdef PLATFORM_NATIVE
+                super->parent = parts[1];
+#else
                 super->parent = CreateEnemy(CHUCHU_BOSS, super->type | 2);
+#endif
                 if (super->parent) {
                     super->parent->collisionLayer = super->collisionLayer;
                     super->parent->x.HALF.HI = super->x.HALF.HI;
@@ -422,7 +456,11 @@ void sub_08025DD8(ChuchuBossEntity* this) {
                     this->unk_68->base.child = super->parent;
                     ((ChuchuBossEntity*)super->parent)->unk_68 = this;
                 }
+#ifdef PLATFORM_NATIVE
+                super->child = parts[2];
+#else
                 super->child = CreateEnemy(CHUCHU_BOSS, super->type | 1);
+#endif
                 if (super->child) {
                     super->child->collisionLayer = super->collisionLayer;
                     super->child->x.HALF.HI = super->x.HALF.HI;
