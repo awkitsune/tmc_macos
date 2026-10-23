@@ -253,3 +253,66 @@ invisible to the const pass; the script commands only read through such pointers
 **Dynamic check:** `TMC_ROM_WRITES=1` (headless runner) logs a store into read-only game data as `rom write: <symbol+off> from
 <function+off>, frame N` and skips it (applying the base-register writeback of pre/post-indexed `STR`/`STP`) instead of crashing.
 No ROM write in the 24000-frame playthrough, the Ezlo replay or the gust jar repro.
+
+## Unsigned 32-bit "negative" offsets
+
+On the GBA a pointer plus a u32 wraps at 32 bits, so a u32 that holds a negative number (`(u32)n * -3`, `-innerIndex`, `pos - 0x80`
+near 0) still lands just before the base. Natively the u32 is zero-extended and lands 4-16 GB away. Fixed before this sweep:
+9ed69348 (`UpdateRailMovement`, lily pads), 8689d25b (`sub_0807C69C`, Minish house interiors), b7608064 (Big Goron BG copy),
+b22fcf35 (iris window `sub_0801E290`). `-fsanitize=pointer-overflow` cannot see this class: base + 4 GB does not overflow 64 bits.
+
+**Static pass** (libclang over all 658 C files in `src/` and `port/src/` with the native compile commands; scripts in the session
+notes folder, `u32-offsets-tools/`):
+1. Every array subscript, pointer `+`/`-`/`+=`/`-=` and `(uintptr_t)p + x` whose integer operand has type `unsigned int` after
+   the usual conversions (u8/u16 promote to int, so only u32 and unsigned enums qualify): 1535 sites (1375 subscripts, 158 pointer
+   adds, 2 uintptr, 13 enum-typed).
+2. 223 of them are provably below 0x80000000 (constants, masks, `u32 >> n`, narrow unsigned values).
+3. For the rest, every definition of each u32 local, parameter (all call sites) and field the operand reads, three levels deep,
+   flagged when it contains a negation, a subtraction, `~`, a decrement, or a conversion from a signed value not provably >= 0.
+   That leaves 218 candidate sites in game and port-asm code (106 functions), each read by hand.
+
+**Dynamic pass:** a scratch copy of the tree with every one of those operands (1519; the 13 enum indices left out, since wrapping
+them in a `u32` function changes their type) wrapped in `u32chk_(e, id)`, which returns `e` and logs `U32CHK id value` when
+`e >= 0x80000000`. The wrapping keeps the game identical: the 24000-frame playthrough's video hashes match the plain build.
+Runs: the 24000-frame playthrough, the Ezlo replay, and a warp scan (a scratch `TMC_WARP_SCAN` hook, not committed) that sends
+Link to each of the 661 rooms from the `hyrule_town` checkpoint, at full health, for 90 frames with control. **No report in any
+run.** The warp scan reached control in 499 rooms; 72 timed out and 91 crashed with other bugs already known from the earlier
+warp scan (80 in `sub_0804AF90`, NULL room properties; `LoadRoomTileSet`, `LoadRoomGfx`, `sub_0802D650`, OctorokBoss,
+FrozenOctorok, GyorgBossObject; most likely warp artefacts). The gust jar state (`frame_001329`) does not load into any build
+whose code layout differs, re-saved with a reference run or not (an entity list pointer is re-pointed into dyld memory), so it
+was not run instrumented; the lily pad state was not found on disk. Both run clean on the fixed build.
+
+**Fixed** (all GBA-faithful: the index wraps backwards as on the GBA instead of jumping 4 GB):
+
+| Site | Value | Reached when | Fix |
+|---|---|---|---|
+| [veneer.c](../../port/src/asm/veneer.c) `SetCollisionData`, `SetActTileAtTilePos`, `GetTileIndex`, `SetTile`; [intr.c](../../port/src/asm/intr.c) `TileTypeAt` (`GetTileTypeAtTilePos`), `GetCollisionDataAtTilePos` | `tilePos` from callers that pass a neighbour: `tilePos - 0x40`, `- 0x41`, `- 1`, `+ TILE_POS(-1, -1)` (bossDoor, metalDoor, bench, furniture, pushableGrave, pushableFurniture, bakerOven, castorWildsStatue, bigIceBlock, madderpillar, vaatiEyesMacro, ...) | an object on the room's top row (or tile 0) looks at the tile above it. The asm (`lsls r0, #1; ldrh r0, [r1, r0]`) wraps | index `(s32)tilePos` (port-asm files, native only) |
+| [vaatiBall.c](../../src/enemy/vaatiBall.c) `sub_08044DEC` | `off = parent->unk_80 - 1`, `unk_80` the u8 count of remaining balls | the Vaati Reborn fight, if a ball takes this path with the count at 0 (`sub_080449F8` sets the parent's state 1 exactly when it is 0); not proven reachable | `gUnk_080D1628[(s32)off]` |
+| [beanstalkSubtask.c](../../src/beanstalkSubtask.c) `sub_0801A370` | `collisionData[pos - 0x80]`, two rows above the target tile | pushing a push tile (`SPECIAL_TILE_43`-`45`) sideways in the top two tile rows of a room | `[(s32)pos - 0x80]` |
+
+None of these is on the playthrough's path or in the warp scan (no report), so none is a crash a player is known to hit; they are
+the only sites where a "negative" value is possible from the code and data, as opposed to the many below.
+
+**Checked and safe** (main groups):
+- Guarded before use: `hazard - 1` (`!= 0`), `objPaletteId - 0x16` (`>= 0x16`), `item - ITEM_BOTTLE1`, `bottle_no - 1`,
+  `collision - 0x10` / `data - 0x10` (`>= 0x10`), `tileIndex - 0x4000`, `param_1 - 0x80` (text, `> 0x7f`), Mazaal bracelet
+  `direction - 10` (clamped 10..0x16), smith `global_progress - 2` (int compare), file select hearts (capped at 10), name entry
+  `idx--` (u32 clamp), the `sub_080012DC` indices of chaser/cuccoAggr/flyingSkull/octorokGolden/ropeGolden/sluggula (`!= 0`).
+- Loops counting down that stop at 0: OctorokBoss tails (`tailCount - 1` .. 1), gyorgFemale, `UnregisterInteractTile`, MemCopy.
+- Random(): returns `r >> 1`, so `(s32)Random() % 3` (gyorgMale) is never negative.
+- InitializeAnimation callers that subtract (`animIndex - 7` in Enemy50/Ghini, `type2 - 1` in Beanstalk) are guarded. The asm
+  indexes with the full argument, so a negative one would differ natively; none was found.
+- `u32` shifted right (`dx >> 4`) is always below 2^31; where the source was a negative int (scroll before the room origin,
+  `horizontalMinishPathBackgroundManager` with a room wider than 0x400) the GBA reads 0.5-1 GB away too, so it is not this class.
+- `port/src/` outside `asm/` (PPU, sound, state, hw): native code with range checks; reviewed, nothing.
+
+**Blind spots:**
+- Functions declared to return u32 that return a negative value: their result is not followed into callers.
+- Values that come from data (`u8`/`s8` table entries added to a u32 position, script operands) are only covered dynamically.
+- The game-side tile writers `SetTileType`, `SetTileByIndex`, `RestorePrevTileEntity` (playerUtils.c) index with the caller's u32
+  `tilePos` too (bombable walls, graves, ice blocks pass `- 1`/`- 0x40`/`- 0x41`); left as is: a negative value needs one of
+  those objects on a room's top row, and no call in the runs above (Init-time calls in 499 rooms included) produced one.
+- `sub_0801A570` (big pushed blocks) walks `position - 0x40` up to three rows and indexes `mapData` with it; already partly
+  native-fixed for `collisionData` in 2b987919, the `mapData` reads stay u32 (needs a block within three rows of the top).
+- Coverage of the dynamic pass is the playthrough (first hours), the Ezlo replay, and 90 idle frames per room: interaction-time
+  code (pushing, bombing, boss phases) in late-game rooms is static only.
