@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "port/hw.h"
+#include "port/platform.h"
 #include "port/ppu.h"
 
 uint8_t gHwIo[HW_IO_SIZE];
@@ -236,4 +237,17 @@ void* HwGbaPtr(uint32_t address) {
     }
     fprintf(stderr, "HwGbaPtr: no native memory for GBA address 0x%08x\n", address);
     abort();
+}
+
+int PlatformEntityLimit(void) {
+    static int sLimit = -2;
+
+    if (sLimit == -2) {
+        const char* env = getenv("TMC_ENTITY_LIMIT");
+        sLimit = env != NULL ? atoi(env) : -1;
+        if (sLimit >= 0) {
+            fprintf(stderr, "TMC_ENTITY_LIMIT: entity creation fails at %d live entities\n", sLimit);
+        }
+    }
+    return sLimit;
 }

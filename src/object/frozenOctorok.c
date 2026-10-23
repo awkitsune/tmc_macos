@@ -114,6 +114,32 @@ void FrozenOctorok_Init(FrozenOctorokEntity* this) {
                 if (obj2 != NULL) {
                     obj2->heap = this->heap;
                 }
+#ifdef PLATFORM_NATIVE
+                // The parts are used as a set without checks (child, parent, heap->mouthObject/legObjects);
+                // the GBA reads BIOS through a missing one. If the entity list was full, drop the set and retry.
+                if (obj1 == NULL || obj2 == NULL || this->heap->legObjects[0] == NULL ||
+                    this->heap->legObjects[1] == NULL || this->heap->legObjects[2] == NULL ||
+                    this->heap->legObjects[3] == NULL) {
+                    for (i = 0; i < 4; i++) {
+                        if (this->heap->legObjects[i] != NULL) {
+                            DeleteEntity(&this->heap->legObjects[i]->base);
+                        }
+                    }
+                    if (obj1 != NULL) {
+                        DeleteEntity(&obj1->base);
+                    }
+                    if (obj2 != NULL) {
+                        DeleteEntity(&obj2->base);
+                    }
+                    zFree(super->myHeap);
+                    super->myHeap = NULL;
+                    this->heap = NULL;
+                    super->child = NULL;
+                    super->parent = NULL;
+                    super->action = 0;
+                    return;
+                }
+#endif
             } else {
                 super->spriteOffsetX = 0xd7;
                 super->spriteOffsetY = -0x20;
