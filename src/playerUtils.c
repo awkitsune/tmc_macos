@@ -1605,6 +1605,14 @@ void sub_08078CD0(PlayerEntity* this) {
     const s8* ptr;
 
     entity = this->pulledJarEntity;
+#ifdef PLATFORM_NATIVE
+    // Releasing the gust jar clears pulledJarEntity before PlayerItemGustBig's last call here. On hardware the
+    // writes below land in BIOS and are ignored; only the NULL sub-sprite slot sticks (the draw code skips it).
+    if (entity == NULL) {
+        sub_0806FEBC(super, 0, NULL);
+        return;
+    }
+#endif
     entity->z.HALF.HI = super->z.HALF.HI - 1;
     entity->spriteOrientation.flipY = super->spriteOrientation.flipY;
     entity->collisionLayer = super->collisionLayer;
