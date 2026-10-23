@@ -44,16 +44,39 @@ gUnk_additional_11_HyruleField_LonLonRanch    unk_DoorProperty
 gUnk_additional_8_CaveOfFlames_(Rollobite|BossDoor|AfterCane|MinishLava)    LavaPlatformEntry
 gUnk_080E4C08                                           EntityData
 # Entity lists stored as raw .incbin blobs with no pointers, so nothing shows
-# their type: scripts load these with LoadRoomEntityList, and Minish Woods'
-# room property 0x10 holds the Octoroks that attack Ezlo.
+# their type: scripts load these with LoadRoomEntityList. (Room properties that
+# entities load as lists are typed by datagen/entitylists.py.)
 gUnk_080D9048|gUnk_080E3830|gUnk_080F51D0|gUnk_080F7FC0    EntityData
-gUnk_additional_10_MinishWoods_Main                         EntityData
+# Tile entities (LoadRoomTileEntities) that C declares as EntityData
+gUnk_080F2860                                           raw
 # Textbox fonts declared only at block scope in subtask.c (pause menu save prompt, area names)
 gUnk_0812(8FA8|8FC0|8FD8|9004)                          Font
 
 # Songs are raw ROM bytes with absolute addresses baked in (no relocations); the
 # native sound engine translates them at runtime (phase 4).
 \w+                     raw                  data/sound/sounds
+
+# The room of entity lists loaded by room code or scripts: ^<regex> <room property table>.
+# Their fight and spawn managers load that room's properties as entity lists
+# (see port/tools/datagen/entitylists.py); datagen fails if a list holding such
+# a manager has no room.
+^gUnk_080D9C38                                          Room_CastorWilds_Main
+^gUnk_080DA260                                          Room_CastorDarknut_Main
+^gUnk_080DCB10                                          Room_MinishCracks_CastorWildsBow
+^gUnk_080DD7E0|gUnk_080DD840                            Room_CloudTops_Bottom
+^gUnk_080DE1E0|gUnk_080DE200                            Room_Ruins_Armos
+^gUnk_080DE814                                          Room_DeepwoodShrine_StairsToB1
+^gUnk_080EA09C                                          Room_PalaceOfWinds_RocCape
+^gUnk_080EB9F4                                          Room_DarkHyruleCastle_3FTripleDarknut
+^gUnk_080EC2CC                                          Room_DarkHyruleCastle_2FTopLeftDarknut
+^gUnk_080EC4E8                                          Room_DarkHyruleCastle_2FTopRightDarknuts
+^gUnk_080EC820                                          Room_DarkHyruleCastle_2FBottomLeftDarknuts
+^gUnk_080ECA60                                          Room_DarkHyruleCastle_2FBottomRightDarknut
+^gUnk_080F0(B48|B68|B88|BB8|BE8|C18|C48|C78)              Area_SimonsSimulation_Main
+^gUnk_080F51D0                                          Room_MinishWoods_Main
+^gUnk_080F7DC0                                          Room_HyruleField_OutsideCastle
+^gUnk_080F7FC0                                          Room_HyruleField_OutsideCastle
+^gUnk_080F85F8                                          Room_Caves_Boomerang
 
 # RAM symbols that are struct fields on GBA: =<symbol> <variable>.<field>
 # Message text variables 1-4 (gUnk_08109230) live in gTextRender

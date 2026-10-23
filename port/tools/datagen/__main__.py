@@ -18,6 +18,7 @@ from pathlib import Path
 from .asmsource import first_statements
 from .ctypes_db import TypeDB
 from .emit import DataModel, Emitter, EmitError
+from .entitylists import load_room_hints
 from .gbaobj import linked_globals, linked_symbols, load_all
 from .ram import emit_ram, emit_ram_map
 from .provenance import asset_masks
@@ -31,7 +32,7 @@ def load_hints(types: TypeDB) -> tuple:
     names, macros = [], {}
     for n, line in enumerate(HINTS.read_text().splitlines(), 1):
         line = line.split("#", 1)[0].strip()
-        if not line or line.startswith("="):
+        if not line or line.startswith(("=", "^")):
             continue
         pattern, type_name, *scope = line.split()
         key = type_name if type_name in types.records else f"struct {type_name}"
@@ -92,7 +93,7 @@ def main() -> int:
     types.save(out / "types.json")
     addrs = linked_symbols(root / "tmc.elf")
     objects = load_all(gba_build, addrs)
-    model = DataModel(objects, types, load_hints(types), first_statements(root))
+    model = DataModel(objects, types, load_hints(types), first_statements(root), load_room_hints(HINTS.read_text().splitlines()))
     model.set_ram_symbols(addrs)
     model.set_rom_index(addrs)
     model.classify()
@@ -110,6 +111,13 @@ def main() -> int:
                 print(f"    {p.label} ({p.obj})")
         if args.check:
             return 1
+
+    print(f"{len(model.derived_lists)} room properties typed as entity lists from the entities that load them")
+    if model.list_errors:
+        print(f"\n{len(model.list_errors)} entity lists would not end where the GBA list does:")
+        for e in model.list_errors:
+            print("  " + e)
+        return 1
 
     if args.check:
         return 0

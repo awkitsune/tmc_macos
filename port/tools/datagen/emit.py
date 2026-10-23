@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ctypes_db import TypeDB
+from .entitylists import RoomLists, list_shaped
 from .gbaobj import R_ARM_ABS32, DataObject, Label
 
 SCRIPT_TAG_MASK = 0xFF000000
@@ -104,7 +105,7 @@ class Problem:
 class DataModel:
     """All GBA data labels with their chosen representation."""
 
-    def __init__(self, objects: list, types: TypeDB, hints: tuple, first_statements: dict):
+    def __init__(self, objects: list, types: TypeDB, hints: tuple, first_statements: dict, room_hints: list = ()):
         self.objects = objects
         self.types = types
         self.name_hints, self.macro_hints = hints
@@ -115,6 +116,10 @@ class DataModel:
         self.problems = []
         self.c_fixes = []  # (label, reason): C declarations that must change for native
         self.warnings = []
+        self.room_hints = list(room_hints)
+        self.list_type = ("record", "EntityData" if "EntityData" in types.records else "struct EntityData")
+        self.derived_lists = []  # room properties typed as entity lists by RoomLists
+        self.list_errors = []  # entity lists whose native form would not match (RoomLists.check)
         for obj in objects:
             for sec in obj.sections:
                 for label in sec.labels:
@@ -143,8 +148,10 @@ class DataModel:
             for info in list(self.labels.values()):
                 if info.mode == "typed":
                     for target, t in self._typed_pointer_targets(info):
-                        if target.mode == "raw" and self._needs_type(target):
+                        if target.mode == "raw" and self._needs_type(target, t):
                             changed |= self._assign(target, t)
+        room_lists = RoomLists(self, self.list_type, self.room_hints)
+        self.derived_lists = room_lists.derive()
         for info in self.labels.values():
             if info.mode == "raw" and self._has_relocs(info.label):
                 if self._is_pointer_array(info.label):
@@ -153,6 +160,7 @@ class DataModel:
                     info.mode, info.split = "split", self._split_point(info.label)
                 else:
                     self._problem(info, "holds pointers but has no C type (add a hint)")
+        self.list_errors = room_lists.check()
 
     def _is_code(self, label: Label) -> bool:
         return any(r.kind != R_ARM_ABS32 for off, r in label.section.relocs.items() if label.offset <= off < label.end)
@@ -168,8 +176,15 @@ class DataModel:
             return self.macro_hints[macro]
         return self.types.decls.get(name)
 
-    def _needs_type(self, info) -> bool:
-        return self._has_relocs(info.label)
+    def _needs_type(self, info, t) -> bool:
+        if self._has_relocs(info.label):
+            return True
+        # Pointer-free entity lists still change layout (16-byte GBA entries, 24 native).
+        if t == self.list_type:
+            if list_shaped(info.label):
+                return True
+            self._problem(info, "an EntityData pointer leads here but it is not shaped like an entity list")
+        return False
 
     def _assign(self, info: LabelInfo, t) -> bool:
         """Give a label element type t, repeated to cover its size. Returns True if it changed."""
