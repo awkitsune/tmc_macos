@@ -57,28 +57,6 @@ struct ResponseUniforms {
     float keepFall; // the same, getting darker
 };
 
-// LCD response (ghosting): the GBA's screen takes ~20 ms to change a pixel, so
-// each new frame only partly replaces what was shown. Run once per new game
-// frame: history holds what the simulated LCD showed, in linear light; shown is
-// the new picture, gamma-encoded like the frame, for the present pass. Each
-// channel follows its own target, darker targets with keepFall.
-kernel void lcd_response(texture2d<float, access::read> frame [[texture(0)]],
-                         texture2d<float, access::read> history [[texture(1)]],
-                         texture2d<float, access::write> nextHistory [[texture(2)]],
-                         texture2d<float, access::write> shown [[texture(3)]],
-                         constant ResponseUniforms& u [[buffer(0)]],
-                         uint2 gid [[thread_position_in_grid]]) {
-    if (gid.x >= frame.get_width() || gid.y >= frame.get_height()) {
-        return;
-    }
-    float3 target = pow(frame.read(gid).rgb, 2.2);
-    float3 old = history.read(gid).rgb;
-    float3 keep = select(float3(u.keepRise), float3(u.keepFall), target < old);
-    float3 now = mix(target, old, keep);
-    nextHistory.write(float4(now, 1.0), gid);
-    shown.write(float4(pow(now, 1.0 / 2.2), 1.0), gid);
-}
-
 struct VertexOut {
     float4 position [[position]];
     float2 uv;
@@ -91,6 +69,32 @@ vertex VertexOut present_vertex(uint vid [[vertex_id]]) {
     out.position = float4(corner.x * 2.0 - 1.0, 1.0 - corner.y * 2.0, 0.0, 1.0);
     out.uv = corner;
     return out;
+}
+
+// LCD response (ghosting): the GBA's screen takes ~20 ms to change a pixel, so
+// each new frame only partly replaces what was shown. Run once per new game
+// frame, as a render pass over the 240x160 targets: history holds what the
+// simulated LCD showed, in linear light; shown is the new picture,
+// gamma-encoded like the frame, for the present pass. Each channel follows its
+// own target, darker targets with keepFall. (A compute kernel would do, but the
+// first compute encoder costs ~35 MB of driver memory for the app's lifetime.)
+struct ResponseOut {
+    float4 nextHistory [[color(0)]];
+    float4 shown [[color(1)]];
+};
+
+fragment ResponseOut lcd_response(VertexOut in [[stage_in]],
+                                  texture2d<float, access::read> frame [[texture(0)]],
+                                  texture2d<float, access::read> history [[texture(1)]],
+                                  constant ResponseUniforms& u [[buffer(0)]]) {
+    uint2 gid = uint2(in.position.xy);
+    float3 target = pow(frame.read(gid).rgb, 2.2);
+    float3 old = history.read(gid).rgb;
+    float3 keep = select(float3(u.keepRise), float3(u.keepFall), target < old);
+    // keep == 0 (a restart) copies the frame in without reading old at all:
+    // render targets start out as garbage, and NaN * 0 is still NaN.
+    float3 now = select(mix(target, old, keep), target, keep == 0.0);
+    return { float4(now, 1.0), float4(pow(now, 1.0 / 2.2), 1.0) };
 }
 
 constexpr sampler nearestSampler(coord::normalized, address::clamp_to_edge, filter::nearest);

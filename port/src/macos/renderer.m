@@ -206,7 +206,7 @@ typedef struct {
     // _history[_historySlot] is current), and the same gamma-encoded for the
     // present pass. One queue with tracked resources, so a pass never writes
     // these while an earlier one still reads them.
-    id<MTLComputePipelineState> _responsePipeline;
+    id<MTLRenderPipelineState> _responsePipeline;
     id<MTLTexture> _history[2];
     id<MTLTexture> _shown;
     NSUInteger _historySlot;
@@ -276,8 +276,11 @@ typedef struct {
     _debugBuffer = DebugBufferNone;
     _highlightRect = CGRectZero;
 
-    id<MTLFunction> response = [library newFunctionWithName:@"lcd_response"];
-    _responsePipeline = response ? [_device newComputePipelineStateWithFunction:response error:&error] : nil;
+    desc.vertexFunction = [library newFunctionWithName:@"present_vertex"];
+    desc.fragmentFunction = [library newFunctionWithName:@"lcd_response"];
+    desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA16Float;
+    desc.colorAttachments[1].pixelFormat = MTLPixelFormatRGBA16Float;
+    _responsePipeline = [_device newRenderPipelineStateWithDescriptor:desc error:&error];
     if (_responsePipeline == nil) {
         NSLog(@"LCD response pipeline creation failed: %@", error);
         return nil;
@@ -296,7 +299,7 @@ typedef struct {
                                                                                          width:PPU_WIDTH
                                                                                         height:PPU_HEIGHT
                                                                                      mipmapped:NO];
-    floatDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    floatDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
     floatDesc.storageMode = MTLStorageModePrivate;
     _history[0] = [_device newTextureWithDescriptor:floatDesc];
     _history[1] = [_device newTextureWithDescriptor:floatDesc];
@@ -344,19 +347,22 @@ typedef struct {
 }
 
 // One LCD response step: blend frame into history (keep = 0 copies it in).
-static void EncodeResponse(id<MTLCommandBuffer> commands, id<MTLComputePipelineState> pipeline, id<MTLTexture> frame,
+static void EncodeResponse(id<MTLCommandBuffer> commands, id<MTLRenderPipelineState> pipeline, id<MTLTexture> frame,
                            id<MTLTexture> history, id<MTLTexture> nextHistory, id<MTLTexture> shown,
                            ResponseUniforms uniforms) {
-    id<MTLComputeCommandEncoder> encoder = [commands computeCommandEncoder];
-    [encoder setComputePipelineState:pipeline];
-    [encoder setTexture:frame atIndex:0];
-    [encoder setTexture:history atIndex:1];
-    [encoder setTexture:nextHistory atIndex:2];
-    [encoder setTexture:shown atIndex:3];
-    [encoder setBytes:&uniforms length:sizeof(uniforms) atIndex:0];
-    MTLSize group = MTLSizeMake(16, 16, 1);
-    MTLSize groups = MTLSizeMake((frame.width + 15) / 16, (frame.height + 15) / 16, 1);
-    [encoder dispatchThreadgroups:groups threadsPerThreadgroup:group];
+    MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = nextHistory;
+    pass.colorAttachments[1].texture = shown;
+    for (int i = 0; i < 2; i++) {
+        pass.colorAttachments[i].loadAction = MTLLoadActionDontCare; // every pixel is written
+        pass.colorAttachments[i].storeAction = MTLStoreActionStore;
+    }
+    id<MTLRenderCommandEncoder> encoder = [commands renderCommandEncoderWithDescriptor:pass];
+    [encoder setRenderPipelineState:pipeline];
+    [encoder setFragmentTexture:frame atIndex:0];
+    [encoder setFragmentTexture:history atIndex:1];
+    [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     [encoder endEncoding];
 }
 
@@ -730,7 +736,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     desc.storageMode = MTLStorageModeShared;
     id<MTLTexture> frame = [_device newTextureWithDescriptor:desc];
     desc.pixelFormat = MTLPixelFormatRGBA16Float;
-    desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
     NSArray<id<MTLTexture>>* history = @[ [_device newTextureWithDescriptor:desc], [_device newTextureWithDescriptor:desc] ];
     id<MTLTexture> shown = [_device newTextureWithDescriptor:desc];
     FilterParams params = self.params;
