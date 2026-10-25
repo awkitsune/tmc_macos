@@ -1,14 +1,14 @@
-#ifndef PORT_MACOS_DISPLAYSYNC_H
-#define PORT_MACOS_DISPLAYSYNC_H
+#ifndef PORT_APPLE_DISPLAYSYNC_H
+#define PORT_APPLE_DISPLAYSYNC_H
 
 /*
  * "Display sync" pacing: one game frame per display refresh (or per second
  * refresh on a 120 Hz display, and so on), with the frame finished just before
  * the refresh that shows it, so the input it reads is as young as possible.
  *
- * A CVDisplayLink measures the display's refresh period and tells whether it
- * is a multiple of ~60 Hz (otherwise the display sync is unusable and the game
- * keeps to its own timer). The refresh times themselves come from the frames
+ * A display link (CVDisplayLink on macOS, CADisplayLink on iOS) measures the
+ * display's refresh period and tells whether it is a multiple of ~60 Hz
+ * (otherwise the display sync is unusable and the game keeps to its own timer). The refresh times themselves come from the frames
  * presented (DisplaySyncNotePresented), so the game thread can ask when the
  * refresh it can still make will be (DisplaySyncPredictVsync). All times are
  * mach_absolute_time ticks.
@@ -18,7 +18,14 @@
 #include <stdint.h>
 
 #ifdef __OBJC__
+#include <TargetConditionals.h>
+#if TARGET_OS_IOS
+#import <UIKit/UIKit.h>
+typedef UIWindow DisplaySyncWindow;
+#else
 #import <AppKit/AppKit.h>
+typedef NSWindow DisplaySyncWindow;
+#endif
 #endif
 
 // Enabled, and the display refreshes at a multiple of ~60 Hz.
@@ -38,10 +45,10 @@ void DisplaySyncNotePresented(double seconds);
 // Called on the main thread when DisplaySyncUsable() may have changed.
 @property(nonatomic, copy) void (^usableChanged)(void);
 // Follow the display this window is on.
-- (void)attachToWindow:(NSWindow*)window;
+- (void)attachToWindow:(DisplaySyncWindow*)window;
 // One line for the Settings window: the display's rate and how the game follows it.
 @property(nonatomic, readonly) NSString* statusText;
 @end
 #endif
 
-#endif // PORT_MACOS_DISPLAYSYNC_H
+#endif // PORT_APPLE_DISPLAYSYNC_H

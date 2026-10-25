@@ -1,5 +1,5 @@
-#ifndef PORT_MACOS_LATENCY_H
-#define PORT_MACOS_LATENCY_H
+#ifndef PORT_APPLE_LATENCY_H
+#define PORT_APPLE_LATENCY_H
 
 /*
  * Opt-in input latency and frame timing log (TMC_LATENCY_LOG=path).
@@ -59,4 +59,4 @@ void LatencyPresented(uint64_t seq, double presentedSeconds);
 // thread had not yet taken the one before.
 void LatencyTick(bool dropped);
 
-#endif // PORT_MACOS_LATENCY_H
+#endif // PORT_APPLE_LATENCY_H

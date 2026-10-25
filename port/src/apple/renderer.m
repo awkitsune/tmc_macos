@@ -1,5 +1,5 @@
 #import "renderer.h"
-#import "selftest.h"
+#import "selftestlog.h"
 
 #include <os/lock.h>
 #include <stdatomic.h>

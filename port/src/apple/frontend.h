@@ -1,8 +1,8 @@
-#ifndef PORT_MACOS_FRONTEND_H
-#define PORT_MACOS_FRONTEND_H
+#ifndef PORT_APPLE_FRONTEND_H
+#define PORT_APPLE_FRONTEND_H
 
 /*
- * Interface between the game thread (game.c) and the AppKit/Metal side.
+ * Interface between the game thread (game.c) and the AppKit or UIKit / Metal side.
  *
  * The game runs AgbMain on its own thread; every VBlankIntrWait it renders the
  * frame with the software PPU, publishes it, latches the keys and keeps the frame rate
@@ -101,4 +101,4 @@ bool FrontendCopyGfxSnapshot(GfxSnapshot* dest, uint64_t* sequence);
 /* Stop the game thread at its next frame boundary (so no save write is cut short). */
 void FrontendStopGame(void);
 
-#endif // PORT_MACOS_FRONTEND_H
+#endif // PORT_APPLE_FRONTEND_H

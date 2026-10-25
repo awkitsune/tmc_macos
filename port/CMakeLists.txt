@@ -228,7 +228,19 @@ add_custom_command(TARGET tmc POST_BUILD
 
 # The macOS app: a window with the Metal renderer, keyboard and gamepad input,
 # Core Audio sound, running the game at 59.73 Hz. Builds "build/native/The Minish Cap.app".
-set(TMC_APP_SHADERS src/macos/shaders.metal)
+# The Metal renderer, sound, input, game thread and settings storage are shared
+# with the iOS app (src/apple); the AppKit shell is in src/macos.
+set(TMC_APPLE_SOURCES
+    src/apple/audio.c
+    src/apple/displaysynccore.m
+    src/apple/game.c
+    src/apple/input.m
+    src/apple/latency.c
+    src/apple/renderer.m
+    src/apple/roomname.c
+    src/apple/settingsstore.m
+)
+set(TMC_APP_SHADERS src/apple/shaders.metal)
 # The window's subtitle names the room the player is in.
 set(TMC_ROOM_NAMES ${CMAKE_BINARY_DIR}/room_names.c)
 add_custom_command(
@@ -240,15 +252,10 @@ add_custom_command(
 )
 add_executable(tmc_app MACOSX_BUNDLE
     src/macos/app.m
-    src/macos/audio.c
     src/macos/debugwindows.m
     src/macos/displaysync.m
-    src/macos/game.c
-    src/macos/input.m
-    src/macos/latency.c
-    src/macos/renderer.m
     src/macos/romsetup.m
-    src/macos/roomname.c
+    ${TMC_APPLE_SOURCES}
     ${TMC_ROOM_NAMES}
     src/macos/selftest.m
     src/macos/settings.m
@@ -283,10 +290,10 @@ target_compile_definitions(tmc_app PRIVATE
     TMC_CHECKPOINT_DIR="${TMC_CHECKPOINT_DIR}"
 )
 # roomname.c reads the game's globals, so it builds with the game's headers.
-set_source_files_properties(src/macos/roomname.c PROPERTIES
+set_source_files_properties(src/apple/roomname.c PROPERTIES
     INCLUDE_DIRECTORIES "${TMC_ROOT}/include;${TMC_ASSETS_BUILD_DIR}"
     COMPILE_DEFINITIONS "PLATFORM_NATIVE=1;NON_MATCHING=1;${TMC_GAME_VERSION};ENGLISH;REVISION=0")
-target_include_directories(tmc_app PRIVATE src/macos)
+target_include_directories(tmc_app PRIVATE src/macos src/apple)
 target_compile_options(tmc_app PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>)
 target_compile_options(tmc_app PRIVATE -Wall -Wno-unused-parameter)
 target_link_libraries(tmc_app PRIVATE

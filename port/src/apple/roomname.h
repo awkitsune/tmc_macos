@@ -1,5 +1,5 @@
-#ifndef PORT_MACOS_ROOMNAME_H
-#define PORT_MACOS_ROOMNAME_H
+#ifndef PORT_APPLE_ROOMNAME_H
+#define PORT_APPLE_ROOMNAME_H
 
 #include <stdbool.h>
 
@@ -17,4 +17,4 @@ const char* RoomName(int area, int room);
  */
 bool RoomCurrent(int* area, int* room);
 
-#endif // PORT_MACOS_ROOMNAME_H
+#endif // PORT_APPLE_ROOMNAME_H

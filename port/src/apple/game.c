@@ -1,5 +1,5 @@
 /*
- * Game thread for the macOS app: the platform hooks (PlatformVBlank,
+ * Game thread for the macOS and iOS apps: the platform hooks (PlatformVBlank,
  * PlatformSoftReset) plus frame pacing and the hand-off of finished frames.
  */
 

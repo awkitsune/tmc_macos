@@ -1,5 +1,5 @@
-#ifndef PORT_MACOS_AUDIO_H
-#define PORT_MACOS_AUDIO_H
+#ifndef PORT_APPLE_AUDIO_H
+#define PORT_APPLE_AUDIO_H
 
 #include <stdbool.h>
 
@@ -28,4 +28,4 @@ void AudioSetRateScale(double scale);
 void AudioSetHighQuality(bool on);
 bool AudioIsHighQuality(void);
 
-#endif // PORT_MACOS_AUDIO_H
+#endif // PORT_APPLE_AUDIO_H
