@@ -384,3 +384,18 @@ global and read elsewhere would be missed; none was seen by grep); objects spawn
 resolved to a file (FloatingPlatformManager was checked by hand); entity links whose holder or value is found at run time
 (`FindEntity*`, list walks, `gPlayerEntity.carriedEntity`) are not typed; accesses through integer arithmetic on addresses (e.g.
 `(u8*)&e->field + k`) count as the field they start from; and bitfields are judged by their containing unit.
+
+## Room smoke test: first-update order and detached parents
+
+Found by warping into every room ([room-smoke.md](room-smoke.md)); all fixed under `#ifdef PLATFORM_NATIVE`.
+
+- **A part updates before the part it points at has initialised.** A multi-part boss creates its parts in one
+  init; an earlier-created part updates first and reads a heap pointer a later part's init sets (or a part's
+  hitbox before that part's init), which the GBA reads as BIOS. octorokBoss / frozenOctorok legs
+  (`heap->mouthObject`), gleerok `sub_0802E7E4` (`heap->entity1`), gyorgBossObject `sub_080A1DCC`
+  (`heap->mouth`, `heap->tail` and its segments), chuchuBoss `sub_080279AC` (`hitbox`).
+- **A child detached before its first update.** darkNutSwordSlash: the Dark Nut sets `child->parent = NULL`
+  (`sub_08021588`), possibly in the frame it creates the slash, whose init reads `parent->type` before checking
+  for NULL.
+- **An entity's heap used by someone else before the entity's own first update allocates it.** zeldaFollower
+  `sub_08068578`, called through `SetZeldaFollowTarget` when the player arrives by stairs with Zelda following.
