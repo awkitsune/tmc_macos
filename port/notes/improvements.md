@@ -4,7 +4,6 @@ Things that work today but could be better. Not bugs.
 
 ## Packaging
 
-- About box.
 - Signing with a Developer ID, notarization and a `.dmg`. A shared build is ad-hoc signed today, so the
   recipient has to use Open Anyway.
 
