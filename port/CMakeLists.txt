@@ -218,12 +218,15 @@ add_executable(tmc_app MACOSX_BUNDLE
     src/macos/selftest.m
     src/macos/settings.m
     ${TMC_APP_SHADERS}
+    src/macos/icon/AppIcon.icns
     $<TARGET_OBJECTS:tmc_game>
     $<TARGET_OBJECTS:tmc_data>
 )
 # Shaders ship as source and are compiled at launch, so building needs no
 # separately installed Metal toolchain.
 set_source_files_properties(${TMC_APP_SHADERS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+# The app icon, made from src/macos/icon/icon_32.png by port/scripts/make_icon.swift.
+set_source_files_properties(src/macos/icon/AppIcon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 set_target_properties(tmc_app PROPERTIES
     OUTPUT_NAME TMC
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/src/macos/Info.plist.in
