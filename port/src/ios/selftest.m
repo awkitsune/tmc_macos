@@ -178,6 +178,12 @@ void SelfTestStart(GameViewController* game) {
         NSLog(@"selftest: renderer on %@, drawable %.0fx%.0f, filter %@", game.gameView.device.name, size.width, size.height,
               renderer != nil ? FilterModeName(renderer.filter) : @"-");
         Check(renderer != nil && size.width > 0 && size.height > 0, @"renderer created");
+        // The picture can use the whole screen, safe area insets included.
+        CGSize screen = game.view.window.screen.nativeBounds.size;
+        NSLog(@"selftest: screen %.0fx%.0f", screen.width, screen.height);
+        Check(MAX(size.width, size.height) == MAX(screen.width, screen.height) &&
+                  MIN(size.width, size.height) == MIN(screen.width, screen.height),
+              @"game view fills the screen");
         // The kernel with the built-in knob values, not the ones saved for this user.
         FilterParams saved = renderer.params;
         renderer.params = FilterParamsDefaults();

@@ -147,12 +147,13 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _view.preferredFramesPerSecond = 60;
     _view.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:_view];
-    UILayoutGuide* safe = self.view.safeAreaLayoutGuide;
+    // The whole screen, not the safe area: the picture is centred in it, and the
+    // home indicator (hidden while playing) may sit over its bottom edge.
     [NSLayoutConstraint activateConstraints:@[
-        [_view.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
-        [_view.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
-        [_view.topAnchor constraintEqualToAnchor:safe.topAnchor],
-        [_view.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [_view.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_view.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [_view.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [_view.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
     ]];
     [self.view addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped:)]];
     [self buildOverlay];

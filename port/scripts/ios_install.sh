@@ -71,7 +71,7 @@ if len(found) != 1:
 print(found[0][0])
 EOF
 )
-echo "Installing on $udid"
+echo "Building for $udid (the first build compiles the whole game: several minutes, with no output)"
 
 cmake -S "$root/port" -B "$build" -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
     -DTMC_BAKE_DATA=OFF -DTMC_IOS_TEAM="$team" -DTMC_IOS_BUNDLE_ID="$bundle" ${TMC_PYTHON:+-DTMC_PYTHON="$TMC_PYTHON"} > /dev/null
@@ -79,6 +79,7 @@ cmake -S "$root/port" -B "$build" -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_D
 xcodebuild -project "$build/tmc_native.xcodeproj" -scheme tmc_ios -configuration Release \
     -destination "id=$udid" -allowProvisioningUpdates -allowProvisioningDeviceRegistration -jobs 4 -quiet build
 app=$build/Release-iphoneos/TheMinishCap.app
+echo "Installing on $udid"
 xcrun devicectl device install app --device "$udid" "$app"
 
 if [ "$selftest" = yes ]; then
