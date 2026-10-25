@@ -10,6 +10,8 @@ NSString* const kPacingDefault = @"FramePacing";
 NSString* const kPacingChangedNotification = @"TMCPacingChanged";
 NSString* const kDebugMenuDefault = @"ShowDebugMenu";
 NSString* const kDebugMenuChangedNotification = @"TMCDebugMenuChanged";
+NSString* const kDebugToolbarDefault = @"ShowDebugToolbar";
+NSString* const kDebugToolbarChangedNotification = @"TMCDebugToolbarChanged";
 
 typedef struct {
     NSString* section; // starts a new section when set
@@ -71,6 +73,7 @@ FilterParams LoadFilterParams(void) {
     NSString* (^_pacingStatus)(void);
     NSButton* _integerScaling;
     NSButton* _debugMenu;
+    NSButton* _debugToolbar;
     NSButton* _lcdResponse;
     NSSlider* _sliders[KNOB_COUNT];
     NSTextField* _values[KNOB_COUNT];
@@ -172,6 +175,9 @@ static NSTextField* Label(NSString* text, BOOL bold) {
     [rows addObject:@[ Label(@"Debug", YES) ]];
     _debugMenu = [NSButton checkboxWithTitle:@"Show Debug menu" target:self action:@selector(debugMenuChanged:)];
     [rows addObject:@[ NSGridCell.emptyContentView, _debugMenu, NSGridCell.emptyContentView ]];
+    _debugToolbar = [NSButton checkboxWithTitle:@"Show debug tools in toolbar" target:self
+                                         action:@selector(debugToolbarChanged:)];
+    [rows addObject:@[ NSGridCell.emptyContentView, _debugToolbar, NSGridCell.emptyContentView ]];
 
     NSGridView* grid = [NSGridView gridViewWithViews:rows];
     grid.rowSpacing = 8;
@@ -217,6 +223,8 @@ static NSTextField* Label(NSString* text, BOOL bold) {
     _pacingNote.stringValue = _pacingStatus != nil ? _pacingStatus() : @"";
     _debugMenu.state = [NSUserDefaults.standardUserDefaults boolForKey:kDebugMenuDefault] ? NSControlStateValueOn
                                                                                           : NSControlStateValueOff;
+    _debugToolbar.state = [NSUserDefaults.standardUserDefaults boolForKey:kDebugToolbarDefault] ? NSControlStateValueOn
+                                                                                                : NSControlStateValueOff;
     for (size_t i = 0; i < KNOB_COUNT; i++) {
         float value = *KnobValue(&params, &kKnobs[i]);
         _sliders[i].floatValue = value;
@@ -257,6 +265,11 @@ static NSTextField* Label(NSString* text, BOOL bold) {
 - (void)debugMenuChanged:(NSButton*)sender {
     [NSUserDefaults.standardUserDefaults setBool:sender.state == NSControlStateValueOn forKey:kDebugMenuDefault];
     [NSNotificationCenter.defaultCenter postNotificationName:kDebugMenuChangedNotification object:nil];
+}
+
+- (void)debugToolbarChanged:(NSButton*)sender {
+    [NSUserDefaults.standardUserDefaults setBool:sender.state == NSControlStateValueOn forKey:kDebugToolbarDefault];
+    [NSNotificationCenter.defaultCenter postNotificationName:kDebugToolbarChangedNotification object:nil];
 }
 
 - (void)sliderChanged:(NSSlider*)sender {

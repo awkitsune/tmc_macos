@@ -8,6 +8,7 @@
 #include "port/platform.h"
 #include "port/ppu.h"
 #include "port/state.h"
+#include "roomname.h"
 
 // On the game thread, at the boundary the state was saved or loaded at.
 static void SelfTestStateDone(bool ok, const char* message, uint64_t frame, void* context) {
@@ -62,6 +63,169 @@ static void CheckGamepadMapping(Input* input) {
     NSLog(@"selftest: gamepad mapping %s", failures ? "FAILED" : "ok");
 }
 
+// The toolbar's items, without spaces.
+static NSArray<NSString*>* ToolbarItems(NSWindow* window) {
+    NSMutableArray* ids = [NSMutableArray array];
+    for (NSToolbarItem* item in window.toolbar.items) {
+        if (![item.itemIdentifier isEqualToString:NSToolbarFlexibleSpaceItemIdentifier] &&
+            ![item.itemIdentifier isEqualToString:NSToolbarSpaceItemIdentifier]) {
+            [ids addObject:item.itemIdentifier];
+        }
+    }
+    return ids;
+}
+
+static NSToolbarItem* ToolbarItem(NSWindow* window, NSString* identifier) {
+    for (NSToolbarItem* item in window.toolbar.items) {
+        if ([item.itemIdentifier isEqualToString:identifier]) {
+            return item;
+        }
+    }
+    return nil;
+}
+
+// Items [from, to] of a menu (to -1: the last) as text: title, action, tag,
+// shortcut and checkmark of each, submenus in brackets, after validating them.
+static NSString* MenuText(NSMenu* menu, NSInteger from, NSInteger to) {
+    [menu update];
+    NSMutableArray* items = [NSMutableArray array];
+    if (to < 0) {
+        to = menu.numberOfItems - 1;
+    }
+    for (NSInteger i = from; i <= to && i < menu.numberOfItems; i++) {
+        NSMenuItem* item = [menu itemAtIndex:i];
+        if (item.separatorItem) {
+            [items addObject:@"-"];
+            continue;
+        }
+        NSString* text = [NSString stringWithFormat:@"%@ %@ %ld %@/%lx%@", item.title,
+                                                    item.action ? NSStringFromSelector(item.action) : @"-", (long)item.tag,
+                                                    item.keyEquivalent, (unsigned long)item.keyEquivalentModifierMask,
+                                                    item.state == NSControlStateValueOn ? @" ✓" : @""];
+        if (item.submenu != nil) {
+            text = [text stringByAppendingFormat:@" [%@]", MenuText(item.submenu, 0, -1)];
+        }
+        [items addObject:text];
+    }
+    return [items componentsJoinedByString:@"; "];
+}
+
+static NSMenu* BarMenu(NSString* title) {
+    return [NSApp.mainMenu itemWithTitle:title].submenu;
+}
+
+// The dropdown's items (after its icon item) against the menu bar's.
+static int CheckDropdown(NSWindow* window, NSString* identifier, NSMenu* bar, NSString* first, NSString* last) {
+    NSPopUpButton* popup = (NSPopUpButton*)ToolbarItem(window, identifier).view;
+    if (![popup isKindOfClass:NSPopUpButton.class] || bar == nil) {
+        NSLog(@"selftest: FAIL toolbar %@: no dropdown or no menu bar menu", identifier);
+        return 1;
+    }
+    NSInteger from = first ? [bar indexOfItemWithTitle:first] : 0;
+    NSInteger to = last ? [bar indexOfItemWithTitle:last] : -1;
+    NSString* toolbarText = MenuText(popup.menu, 1, -1);
+    NSString* barText = MenuText(bar, from, to);
+    BOOL same = [toolbarText isEqualToString:barText] && toolbarText.length != 0;
+    NSLog(@"selftest: toolbar %@ menu %@: %@", identifier, same ? @"matches the menu bar" : @"FAILED", toolbarText);
+    if (!same) {
+        NSLog(@"selftest: menu bar has: %@", barText);
+    }
+    return !same;
+}
+
+// Toolbar: its items (Debug only with its setting on), that each dropdown has
+// the menu bar's items with the same checkmarks, that no button takes the
+// keyboard, and that the toolbar adds to the window rather than covering the game.
+static void CheckToolbar(NSWindow* window, MTKView* view, Renderer* renderer) {
+    int failures = 0;
+    NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+    NSArray* withDebug = @[ @"SaveLoad", @"Filter", @"Debug", @"Settings" ];
+    NSArray* withoutDebug = @[ @"SaveLoad", @"Filter", @"Settings" ];
+    BOOL debugSetting = [defaults boolForKey:kDebugToolbarDefault];
+    __block int itemFailures = 0;
+    void (^setDebug)(BOOL) = ^(BOOL on) {
+        [defaults setBool:on forKey:kDebugToolbarDefault];
+        [NSNotificationCenter.defaultCenter postNotificationName:kDebugToolbarChangedNotification object:nil];
+        NSArray* items = ToolbarItems(window);
+        BOOL ok = [items isEqualToArray:on ? withDebug : withoutDebug] &&
+                  [window.toolbar.items.lastObject.itemIdentifier isEqualToString:@"Settings"] &&
+                  [window.toolbar.items.firstObject.itemIdentifier isEqualToString:NSToolbarFlexibleSpaceItemIdentifier];
+        NSLog(@"selftest: toolbar with Debug setting %@: %@ %@", on ? @"on" : @"off", [items componentsJoinedByString:@", "],
+              ok ? @"ok" : @"FAILED");
+        itemFailures += !ok;
+    };
+    setDebug(debugSetting);
+    setDebug(!debugSetting);
+    setDebug(YES);
+
+    failures += CheckDropdown(window, @"SaveLoad", BarMenu(@"Game"), @"Quick Save", @"Load State…");
+    failures += CheckDropdown(window, @"Filter", BarMenu(@"View"), nil, @"Integer Scaling");
+    if (BarMenu(@"Debug") != nil) {
+        failures += CheckDropdown(window, @"Debug", BarMenu(@"Debug"), nil, nil);
+    } else {
+        NSLog(@"selftest: no Debug menu (its setting is off): toolbar Debug menu not compared");
+    }
+    NSButton* settings = (NSButton*)ToolbarItem(window, @"Settings").view;
+    NSMenuItem* settingsMenu = [BarMenu(@"The Minish Cap") itemWithTitle:@"Settings…"];
+    BOOL settingsOk = settings.action == settingsMenu.action && settings.action == @selector(showSettings:);
+    NSLog(@"selftest: toolbar Settings button %@", settingsOk ? @"ok" : @"FAILED");
+    failures += !settingsOk;
+
+    // Choosing a filter from the toolbar checks it in the View menu, and back.
+    NSInteger savedFilter = [defaults integerForKey:kFilterDefault];
+    FilterMode before = renderer.filter;
+    NSMenu* filterMenu = ((NSPopUpButton*)ToolbarItem(window, @"Filter").view).menu;
+    FilterMode other = before == FilterModeCRT ? FilterModeLCD : FilterModeCRT;
+    [filterMenu performActionForItemAtIndex:[filterMenu indexOfItemWithTag:other]];
+    [BarMenu(@"View") update];
+    BOOL synced = renderer.filter == other &&
+                  [BarMenu(@"View") itemWithTag:other].state == NSControlStateValueOn &&
+                  [BarMenu(@"View") itemWithTag:before].state == NSControlStateValueOff;
+    NSLog(@"selftest: toolbar filter choice %@ in the View menu", synced ? @"checked" : @"NOT checked");
+    failures += !synced;
+    failures += CheckDropdown(window, @"Filter", BarMenu(@"View"), nil, @"Integer Scaling");
+    renderer.filter = before;
+    [defaults setInteger:savedFilter forKey:kFilterDefault];
+
+    // No toolbar control can take the keyboard from the game: clicks and Tab
+    // only focus a control that accepts it.
+    for (NSToolbarItem* item in window.toolbar.items) {
+        NSControl* control = (NSControl*)item.view;
+        if (control == nil) {
+            continue;
+        }
+        BOOL ok = control.refusesFirstResponder && !control.acceptsFirstResponder && !control.canBecomeKeyView;
+        NSLog(@"selftest: toolbar %@ %@ the keyboard%@", item.itemIdentifier, ok ? @"refuses" : @"TAKES",
+              item.toolTip.length && item.label.length ? @"" : @" (NO LABEL OR TOOLTIP)");
+        failures += !ok || !item.toolTip.length || !item.label.length;
+    }
+    NSLog(@"selftest: game view %@ the keyboard", window.firstResponder == view ? @"has" : @"DOES NOT HAVE");
+    failures += window.firstResponder != view;
+    setDebug(debugSetting);
+    failures += itemFailures;
+
+    // The toolbar sits above the game, which keeps the whole content view.
+    NSRect content = [window contentRectForFrameRect:window.frame];
+    CGFloat bar = NSHeight(window.frame) - NSHeight(content);
+    BOOL clear = NSEqualRects(window.contentLayoutRect, window.contentView.bounds) && bar > 40;
+    NSLog(@"selftest: window content %.0fx%.0f, frame %.0fx%.0f (title bar and toolbar %.0f) %@", NSWidth(content),
+          NSHeight(content), NSWidth(window.frame), NSHeight(window.frame), bar, clear ? @"ok" : @"FAILED");
+    failures += !clear;
+    NSLog(@"selftest: toolbar %@", failures ? @"FAILED" : @"ok");
+}
+
+// The subtitle: the room's name, then the parts after it (a status, the frame counter).
+static void CheckSubtitle(NSWindow* window, NSString* room, NSString* status) {
+    int area = -1, index = -1;
+    BOOL inRoom = RoomCurrent(&area, &index);
+    NSString* expected = status ? [NSString stringWithFormat:@"%@ · %@", room, status] : room;
+    BOOL counter = [NSUserDefaults.standardUserDefaults boolForKey:@"ShowFrameCounter"];
+    NSString* subtitle = window.subtitle;
+    BOOL ok = counter ? [subtitle hasPrefix:[expected stringByAppendingString:@" · Frame "]] : [subtitle isEqualToString:expected];
+    NSLog(@"selftest: subtitle \"%@\" in area %d room %d (%s) %@", subtitle, area, index, inRoom ? "game" : "not in game",
+          ok ? @"ok" : [NSString stringWithFormat:@"FAILED, expected \"%@\"%@", expected, counter ? @" · Frame …" : @""]);
+}
+
 void SelfTestSnapshotWindow(NSWindow* window, NSString* name) {
     NSString* dir = NSProcessInfo.processInfo.environment[@"TMC_SELFTEST"];
     if (dir.length == 0) {
@@ -111,6 +275,7 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     [renderer checkLcdResponse];
 
     NSMutableArray* steps = [NSMutableArray array];
+    NSLog(@"selftest: subtitle on the title screen \"%@\"", window.subtitle);
     // Added to every step's frame once a state from elsewhere is loaded (the
     // frame counter jumps to the state's), so later steps keep their spacing.
     __block int64_t shift = 0;
@@ -119,6 +284,7 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
         at += delay;
         [steps addObject:@[ @(at), action ]];
     };
+    add(0, ^{ CheckToolbar(window, view, renderer); });
     for (NSUInteger mode = 0; mode < FilterModeCount; mode++) {
         add(4, ^{ renderer.filter = mode; });
         add(4, ^{ [renderer captureNextFrameToURL:file([NSString stringWithFormat:@"title_%lu", (unsigned long)mode])]; });
@@ -224,7 +390,13 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     });
     patterns(@"fractional");
     add(5, ^{ [window toggleFullScreen:nil]; });
-    add(120, ^{ });
+    add(120, ^{
+        // The toolbar hides with the menu bar: the game has the whole screen.
+        NSSize content = window.contentView.bounds.size, whole = window.frame.size;
+        BOOL ok = NSEqualSizes(content, whole) && NSEqualRects(window.contentLayoutRect, window.contentView.bounds);
+        NSLog(@"selftest: full screen content %.0fx%.0f in a %.0fx%.0f window %@", content.width, content.height,
+              whole.width, whole.height, ok ? @"ok" : @"FAILED");
+    });
     patterns(@"fullscreen");
     add(3, ^{
         FilterParams params = FilterParamsDefaults();
@@ -259,7 +431,23 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
                 [debug showPanel:kind];
             }
         });
-        add(90, ^{
+        // The subtitle names the room, then a status and the frame counter.
+        add(60, ^{ CheckSubtitle(window, @"Festival Town", nil); });
+        __block NSString* slotStatus = nil;
+        add(2, ^{
+            NSMenuItem* slot = [NSMenuItem new]; // the current slot again: shows its status, changes nothing
+            slot.tag = MAX(1, [NSUserDefaults.standardUserDefaults integerForKey:@"StateSlot"]);
+            slotStatus = [NSString stringWithFormat:@"Slot %ld", (long)slot.tag];
+            [NSApp sendAction:NSSelectorFromString(@"selectSlot:") to:nil from:slot];
+            CheckSubtitle(window, @"Festival Town", slotStatus);
+        });
+        add(2, ^{
+            [NSApp sendAction:NSSelectorFromString(@"toggleFrameCounter:") to:nil from:nil];
+            CheckSubtitle(window, @"Festival Town", slotStatus); // with the counter (or without, if it was on)
+            [NSApp sendAction:NSSelectorFromString(@"toggleFrameCounter:") to:nil from:nil];
+            CheckSubtitle(window, @"Festival Town", slotStatus);
+        });
+        add(26, ^{ // 90 frames after the load, as before
             [debug selectSprite:0 highlight:YES];
             for (NSInteger kind = 0; kind < DebugPanelShaderBuffers; kind++) {
                 NSLog(@"selftest: %@", [debug summaryForPanel:kind]);
@@ -290,6 +478,9 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
         [settings showWindow:nil];
     });
     add(10, ^{ SelfTestSnapshotWindow(settings.window, @"settings"); });
+    if ([NSFileManager.defaultManager fileExistsAtPath:town]) {
+        add(90, ^{ CheckSubtitle(window, @"Festival Town", nil); }); // the status is over
+    }
     add(5, ^{ [NSApp terminate:nil]; });
 
     __block NSUInteger next = 0;

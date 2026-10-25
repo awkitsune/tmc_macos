@@ -185,6 +185,15 @@ target_link_libraries(tmc PRIVATE tmc_port z)
 # The macOS app: a window with the Metal renderer, keyboard and gamepad input,
 # Core Audio sound, running the game at 59.73 Hz. Builds build/native/TMC.app.
 set(TMC_APP_SHADERS src/macos/shaders.metal)
+# The window's subtitle names the room the player is in.
+set(TMC_ROOM_NAMES ${CMAKE_BINARY_DIR}/room_names.c)
+add_custom_command(
+    OUTPUT ${TMC_ROOM_NAMES}
+    COMMAND ${TMC_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/room_names.py
+        ${TMC_ROOT}/include/area.h ${TMC_ROOT}/include/roomid.h ${TMC_ROOM_NAMES}
+    DEPENDS scripts/room_names.py ${TMC_ROOT}/include/area.h ${TMC_ROOT}/include/roomid.h
+    COMMENT "Generating the room name table"
+)
 add_executable(tmc_app MACOSX_BUNDLE
     src/macos/app.m
     src/macos/audio.c
@@ -195,6 +204,8 @@ add_executable(tmc_app MACOSX_BUNDLE
     src/macos/latency.c
     src/macos/renderer.m
     src/macos/romsetup.m
+    src/macos/roomname.c
+    ${TMC_ROOM_NAMES}
     src/macos/selftest.m
     src/macos/settings.m
     ${TMC_APP_SHADERS}
@@ -218,6 +229,11 @@ target_compile_definitions(tmc_app PRIVATE
     TMC_DEBUG_MENU_DEFAULT=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>
     TMC_CHECKPOINT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/states"
 )
+# roomname.c reads the game's globals, so it builds with the game's headers.
+set_source_files_properties(src/macos/roomname.c PROPERTIES
+    INCLUDE_DIRECTORIES "${TMC_ROOT}/include;${TMC_ASSETS_BUILD_DIR}"
+    COMPILE_DEFINITIONS "PLATFORM_NATIVE=1;NON_MATCHING=1;${TMC_GAME_VERSION};ENGLISH;REVISION=0")
+target_include_directories(tmc_app PRIVATE src/macos)
 target_compile_options(tmc_app PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>)
 target_compile_options(tmc_app PRIVATE -Wall -Wno-unused-parameter)
 target_link_libraries(tmc_app PRIVATE

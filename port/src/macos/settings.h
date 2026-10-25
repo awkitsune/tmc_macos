@@ -19,13 +19,17 @@ extern NSString* const kPacingChangedNotification;
 extern NSString* const kDebugMenuDefault;
 // Posted when the Debug menu setting changes, to rebuild the menus.
 extern NSString* const kDebugMenuChangedNotification;
+// The Debug button in the game window's toolbar; off by default.
+extern NSString* const kDebugToolbarDefault;
+// Posted when the Debug button setting changes, to update the toolbar.
+extern NSString* const kDebugToolbarChangedNotification;
 
 /* Filter knobs saved in NSUserDefaults; missing values fall back to the defaults. */
 FilterParams LoadFilterParams(void);
 
 /*
  * Settings window: filter, integer scaling, every shader knob as a
- * slider, LCD response, frame pacing, the gamepad button layout and the Debug menu. Changes apply to the running game
+ * slider, LCD response, frame pacing, the gamepad button layout, the Debug menu and its toolbar button. Changes apply to the running game
  * immediately and are saved.
  */
 @interface SettingsWindowController : NSWindowController

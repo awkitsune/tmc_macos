@@ -22,12 +22,21 @@
 #include "latency.h"
 #include "port/hw.h"
 #include "port/state.h"
+#include "roomname.h"
 
 static NSString* const kMutedDefault = @"Muted";
 static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 static NSString* const kStateSlotDefault = @"StateSlot";
 static NSString* const kFrameCounterDefault = @"ShowFrameCounter";
 #define STATE_SLOTS 4
+// Before the toolbar the frame was saved as "GameWindow", with a thin title bar.
+static NSString* const kWindowAutosave = @"GameWindowToolbar";
+static NSString* const kOldWindowAutosave = @"GameWindow";
+
+static NSToolbarItemIdentifier const kSaveLoadItem = @"SaveLoad";
+static NSToolbarItemIdentifier const kFilterItem = @"Filter";
+static NSToolbarItemIdentifier const kDebugItem = @"Debug";
+static NSToolbarItemIdentifier const kSettingsItem = @"Settings";
 
 // The game view takes the keyboard: game keys go to Input, everything else
 // (menu shortcuts, Escape) goes up the responder chain.
@@ -63,7 +72,20 @@ static NSString* const kFrameCounterDefault = @"ShowFrameCounter";
 
 @end
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate>
+// A toolbar dropdown. It never takes the keyboard (Space and Return stay the
+// game's), and leaves its items' shortcuts to the menu bar, which has them too.
+@interface ToolbarPopUp : NSPopUpButton
+@end
+
+@implementation ToolbarPopUp
+
+- (BOOL)performKeyEquivalent:(NSEvent*)event {
+    return NO;
+}
+
+@end
+
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, NSToolbarDelegate>
 - (void)stateFinished:(BOOL)ok what:(NSString*)what message:(NSString*)message frame:(uint64_t)frame;
 - (void)drawPublishedFrame;
 @end
@@ -97,8 +119,12 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     DebugWindows* _debugWindows;
     Input* _input;
     RomSetup* _romSetup;
-    NSString* _status;     // shown as the window's subtitle until _statusUntil
+    NSString* _status;     // shown in the window's subtitle until _statusUntil
     NSDate* _statusUntil;
+    BOOL _statusShown;
+    int _roomArea, _roomIndex; // the room the subtitle names (-1: none)
+    NSString* _roomName;
+    BOOL _subtitleDirty;
     NSUInteger _drawCount;
     DisplaySync* _displaySync;
     atomic_bool _drawQueued;
@@ -148,6 +174,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         kFrameCounterDefault : @NO,
         kPacingDefault : @(FRONTEND_PACING_DISPLAY_SYNC),
         kDebugMenuDefault : @(TMC_DEBUG_MENU_DEFAULT),
+        kDebugToolbarDefault : @NO,
     }];
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(applyPacing)
@@ -156,6 +183,10 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(debugMenuChanged:)
                                                name:kDebugMenuChangedNotification
+                                             object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(syncDebugToolbarItem)
+                                               name:kDebugToolbarChangedNotification
                                              object:nil];
 
     [self buildMenus];
@@ -181,10 +212,29 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
     _window.backgroundColor = NSColor.blackColor;
     _window.delegate = self;
-    _window.frameAutosaveName = @"GameWindow";
-    if (![_window setFrameUsingName:_window.frameAutosaveName]) {
-        [_window center];
+    // The toolbar adds to the window's height: the game keeps its size.
+    _window.toolbarStyle = NSWindowToolbarStyleUnified;
+    _window.toolbar = [self makeToolbar];
+    [self syncDebugToolbarItem];
+    if (![_window setFrameUsingName:kWindowAutosave]) {
+        // A frame saved before the toolbar ("x y w h ..." with a thin title
+        // bar) gives the game's size and the window's top edge; AppKit would
+        // add the toolbar to it and grow the game.
+        NSArray<NSString*>* old = [[NSUserDefaults.standardUserDefaults
+            stringForKey:[@"NSWindow Frame " stringByAppendingString:kOldWindowAutosave]] componentsSeparatedByString:@" "];
+        if (old.count >= 4) {
+            NSRect saved = NSMakeRect(old[0].doubleValue, old[1].doubleValue, old[2].doubleValue, old[3].doubleValue);
+            NSRect content = [NSWindow contentRectForFrameRect:saved styleMask:_window.styleMask];
+            [_window setContentSize:content.size];
+            [_window setFrameTopLeftPoint:NSMakePoint(NSMinX(saved), NSMaxY(saved))];
+        } else {
+            [_window setContentSize:frame.size];
+            [_window center];
+        }
     }
+    _window.frameAutosaveName = kWindowAutosave;
+    _roomArea = _roomIndex = -1;
+    _subtitleDirty = YES;
 
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (device == nil) {
@@ -413,20 +463,49 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 - (void)showStatus:(NSString*)text {
     _status = text;
     _statusUntil = [NSDate dateWithTimeIntervalSinceNow:3];
+    _subtitleDirty = YES;
     [self updateSubtitle];
 }
 
-// The window's subtitle: a recent save/load, else the frame counter if shown.
+// The window's subtitle: the room the player is in, then a recent save/load
+// and the frame counter if shown, "Hyrule Town · Saved slot 2". Called every
+// draw; it sets the text only when a part of it changed.
 - (void)updateSubtitle {
-    NSString* text = @"";
-    if (_status != nil && _statusUntil.timeIntervalSinceNow > 0) {
-        text = _status;
-    } else if ([NSUserDefaults.standardUserDefaults boolForKey:kFrameCounterDefault]) {
-        if (_drawCount++ % 8 != 0 && !FrontendIsPaused()) {
-            return;
-        }
-        text = [NSString stringWithFormat:@"Frame %llu", (unsigned long long)FrontendFrame()];
+    int area, room;
+    if (!RoomCurrent(&area, &room)) {
+        area = room = -1;
     }
+    if (area != _roomArea || room != _roomIndex) {
+        _roomArea = area;
+        _roomIndex = room;
+        const char* name = area >= 0 ? RoomName(area, room) : NULL;
+        _roomName = name != NULL ? @(name) : nil;
+        _subtitleDirty = YES;
+    }
+    BOOL status = _status != nil && _statusUntil.timeIntervalSinceNow > 0;
+    if (status != _statusShown) {
+        _statusShown = status;
+        _subtitleDirty = YES;
+    }
+    BOOL counter = [NSUserDefaults.standardUserDefaults boolForKey:kFrameCounterDefault];
+    if (counter && (_drawCount++ % 8 == 0 || FrontendIsPaused())) {
+        _subtitleDirty = YES;
+    }
+    if (!_subtitleDirty) {
+        return;
+    }
+    _subtitleDirty = NO;
+    NSMutableArray<NSString*>* parts = [NSMutableArray array];
+    if (_roomName != nil) {
+        [parts addObject:_roomName];
+    }
+    if (status) {
+        [parts addObject:_status];
+    }
+    if (counter) {
+        [parts addObject:[NSString stringWithFormat:@"Frame %llu", (unsigned long long)FrontendFrame()]];
+    }
+    NSString* text = [parts componentsJoinedByString:@" · "];
     if (![_window.subtitle isEqualToString:text]) {
         _window.subtitle = text;
     }
@@ -504,6 +583,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 - (void)toggleFrameCounter:(id)sender {
     NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
     [defaults setBool:![defaults boolForKey:kFrameCounterDefault] forKey:kFrameCounterDefault];
+    _subtitleDirty = YES;
     [self updateSubtitle];
 }
 
@@ -542,6 +622,130 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [NSCursor setHiddenUntilMouseMoves:YES];
 }
 
+// In full screen the toolbar slides in with the menu bar, over the game.
+- (NSApplicationPresentationOptions)window:(NSWindow*)window
+      willUseFullScreenPresentationOptions:(NSApplicationPresentationOptions)proposed {
+    return proposed | NSApplicationPresentationAutoHideToolbar;
+}
+
+#pragma mark Toolbar
+
+// Right-aligned: Save/Load, Filter, Debug (when Settings shows it) and Settings.
+- (NSToolbar*)makeToolbar {
+    NSToolbar* toolbar = [[NSToolbar alloc] initWithIdentifier:@"GameToolbar"];
+    toolbar.delegate = self;
+    toolbar.displayMode = NSToolbarDisplayModeIconOnly;
+    toolbar.allowsUserCustomization = YES;
+    toolbar.autosavesConfiguration = YES;
+    return toolbar;
+}
+
+- (BOOL)debugToolbarShown {
+    return [NSUserDefaults.standardUserDefaults boolForKey:kDebugToolbarDefault];
+}
+
+- (NSArray<NSToolbarItemIdentifier>*)toolbarDefaultItemIdentifiers:(NSToolbar*)toolbar {
+    NSMutableArray* ids = [NSMutableArray arrayWithObjects:NSToolbarFlexibleSpaceItemIdentifier, kSaveLoadItem, kFilterItem, nil];
+    if (self.debugToolbarShown) {
+        [ids addObject:kDebugItem];
+    }
+    [ids addObject:kSettingsItem];
+    return ids;
+}
+
+- (NSArray<NSToolbarItemIdentifier>*)toolbarAllowedItemIdentifiers:(NSToolbar*)toolbar {
+    NSMutableArray* ids = [NSMutableArray arrayWithObjects:kSaveLoadItem, kFilterItem, kSettingsItem,
+                                                           NSToolbarFlexibleSpaceItemIdentifier, NSToolbarSpaceItemIdentifier, nil];
+    if (self.debugToolbarShown) {
+        [ids insertObject:kDebugItem atIndex:2];
+    }
+    return ids;
+}
+
+- (NSToolbarItem*)toolbar:(NSToolbar*)toolbar
+        itemForItemIdentifier:(NSToolbarItemIdentifier)identifier
+    willBeInsertedIntoToolbar:(BOOL)flag {
+    if ([identifier isEqualToString:kSaveLoadItem]) {
+        return [self dropdownItem:identifier label:@"Save/Load" symbol:@"square.and.arrow.down.on.square"
+                          toolTip:@"Save states: quick save and load, slot, files"
+                             fill:^(NSMenu* menu) { [self addStateItemsTo:menu]; }];
+    }
+    if ([identifier isEqualToString:kFilterItem]) {
+        return [self dropdownItem:identifier label:@"Filter" symbol:@"camera.filters"
+                          toolTip:@"Display filter and integer scaling"
+                             fill:^(NSMenu* menu) { [self addFilterItemsTo:menu]; }];
+    }
+    if ([identifier isEqualToString:kDebugItem]) {
+        return [self dropdownItem:identifier label:@"Debug" symbol:@"ant"
+                          toolTip:@"Debug tools: frame stepping, checkpoints, graphics viewers"
+                             fill:^(NSMenu* menu) { [self addDebugItemsTo:menu]; }];
+    }
+    if ([identifier isEqualToString:kSettingsItem]) {
+        NSToolbarItem* item = [[NSToolbarItem alloc] initWithItemIdentifier:identifier];
+        item.label = item.paletteLabel = @"Settings";
+        item.toolTip = @"Settings";
+        NSImage* image = [NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"Settings"];
+        NSButton* button = [NSButton buttonWithImage:image target:self action:@selector(showSettings:)];
+        button.bezelStyle = NSBezelStyleTexturedRounded;
+        button.refusesFirstResponder = YES;
+        button.toolTip = item.toolTip;
+        item.view = button;
+        item.menuFormRepresentation = [[NSMenuItem alloc] initWithTitle:@"Settings…" action:@selector(showSettings:)
+                                                          keyEquivalent:@""];
+        return item;
+    }
+    return nil;
+}
+
+// A toolbar button with a menu, filled by fill (the same items as the menu
+// bar's, so they share actions and validateMenuItem: checkmarks).
+- (NSToolbarItem*)dropdownItem:(NSToolbarItemIdentifier)identifier
+                         label:(NSString*)label
+                        symbol:(NSString*)symbol
+                       toolTip:(NSString*)toolTip
+                          fill:(void (^)(NSMenu*))fill {
+    NSToolbarItem* item = [[NSToolbarItem alloc] initWithItemIdentifier:identifier];
+    item.label = item.paletteLabel = label;
+    item.toolTip = toolTip;
+    ToolbarPopUp* popup = [[ToolbarPopUp alloc] initWithFrame:NSZeroRect pullsDown:YES];
+    popup.bezelStyle = NSBezelStyleTexturedRounded;
+    popup.refusesFirstResponder = YES;
+    popup.toolTip = toolTip;
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:label];
+    // A pull-down shows its first item on the button: the icon.
+    NSMenuItem* face = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    face.image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:label];
+    fill(menu);
+    popup.menu = menu;
+    popup.imagePosition = NSImageOnly;
+    item.view = popup;
+    // In text-only mode and the overflow menu.
+    NSMenu* form = [[NSMenu alloc] initWithTitle:label];
+    fill(form);
+    item.menuFormRepresentation = [[NSMenuItem alloc] initWithTitle:label action:nil keyEquivalent:@""];
+    item.menuFormRepresentation.submenu = form;
+    return item;
+}
+
+// The Debug button follows its setting, whatever the saved toolbar holds.
+- (void)syncDebugToolbarItem {
+    NSToolbar* toolbar = _window.toolbar;
+    NSUInteger debug = NSNotFound, settings = NSNotFound;
+    for (NSUInteger i = 0; i < toolbar.items.count; i++) {
+        NSString* identifier = toolbar.items[i].itemIdentifier;
+        if ([identifier isEqualToString:kDebugItem]) {
+            debug = i;
+        } else if ([identifier isEqualToString:kSettingsItem]) {
+            settings = i;
+        }
+    }
+    if (self.debugToolbarShown && debug == NSNotFound) {
+        [toolbar insertItemWithItemIdentifier:kDebugItem atIndex:settings != NSNotFound ? settings : toolbar.items.count];
+    } else if (!self.debugToolbarShown && debug != NSNotFound) {
+        [toolbar removeItemAtIndex:debug];
+    }
+}
+
 #pragma mark Menus
 
 - (void)buildMenus {
@@ -569,21 +773,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [game addItemWithTitle:@"Pause" action:@selector(togglePause:) keyEquivalent:@"p"];
     [game addItemWithTitle:@"Reset" action:@selector(resetGame:) keyEquivalent:@"r"];
     [game addItem:NSMenuItem.separatorItem];
-    NSString* f5 = [NSString stringWithFormat:@"%C", (unichar)NSF5FunctionKey];
-    NSString* f7 = [NSString stringWithFormat:@"%C", (unichar)NSF7FunctionKey];
-    [game addItemWithTitle:@"Quick Save" action:@selector(quickSave:) keyEquivalent:f5].keyEquivalentModifierMask = 0;
-    [game addItemWithTitle:@"Quick Load" action:@selector(quickLoad:) keyEquivalent:f7].keyEquivalentModifierMask = 0;
-    NSMenu* slots = [[NSMenu alloc] initWithTitle:@"Quick Save Slot"];
-    for (NSInteger slot = 1; slot <= STATE_SLOTS; slot++) {
-        NSMenuItem* item = [slots addItemWithTitle:[NSString stringWithFormat:@"Slot %ld", (long)slot]
-                                            action:@selector(selectSlot:)
-                                     keyEquivalent:[NSString stringWithFormat:@"%ld", (long)slot]];
-        item.keyEquivalentModifierMask = NSEventModifierFlagOption | NSEventModifierFlagCommand;
-        item.tag = slot;
-    }
-    [game addItemWithTitle:slots.title action:nil keyEquivalent:@""].submenu = slots;
-    [game addItemWithTitle:@"Save State As…" action:@selector(saveStateAs:) keyEquivalent:@"S"];
-    [game addItemWithTitle:@"Load State…" action:@selector(loadStateFromFile:) keyEquivalent:@"o"];
+    [self addStateItemsTo:game];
     [game addItem:NSMenuItem.separatorItem];
     NSMenuItem* help = [game addItemWithTitle:@"Hold Tab to fast-forward" action:nil keyEquivalent:@""];
     help.enabled = NO;
@@ -596,37 +786,16 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [self addSubmenu:sound toBar:bar];
 
     NSMenu* view = [[NSMenu alloc] initWithTitle:@"View"];
-    for (NSUInteger mode = 0; mode < FilterModeCount; mode++) {
-        NSString* key = [NSString stringWithFormat:@"%lu", (unsigned long)mode + 1];
-        NSMenuItem* item = [view addItemWithTitle:FilterModeName(mode) action:@selector(selectFilter:) keyEquivalent:key];
-        item.tag = mode;
-    }
+    [self addFilterItemsTo:view];
     [view addItem:NSMenuItem.separatorItem];
-    [view addItemWithTitle:@"Integer Scaling" action:@selector(toggleIntegerScaling:) keyEquivalent:@"i"];
-    [view addItem:NSMenuItem.separatorItem];
+    [view addItemWithTitle:@"Customize Toolbar…" action:@selector(runToolbarCustomizationPalette:) keyEquivalent:@""];
     NSMenuItem* fullScreen = [view addItemWithTitle:@"Toggle Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
     fullScreen.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
     [self addSubmenu:view toBar:bar];
 
     if ([NSUserDefaults.standardUserDefaults boolForKey:kDebugMenuDefault]) {
         NSMenu* debug = [[NSMenu alloc] initWithTitle:@"Debug"];
-        NSString* f8 = [NSString stringWithFormat:@"%C", (unichar)NSF8FunctionKey];
-        [debug addItemWithTitle:@"Step Frame" action:@selector(stepFrame:) keyEquivalent:f8].keyEquivalentModifierMask = 0;
-        [debug addItemWithTitle:@"Show Frame Counter" action:@selector(toggleFrameCounter:) keyEquivalent:@""];
-        [debug addItem:NSMenuItem.separatorItem];
-        NSMenu* checkpoints = [[NSMenu alloc] initWithTitle:@"Load Checkpoint"];
-        checkpoints.delegate = self; // filled when opened (menuNeedsUpdate:)
-        [debug addItemWithTitle:checkpoints.title action:nil keyEquivalent:@""].submenu = checkpoints;
-        [debug addItemWithTitle:@"Show State Folder" action:@selector(showStateFolder:) keyEquivalent:@""];
-        [debug addItem:NSMenuItem.separatorItem];
-        // Graphics viewers: Control-Command-1 .. 6.
-        for (NSInteger kind = 0; kind < DebugPanelCount; kind++) {
-            NSMenuItem* item = [debug addItemWithTitle:[DebugWindows titleForPanel:kind]
-                                                action:@selector(showDebugPanel:)
-                                         keyEquivalent:[NSString stringWithFormat:@"%ld", (long)kind + 1]];
-            item.keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
-            item.tag = kind;
-        }
+        [self addDebugItemsTo:debug];
         [self addSubmenu:debug toBar:bar];
     }
 
@@ -637,6 +806,56 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     NSApp.windowsMenu = window;
 
     NSApp.mainMenu = bar;
+}
+
+// The menu bar's items that the toolbar's dropdowns have too.
+
+- (void)addStateItemsTo:(NSMenu*)menu {
+    NSString* f5 = [NSString stringWithFormat:@"%C", (unichar)NSF5FunctionKey];
+    NSString* f7 = [NSString stringWithFormat:@"%C", (unichar)NSF7FunctionKey];
+    [menu addItemWithTitle:@"Quick Save" action:@selector(quickSave:) keyEquivalent:f5].keyEquivalentModifierMask = 0;
+    [menu addItemWithTitle:@"Quick Load" action:@selector(quickLoad:) keyEquivalent:f7].keyEquivalentModifierMask = 0;
+    NSMenu* slots = [[NSMenu alloc] initWithTitle:@"Quick Save Slot"];
+    for (NSInteger slot = 1; slot <= STATE_SLOTS; slot++) {
+        NSMenuItem* item = [slots addItemWithTitle:[NSString stringWithFormat:@"Slot %ld", (long)slot]
+                                            action:@selector(selectSlot:)
+                                     keyEquivalent:[NSString stringWithFormat:@"%ld", (long)slot]];
+        item.keyEquivalentModifierMask = NSEventModifierFlagOption | NSEventModifierFlagCommand;
+        item.tag = slot;
+    }
+    [menu addItemWithTitle:slots.title action:nil keyEquivalent:@""].submenu = slots;
+    [menu addItemWithTitle:@"Save State As…" action:@selector(saveStateAs:) keyEquivalent:@"S"];
+    [menu addItemWithTitle:@"Load State…" action:@selector(loadStateFromFile:) keyEquivalent:@"o"];
+}
+
+- (void)addFilterItemsTo:(NSMenu*)menu {
+    for (NSUInteger mode = 0; mode < FilterModeCount; mode++) {
+        NSString* key = [NSString stringWithFormat:@"%lu", (unsigned long)mode + 1];
+        NSMenuItem* item = [menu addItemWithTitle:FilterModeName(mode) action:@selector(selectFilter:) keyEquivalent:key];
+        item.tag = mode;
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    [menu addItemWithTitle:@"Integer Scaling" action:@selector(toggleIntegerScaling:) keyEquivalent:@"i"];
+}
+
+- (void)addDebugItemsTo:(NSMenu*)menu {
+    NSString* f8 = [NSString stringWithFormat:@"%C", (unichar)NSF8FunctionKey];
+    [menu addItemWithTitle:@"Step Frame" action:@selector(stepFrame:) keyEquivalent:f8].keyEquivalentModifierMask = 0;
+    [menu addItemWithTitle:@"Show Frame Counter" action:@selector(toggleFrameCounter:) keyEquivalent:@""];
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenu* checkpoints = [[NSMenu alloc] initWithTitle:@"Load Checkpoint"];
+    checkpoints.delegate = self; // filled when opened (menuNeedsUpdate:)
+    [menu addItemWithTitle:checkpoints.title action:nil keyEquivalent:@""].submenu = checkpoints;
+    [menu addItemWithTitle:@"Show State Folder" action:@selector(showStateFolder:) keyEquivalent:@""];
+    [menu addItem:NSMenuItem.separatorItem];
+    // Graphics viewers: Control-Command-1 .. 6.
+    for (NSInteger kind = 0; kind < DebugPanelCount; kind++) {
+        NSMenuItem* item = [menu addItemWithTitle:[DebugWindows titleForPanel:kind]
+                                           action:@selector(showDebugPanel:)
+                                    keyEquivalent:[NSString stringWithFormat:@"%ld", (long)kind + 1]];
+        item.keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
+        item.tag = kind;
+    }
 }
 
 - (void)addSubmenu:(NSMenu*)menu toBar:(NSMenu*)bar {

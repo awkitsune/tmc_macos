@@ -253,6 +253,16 @@ the app from a state. It also opens the graphics viewers (see
 [Graphics debugging](#graphics-debugging)): Tiles (⌃⌘1), Sprites (⌃⌘2), Layers
 (⌃⌘3), Palettes (⌃⌘4), IO Registers (⌃⌘5) and Shader Buffers (⌃⌘6).
 
+The window's toolbar has Save/Load (the Game menu's state items), Filter (the
+View menu's filters and Integer Scaling) and Settings buttons on the right, and
+a Debug button with the Debug menu's items when Settings → Show debug tools in
+toolbar is on. The buttons never take the keyboard, and View → Customize
+Toolbar… rearranges them. The subtitle names the room the player is in
+("Hyrule Field – Lon Lon Ranch", or the area's name for rooms without one, from
+`include/area.h` and `include/roomid.h` via `port/scripts/room_names.py`),
+followed by a recent save or load and the frame counter: "Deepwood Shrine –
+Madderpillar · Saved slot 2". In full screen the toolbar hides with the menu bar.
+
 ### Input latency
 
 From a key press to the first picture that shows it takes about 105 ms in the
@@ -351,7 +361,11 @@ filter output, the LCD response output and the drawable keep the frame's mean
 colour with nearest filtering (`selftest: shader buffers ok`). Then it loads the
 `hyrule_town` checkpoint, opens the graphics viewers, logs a line of numbers
 from each and draws them as `debug_*.png`, with sprite 0 outlined in
-`debug_sprite_highlight.png`:
+`debug_sprite_highlight.png`. It checks the toolbar (`selftest: toolbar ok`: its
+items with the Debug setting off and on, each dropdown against its menu bar
+menu with the same checkmarks, no button taking the keyboard, the game keeping
+its size below the toolbar) and the subtitle in the checkpoint's room
+(`selftest: subtitle "Festival Town · Slot 1" … ok`):
 
 ```bash
 TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest build/native/TMC.app/Contents/MacOS/TMC
@@ -527,7 +541,8 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/scripts/checkpoints.sh`, `state_diff.py` | Checkpoint states along the playthrough; comparing two states |
 | `port/src/frame.c` | Frame boundary shared by both platforms: latch keys, raise VCOUNT and VBLANK |
 | `port/src/macos/game.c` | App platform layer: game thread, 59.73 Hz pacing, frame hand-off |
-| `port/src/macos/app.m` | Window, menus, full screen, save location |
+| `port/src/macos/app.m` | Window, menus, toolbar, subtitle, full screen, save location |
+| `port/scripts/room_names.py`, `port/src/macos/roomname.c` | Room names for the window's subtitle |
 | `port/src/macos/renderer.m`, `shaders.metal` | Metal presentation and filters (shaders compiled at launch) |
 | `port/src/macos/input.m` | Keyboard and GameController input |
 | `port/src/macos/settings.m` | Settings window and the saved filter knobs |
