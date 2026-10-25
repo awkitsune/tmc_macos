@@ -94,8 +94,9 @@ Escape still work).
 
 - **Landscape** is laid out like the original GBA: the D-pad with Start and Select under it on the left, A and B on the
   right, L and R in the top corners, ☰ bottom right, and the picture in the middle (5x on an iPhone 15).
-- **Portrait** is like the GBA SP: the picture at the top, full width (4x on an iPhone 15), L and R as bars under it,
-  then the D-pad and A and B, with Start, Select and ☰ in the middle at the bottom.
+- **Portrait** is like the GBA SP: the screen in halves, the picture in the top one (4x on an iPhone 15) and the
+  controls in the bottom one: L and R as bars at its top, then the D-pad and A and B, with Start, Select and ☰ in the
+  middle at the bottom.
 - The buttons are the same size in points on iPhone and iPad, and the picture never sits under them: it gets the
   largest whole-number scale that leaves them room.
 - Every finger counts on its own. The D-pad goes 8 ways by the angle of your thumb, and slides from one direction to
