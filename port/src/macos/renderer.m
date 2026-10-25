@@ -1,4 +1,5 @@
 #import "renderer.h"
+#import "selftest.h"
 
 #include <os/lock.h>
 #include <stdatomic.h>
@@ -803,7 +804,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         }
         double measured = cross10 - cross90;
         BOOL ok = cross90 >= 0 && cross10 >= 0 && fabs(measured - expectMs) < 0.5;
-        NSLog(@"selftest: LCD response %@ (linear, per frame):%@; 10-90%% %.1f ms (setting %.1f ms) %@", name, values,
+        SelfTestLog(@"selftest: LCD response %@ (linear, per frame):%@; 10-90%% %.1f ms (setting %.1f ms) %@", name, values,
               measured, expectMs, ok ? @"ok" : @"FAILED");
         return ok;
     };

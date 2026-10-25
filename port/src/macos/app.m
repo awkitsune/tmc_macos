@@ -21,6 +21,7 @@
 #include "frontend.h"
 #include "latency.h"
 #include "port/hw.h"
+#include "port/romdata.h"
 #include "port/state.h"
 #include "roomname.h"
 
@@ -754,7 +755,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 
     NSMenu* appMenu = [[NSMenu alloc] initWithTitle:appName];
     [appMenu addItemWithTitle:[@"About " stringByAppendingString:appName]
-                       action:@selector(orderFrontStandardAboutPanel:)
+                       action:@selector(showAbout:)
                 keyEquivalent:@""];
     [appMenu addItem:NSMenuItem.separatorItem];
     [appMenu addItemWithTitle:@"Settings…" action:@selector(showSettings:) keyEquivalent:@","];
@@ -883,7 +884,39 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         return _window != nil && [_romSetup validateMenuItem:item];
     }
     return _window != nil || item.action == @selector(terminate:) || item.action == @selector(hide:) ||
-           item.action == @selector(orderFrontStandardAboutPanel:);
+           item.action == @selector(showAbout:);
+}
+
+// The standard About panel (name, icon and version come from the bundle) with credits.
+- (void)showAbout:(id)sender {
+    NSFont* font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    NSMutableParagraphStyle* centered = [NSMutableParagraphStyle new];
+    centered.alignment = NSTextAlignmentCenter;
+    NSMutableAttributedString* credits = [NSMutableAttributedString new];
+    void (^add)(NSString*, NSString*) = ^(NSString* text, NSString* link) {
+        NSMutableDictionary* attributes = [@{
+            NSFontAttributeName : font,
+            NSForegroundColorAttributeName : NSColor.labelColor,
+            NSParagraphStyleAttributeName : centered,
+        } mutableCopy];
+        if (link != nil) {
+            attributes[NSLinkAttributeName] = [NSURL URLWithString:link];
+        }
+        [credits appendAttributedString:[[NSAttributedString alloc] initWithString:text attributes:attributes]];
+    };
+    add(@"A native macOS port of the ", nil);
+    add(@"zeldaret/tmc", @"https://github.com/zeldaret/tmc");
+    add(@" decompilation of The Legend of Zelda: The Minish Cap.\n\nPort: ", nil);
+    add(@"awkitsune/tmc_macos", @"https://github.com/awkitsune/tmc_macos");
+    add(RomDataIsBaked() ? @"\n\nThe game belongs to Nintendo and Capcom. This development build has its data built in; "
+                           @"do not share it."
+                         : @"\n\nThe game belongs to Nintendo and Capcom. This app contains none of its data: "
+                           @"it reads your own copy of the game.",
+        nil);
+    [NSApp orderFrontStandardAboutPanelWithOptions:@{
+        NSAboutPanelOptionCredits : credits,
+        NSAboutPanelOptionApplicationName : @"The Minish Cap",
+    }];
 }
 
 - (void)showSettings:(id)sender {

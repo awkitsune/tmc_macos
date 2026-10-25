@@ -10,6 +10,27 @@
 #include "port/state.h"
 #include "roomname.h"
 
+#include <stdatomic.h>
+
+static atomic_int sFailures;
+
+void SelfTestLog(NSString* format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSString* line = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    NSLog(@"%@", line);
+    for (NSString* word in @[ @"FAIL", @"NOT ", @"TAKES", @"NO LABEL" ]) {
+        if ([line containsString:word]) {
+            atomic_fetch_add(&sFailures, 1);
+            break;
+        }
+    }
+}
+
+// Every result line below goes through SelfTestLog.
+#define NSLog SelfTestLog
+
 // On the game thread, at the boundary the state was saved or loaded at.
 static void SelfTestStateDone(bool ok, const char* message, uint64_t frame, void* context) {
     NSLog(@"selftest: state %s %s at frame %llu, checksum %016llx %s", (const char*)context, ok ? "ok" : "FAILED",
@@ -170,6 +191,28 @@ static void CheckToolbar(NSWindow* window, MTKView* view, Renderer* renderer) {
     BOOL settingsOk = settings.action == settingsMenu.action && settings.action == @selector(showSettings:);
     NSLog(@"selftest: toolbar Settings button %@", settingsOk ? @"ok" : @"FAILED");
     failures += !settingsOk;
+
+    // About opens the standard panel with the credits.
+    NSMenuItem* about = [BarMenu(@"The Minish Cap") itemWithTitle:@"About The Minish Cap"];
+    [NSApp sendAction:about.action to:nil from:about];
+    NSWindow* panel = nil;
+    NSString* credits = nil;
+    for (NSWindow* w in NSApp.windows) {
+        NSMutableArray<NSView*>* views = w.isVisible && w.contentView ? [@[ w.contentView ] mutableCopy] : [NSMutableArray new];
+        while (views.count > 0 && credits == nil) {
+            NSView* v = views.lastObject;
+            [views removeLastObject];
+            if ([v isKindOfClass:NSTextView.class] && [((NSTextView*)v).string containsString:@"zeldaret/tmc"]) {
+                panel = w;
+                credits = ((NSTextView*)v).string;
+            }
+            [views addObjectsFromArray:v.subviews];
+        }
+    }
+    BOOL aboutOk = panel != nil && [credits containsString:@"awkitsune/tmc_macos"];
+    NSLog(@"selftest: About panel with credits %@", aboutOk ? @"ok" : @"FAILED");
+    failures += !aboutOk;
+    [panel close];
 
     // Choosing a filter from the toolbar checks it in the View menu, and back.
     NSInteger savedFilter = [defaults integerForKey:kFilterDefault];
@@ -601,7 +644,14 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
     if ([NSFileManager.defaultManager fileExistsAtPath:town]) {
         add(90, ^{ CheckSubtitle(window, @"Festival Town", nil); }); // the status is over
     }
-    add(5, ^{ [NSApp terminate:nil]; });
+    add(5, ^{
+        int failed = atomic_load(&sFailures);
+        NSLog(@"selftest: %d failed check%s", failed, failed == 1 ? "" : "s");
+        if (failed) {
+            exit(1);
+        }
+        [NSApp terminate:nil];
+    });
 
     __block NSUInteger next = 0;
     [NSTimer scheduledTimerWithTimeInterval:1.0 / 240
