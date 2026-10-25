@@ -1,0 +1,16 @@
+The Minish Cap for macOS (native port of the zeldaret/tmc decompilation)
+Runs on macOS 12 Monterey or later, on Intel and Apple silicon Macs.
+
+1. Move The Minish Cap.app to Applications (or anywhere you like).
+
+2. The first time, open it with right-click (or Control-click) on The Minish Cap.app,
+   choose Open, then Open again in the alert. A double-click only says the
+   app can't be checked, because it isn't signed by a registered developer.
+   (If there is no Open button: try once, then System Preferences > Security
+   & Privacy > General > Open Anyway.)
+
+3. When it asks, choose your own copy of The Minish Cap (USA) ROM (.gba).
+   The app contains no game data; it extracts what it needs from your ROM
+   into ~/Library/Application Support/tmc_macos (about 13 MB).
+
+Keys and controller settings are in the app's Settings window.
