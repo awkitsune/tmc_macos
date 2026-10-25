@@ -113,6 +113,7 @@ endif()
 # with any game data or code). When one is newer than the last run, the build
 # reconfigures and datagen runs again, so the data never goes stale.
 file(GLOB TMC_DATAGEN_INPUTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/datagen/*.py ${CMAKE_CURRENT_SOURCE_DIR}/tools/datagen/hints.txt)
+list(REMOVE_ITEM TMC_DATAGEN_INPUTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/datagen/statemap.py) # its own build step
 list(APPEND TMC_DATAGEN_INPUTS ${TMC_ROOT}/tmc.elf ${TMC_ROOT}/linker.ld)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${TMC_DATAGEN_INPUTS})
 set(TMC_DATAGEN_STAMP ${TMC_DATA_DIR}/datagen.stamp)
@@ -148,6 +149,24 @@ add_custom_target(datagen
 
 add_library(tmc_data OBJECT ${TMC_DATA_SOURCES})
 
+# Which bytes of the save state segment can hold a pointer, from the C types of
+# every source whose globals are in it (port/tools/datagen/statemap.py, which
+# also writes a report of its decisions to state_map.txt). Reruns when any of
+# them or a header changes; the build then checks that it covers the segment.
+set(TMC_STATE_MAP ${CMAKE_BINARY_DIR}/state_map.c)
+file(GLOB_RECURSE TMC_STATE_MAP_HEADERS CONFIGURE_DEPENDS ${TMC_ROOT}/include/*.h ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
+add_custom_command(
+    OUTPUT ${TMC_STATE_MAP}
+    COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/tools
+        ${TMC_PYTHON} -m datagen.statemap --root ${TMC_ROOT} --gba-build ${TMC_ASSETS_BUILD_DIR}
+        --include ${TMC_DATA_DIR} --sources ${CMAKE_BINARY_DIR}/state_sources.txt --out ${TMC_STATE_MAP} --jobs 4
+    DEPENDS ${TMC_GAME_SOURCES} ${TMC_STATE_MAP_HEADERS} ${CMAKE_BINARY_DIR}/state_sources.txt
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/datagen/statemap.py ${CMAKE_CURRENT_SOURCE_DIR}/tools/datagen/statemap.txt
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/datagen/ctypes_db.py ${TMC_ROOT}/data/projectile_functions.s
+    COMMENT "Mapping the pointers of the save state segment"
+    VERBATIM
+)
+
 file(GLOB TMC_PORT_ASM_SOURCES CONFIGURE_DEPENDS src/asm/*.c)
 # The m4a engine's assembly in C, the CGB channels, WAV output (port/src/sound).
 file(GLOB TMC_PORT_SOUND_SOURCES CONFIGURE_DEPENDS src/sound/*.c)
@@ -165,6 +184,8 @@ add_library(tmc_port STATIC
     src/gfxdebug.c
     src/romdata.c
     src/state.c
+    src/heap.c
+    ${TMC_STATE_MAP}
     ${TMC_PORT_ASM_SOURCES}
     ${TMC_PORT_SOUND_SOURCES}
 )
@@ -176,6 +197,7 @@ set(TMC_PORT_STATE_SOURCES
     src/interrupts.c
     src/data_glue.c
     src/eeprom.c
+    src/heap.c
     src/sound/m4a_engine.c
     src/sound/m4a_mixer.c
     src/sound/psg.c
@@ -183,6 +205,13 @@ set(TMC_PORT_STATE_SOURCES
 )
 set_source_files_properties(${TMC_PORT_STATE_SOURCES} TARGET_DIRECTORY tmc_port PROPERTIES
     COMPILE_OPTIONS "-include;${CMAKE_CURRENT_SOURCE_DIR}/include/port/state_segment.h")
+set(TMC_STATE_SOURCES_ABS)
+foreach(source ${TMC_PORT_STATE_SOURCES})
+    cmake_path(ABSOLUTE_PATH source BASE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    list(APPEND TMC_STATE_SOURCES_ABS ${source})
+endforeach()
+string(REPLACE ";" "\n" TMC_STATE_SOURCES_TEXT "${TMC_GAME_SOURCES};${TMC_STATE_SOURCES_ABS}")
+file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/state_sources.txt CONTENT "${TMC_STATE_SOURCES_TEXT}\n")
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tmc_port PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR} ${TMC_DATA_DIR})
 target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
@@ -190,6 +219,12 @@ target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${T
 # `link-report` lists unresolved symbols if the link ever breaks again.
 add_executable(tmc src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
 target_link_libraries(tmc PRIVATE tmc_port z)
+# Every variable of the save state segment must be in the pointer map.
+add_custom_command(TARGET tmc POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E env TMC_STATE_MAP_CHECK=1 $<TARGET_FILE:tmc>
+    COMMENT "Checking the save state pointer map"
+    VERBATIM
+)
 
 # The macOS app: a window with the Metal renderer, keyboard and gamepad input,
 # Core Audio sound, running the game at 59.73 Hz. Builds build/native/TMC.app.

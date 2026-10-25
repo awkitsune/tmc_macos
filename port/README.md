@@ -193,8 +193,8 @@ What the person you send it to does on first launch:
 
 The x86_64 programs were checked under Rosetta 2 on Apple silicon: the
 24000-frame playthrough's frame checksums and player trace, the Ezlo replay and
-the app self-test (`TMC_SELFTEST`) match the arm64 programs. Its save states
-match too, apart from addresses that depend on the program's layout. The audio
+the app self-test (`TMC_SELFTEST`) match the arm64 programs. Save states load
+across the two (by symbol), both ways, and carry on with the same frames. The audio
 mixer's samples differ in the last bit, as arm64 fuses multiply-adds and
 baseline x86_64 has no FMA instructions. Rosetta cannot show:
 
@@ -458,11 +458,9 @@ Environment variables control the headless runner:
 | `TMC_LOAD_STATE=path` | Start from a save state |
 | `TMC_SAVE_STATES="frame,..."` or `"every:n"` | Save states as `frame_NNNNNN.tmcs` in `TMC_STATE_DIR` (default `states`) |
 | `TMC_STATE_DIR=dir` | Where states go; also enables the input scripts' `save:NAME` steps |
-| `TMC_STATE_REFERENCE=dir` | States of the same run from a run with `TMC_ASLR=1`: makes exact pointer lists (below) |
 | `TMC_INPUT_FROM=NAME` | Start the input script after its `save:NAME` step |
 | `TMC_HASH="frame,..."` or `"every:n"` | Print `hash F state S video V`: checksums of the state and of the picture |
 | `TMC_RECORD_INPUT=path` | Write the keys held each frame as a `TMC_INPUT` script, to replay a run exactly |
-| `TMC_ASLR=1` | Keep address randomization (normally the program re-executes itself without it) |
 | `TMC_ROM_WRITES=1` | Log stores into the game's read-only data and skip them instead of crashing (arm64 only: it decodes the faulting instruction) |
 | `TMC_DUMP_OAM="frame,..."` or `"every:n"` | Print the decoded sprite table as that frame was drawn (`TMC_DUMP_OAM_ALL=1`: hidden entries too) |
 | `TMC_DUMP_BG="frame,..."` | Print each layer's settings and a summary of its map (tiles, palettes, flips, per-line changes) |
@@ -504,7 +502,7 @@ but is only written to the save file the next time the game saves.
 The checkpoints along the scripted playthrough are written by
 
 ```bash
-port/scripts/checkpoints.sh          # about 6 s; rerun after changing the game
+port/scripts/checkpoints.sh          # a few seconds; rerun after changing the game
 ```
 
 into `port/states` (not in git): `bedroom` (frame 8387, after the intro),
@@ -531,23 +529,60 @@ How it works (`port/src/state.c`): everything mutable is compiled into one
 segment, `__TMCSTATE` (a forced `#pragma clang section` for the game's sources
 and the port's hardware, EEPROM and sound files; `EWRAM_DATA`/`IWRAM_DATA`;
 datagen's RAM symbols). States are taken at the main loop's VBlank wait, where
-nothing but globals is live. The programs re-execute themselves without address
-randomization, so pointers, and so checksums, are the same on every run. A
-state loads byte for byte into the program that wrote it. Into another build (a
-rebuild, or the app from a headless checkpoint) it loads by symbol: variables by
-name, pointers re-pointed at the same symbol in the new build. Telling pointers
-from data needs a second run at another address (`TMC_STATE_REFERENCE`), which
-`checkpoints.sh` does; states saved without one (quick saves, `TMC_SAVE_STATES`)
-guess, which is safe within one build but can mistake data for pointers in
-another, and say so when loaded there.
+nothing but globals is live. The segment is full of native pointers (into the
+game's data, to functions, into the segment), and each is saved as "symbol +
+offset". The programs run with address randomization on like any other.
+
+Which words are pointers comes from the pointer map, which the build makes from
+the C types (`port/tools/datagen/statemap.py`, into `build/native/state_map.c`,
+with its decisions in `state_map.txt`):
+
+- pointer fields, and the integer types that hold one natively (`PtrU32`,
+  `uintptr_t`), in every struct, union and array of every state variable. A
+  pointer-capable word is a pointer if its value is 2^32 or more (the game's
+  integers are 32-bit, the program lives above 4 GB), so a field that holds
+  either (a script word, the position the lilypad keeps in `child`) is read
+  exactly;
+- entity slots (`gEntities`, `gAuxPlayerEntities`, the manager slots), slot by
+  slot: kind and id pick the subtype struct through the entity function tables
+  and the types those functions take. `statemap.txt` settles the two ids whose
+  layout also depends on `type`. Any entity can hold a script context at
+  `nativeScriptContext` (`ENTITY_SCRIPT_CONTEXT`); for the few subtypes that keep
+  data there it counts only while the entity is scripted;
+- heap blocks: each `zMalloc` call records the type it allocates
+  (`include/common.h`, `port/src/heap.c`), which the map reads from the call's
+  `sizeof(T)` or `(T*)` cast;
+- the state variables with no C type (datagen RAM blocks the native code does
+  not use, assembly symbols) are listed in `statemap.txt`. The build checks that
+  the map covers every variable of the segment (`TMC_STATE_MAP_CHECK`), and a
+  state never saves without it.
+
+So a state loads exactly at any address (states of the same program at another
+address), and into another build (a rebuild, the app from a headless
+checkpoint, the other architecture) by symbol: variables by name, each pointer
+re-pointed at its target in that build. A target that build does not have, a
+pointer past its target's end, or a word of the old program's addresses the
+list does not name makes the load fail with a message instead of leaving a wild
+pointer. State checksums (`TMC_HASH`, the files' headers) count each pointer as
+its target's name plus offset, so they are the same at every address.
+
+`port/scripts/state_diff.py --check-pointers a.tmcs b.tmcs` tests the map: two
+states of the same frame from runs at different addresses must differ exactly
+in their listed pointers. The playthrough's states every 1000 frames pass.
+
+States from before (version 1) listed every word whose value looked like a
+pointer. They still load, through the map: only the listed words that can be
+pointers are moved, so data that looked like one (entity kinds and ids, often)
+stays as it was. A heap block in one is given the type of the only allocation of
+its size; if none or several have that size, the load fails.
 
 Determinism: runs used to differ between attempts around frames 9000 and
 15000. The cause was the player's script context pointer overlapping
 `PlayerEntity.unk_80` (its bits decided Link's facing in the Smith cutscene),
 together with `gUnk_08016984` being zero instead of its ROM value, plus
 `EncodeBCD` reading an uninitialized "r1" and a cutscene script pointer's low
-bits copied as entity data. With those fixed, runs with and without address
-randomization give the same checksums.
+bits copied as entity data. With those fixed, runs at different load addresses
+give the same state and picture checksums.
 
 ### Exporting the music
 
@@ -598,6 +633,8 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/interrupts.c` | `IntrMain` replacement dispatching through the game's handler table |
 | `port/src/headless.c` | Headless platform and process entry; `TMC_FRAMES=n` stops after n frames |
 | `port/src/state.c`, `port/include/port/state.h` | Save states: the `__TMCSTATE` segment to a file and back |
+| `port/tools/datagen/statemap.py`, `statemap.txt`, `port/include/port/state_map.h` | The save states' pointer map, from the C types |
+| `port/src/heap.c` | `zMalloc` call sites, so save states know each heap block's type |
 | `port/scripts/checkpoints.sh`, `state_diff.py` | Checkpoint states along the playthrough; comparing two states |
 | `port/src/frame.c` | Frame boundary shared by both platforms: latch keys, raise VCOUNT and VBLANK |
 | `port/src/macos/game.c` | App platform layer: game thread, 59.73 Hz pacing, frame hand-off |

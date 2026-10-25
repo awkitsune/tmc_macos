@@ -7,10 +7,6 @@
  *   TMC_LOAD_STATE=path      start from a state (at the first frame boundary)
  *   TMC_SAVE_STATES=F,F,...  save at these frames, or every:K, into TMC_STATE_DIR
  *                            (default states) as frame_NNNNNN.tmcs
- *   TMC_STATE_REFERENCE=dir  states of the same run saved by a run at another
- *                            address (TMC_ASLR=1) into dir, with the same names:
- *                            the states saved now list their pointers exactly
- *                            and load safely into other builds (StateSave)
  *   TMC_HASH=F,F,... | every:K   print "hash F state S video V": checksums of the
  *                            state and of the picture, to compare runs
  *   TMC_FRAMES=+n            stop n frames after the start (or the loaded state)
@@ -240,7 +236,6 @@ static uint64_t sBase;     // start of the previous step, or end of the previous
 static uint64_t sStepSince; // when the current wait/walk began
 static int sLastPos, sStillFrames, sCondFrames;
 static const char* sStateDir; // TMC_STATE_DIR
-static const char* sStateReference; // TMC_STATE_REFERENCE
 static int sScriptSaveDone;   // the current save: step's state was written at this boundary
 
 static void StepFailed(const ScriptStep* step, const char* why) {
@@ -552,12 +547,11 @@ static FrameList sHashFrames; // TMC_HASH
 static int sHashing;
 
 static void SaveStateAs(const char* name) {
-    char path[1024], reference[1024], message[256];
+    char path[1024], message[256];
 
     mkdir(sStateDir, 0755);
     snprintf(path, sizeof(path), "%s/%s.%s", sStateDir, name, STATE_EXTENSION);
-    snprintf(reference, sizeof(reference), "%s/%s.%s", sStateReference, name, STATE_EXTENSION);
-    if (!StateSave(path, gPlatformFrame, sStateReference != NULL ? reference : NULL, message, sizeof(message))) {
+    if (!StateSave(path, gPlatformFrame, message, sizeof(message))) {
         fprintf(stderr, "save state: %s\n", message);
         exit(1);
     }
@@ -865,8 +859,15 @@ _Noreturn void PlatformSoftReset(void) {
 int main(int argc, char** argv) {
     const char* frames = getenv("TMC_FRAMES");
 
-    // Same addresses every run: states load byte for byte, checksums compare.
-    StateDisableAslr(argv);
+    // The build's check that the save state pointer map covers the segment.
+    if (getenv("TMC_STATE_MAP_CHECK") != NULL) {
+        char message[256];
+        if (!StateCheckMap(message, sizeof(message))) {
+            fprintf(stderr, "TMC_STATE_MAP_CHECK: %s\n", message);
+            return 1;
+        }
+        return 0;
+    }
     sFrameLimitRelative = frames != NULL && frames[0] == '+';
     sFrameLimit = frames != NULL ? strtoull(frames + sFrameLimitRelative, NULL, 10) : 0;
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -917,7 +918,6 @@ int main(int argc, char** argv) {
     }
     sLoadState = getenv("TMC_LOAD_STATE");
     sStateDir = getenv("TMC_STATE_DIR");
-    sStateReference = getenv("TMC_STATE_REFERENCE");
     if (getenv("TMC_SAVE_STATES") != NULL) {
         ParseFrameList(getenv("TMC_SAVE_STATES"), &sSaveFrames);
         sStateDir = sStateDir != NULL ? sStateDir : "states";

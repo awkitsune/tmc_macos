@@ -360,7 +360,7 @@ static void ServiceStateRequest(void) {
 
     sSkipWork = true;
     if (sStateRequest.save) {
-        ok = StateSave(sStateRequest.path, gPlatformFrame, NULL, message, sizeof(message));
+        ok = StateSave(sStateRequest.path, gPlatformFrame, message, sizeof(message));
     } else {
         uint64_t frame;
         ok = StateLoad(sStateRequest.path, &frame, message, sizeof(message));

@@ -1,0 +1,47 @@
+# Decisions for the save state pointer map (port/tools/datagen/statemap.py).
+#
+#   pool NAME entity|manager|heap   slots or blocks, each read by what it holds
+#   subtype KIND ID [type=N] TYPE   what an entity kind and id hold (with N in their type field)
+#   noptr NAME                      a state variable with no C type that holds no pointers
+
+pool gEntities entity
+pool gAuxPlayerEntities entity
+pool gUnk_02033290 manager          # the manager slots (Temp in src/entity.c)
+pool gzHeap heap
+
+# CutsceneMiscObject keeps a script context pointer where types 15 and 31 keep data.
+subtype 6 106 CutsceneMiscObjectEntity
+subtype 6 106 type=15 CutsceneMiscObjectEntityType15
+subtype 6 106 type=31 Type1F
+# FightManager_Main picks the controller or a helper by type (src/manager/fightManager.c).
+subtype 9 11 type=0 FightManager
+subtype 9 11 type=1 FightManagerHelper
+
+# GBA RAM blocks datagen defines that the native code does not use: their GBA
+# names are macros for a field of another variable natively ("a linker alias on
+# GBA"), or only the GBA assembly or the left-out src/eeprom.c refer to them.
+noptr gUnk_02001A3C                 # gPaletteList[15] (src/color.c)
+noptr gUnk_020342F8                 # gArea.filler6 (src/npc.c)
+noptr gUnk_02034492                 # gPauseMenuOptions.unk2 (src/menu/pauseMenu.c)
+noptr gUnk_020344A0                 # gPauseMenuOptions.unk2[0xe] (src/menu/figurineMenu.c)
+noptr gUnk_03000420                 # gOAMControls.unk (src/subtask.c)
+noptr gInteractableObjects          # gPossibleInteraction.candidates (src/playerUtils.c)
+noptr gUnk_02035542                 # gzHeap + 2 (src/common.c)
+noptr gUnk_02000020                 # its address is a mask (port/src/asm/player.c)
+noptr gUnk_02000090
+noptr gUnk_0200AF34
+noptr gTextRenderUpdateDraw
+noptr gUnk_03000C24                 # the resource queue is gResourceQueue natively (port/include/port/resources.h)
+noptr gUnk_0300404D
+noptr gEEPROMConfig                 # src/eeprom.c (port/src/eeprom.c emulates the EEPROM)
+noptr SoundMainRAM_Buffer
+noptr usr_stack_begin               # the GBA stacks (asm/src/crt0.s)
+noptr irq_stack_begin
+noptr soft_reset_flag
+# Declared for the GBA build only (src/message.c gUnk_08107BE0).
+noptr gUnk_020227DC
+noptr gUnk_020227F8
+noptr gUnk_02022800
+# Function statics: ints.
+noptr HwDmaSet.sTrace
+noptr PlatformEntityLimit.sLimit
