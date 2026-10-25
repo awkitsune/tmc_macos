@@ -2,14 +2,6 @@
 
 Things that work today but could be better. Not bugs.
 
-## `HwRomAddress` depends on the build's layout
-
-`LoadRoomEntity` (`src/room.c`) keeps a cutscene script pointer as 32-bit data too, as the GBA did, through
-`HwRomAddress`: 0x08000000 plus its offset in the program. That is the same at every load address, but not in another
-build: a rebuild that moves the game's data gives entities created after a state load other values than the build
-that saved it, so state checksums differ between builds from then on (the pictures do not; nothing seen reads the
-value back as a pointer). Better: the script's real GBA address, from the GBA link (datagen knows it).
-
 ## Packaging
 
 - About box.

@@ -168,7 +168,25 @@ extern const uint32_t gHwRamMapCount;
 
 extern const struct mach_header_64 _mh_execute_header;
 
+// datagen's sections copied with their GBA layout (one table per data object,
+// concatenated by the linker in __DATA,__tmcstreams).
+typedef struct {
+    const uint8_t* native;
+    uint32_t address;
+    uint32_t size;
+} HwRomStream;
+
+extern const HwRomStream sStreamsStart __asm("section$start$__DATA$__tmcstreams");
+extern const HwRomStream sStreamsEnd __asm("section$end$__DATA$__tmcstreams");
+
 uint32_t HwRomAddress(uintptr_t pointer) {
+    for (const HwRomStream* s = &sStreamsStart; s < &sStreamsEnd; s++) {
+        if (pointer >= (uintptr_t)s->native && pointer < (uintptr_t)s->native + s->size) {
+            return s->address + (uint32_t)(pointer - (uintptr_t)s->native);
+        }
+    }
+    // Not in GBA layout (re-laid-out data): a stand-in that at least does not
+    // depend on where the program is loaded.
     return 0x08000000u + (uint32_t)(pointer - (uintptr_t)&_mh_execute_header);
 }
 
