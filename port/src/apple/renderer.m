@@ -331,18 +331,26 @@ typedef struct {
     return self;
 }
 
-// The largest rect with the GBA's 3:2 shape that fits, centred, in whole pixels.
-- (MTLViewport)viewportForDrawableSize:(CGSize)size {
-    double scale = MIN(size.width / PPU_WIDTH, size.height / PPU_HEIGHT);
-    if (self.integerScaling && scale >= 1.0) {
+CGRect RendererFitPicture(CGRect area, BOOL integerScaling) {
+    double scale = MIN(area.size.width / PPU_WIDTH, area.size.height / PPU_HEIGHT);
+    if (integerScaling && scale >= 1.0) {
         scale = floor(scale);
     }
     double width = round(PPU_WIDTH * scale), height = round(PPU_HEIGHT * scale);
+    return CGRectMake(area.origin.x + floor((area.size.width - width) / 2),
+                      area.origin.y + floor((area.size.height - height) / 2), width, height);
+}
+
+// The picture in the drawable: fitted in pictureRect, or in the whole drawable.
+- (MTLViewport)viewportForDrawableSize:(CGSize)size {
+    CGRect area = CGRectMake(0, 0, size.width, size.height);
+    CGRect inside = CGRectIntersection(area, self.pictureRect);
+    CGRect fit = RendererFitPicture(CGRectIsEmpty(inside) ? area : inside, self.integerScaling);
     return (MTLViewport){
-        .originX = floor((size.width - width) / 2),
-        .originY = floor((size.height - height) / 2),
-        .width = width,
-        .height = height,
+        .originX = fit.origin.x,
+        .originY = fit.origin.y,
+        .width = fit.size.width,
+        .height = fit.size.height,
         .znear = 0,
         .zfar = 1,
     };

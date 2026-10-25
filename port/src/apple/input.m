@@ -71,6 +71,7 @@ static BOOL IsNintendoPad(GCController* controller);
     atomic_bool _fastForwardKey;
     dispatch_queue_t _padQueue; // latency log only
 #if TARGET_OS_IOS
+    _Atomic uint16_t _touchKeys;
     NSMutableSet<GCController*>* _connected; // main thread
     BOOL _keyboardConnected;
     BOOL _menuDown;
@@ -253,6 +254,7 @@ static uint16_t GamepadKeys(GCController* controller, BOOL nintendo, GamepadLayo
     @autoreleasepool {
         uint16_t keys = atomic_load(&_keyboardKeys);
 #if TARGET_OS_IOS
+        keys |= atomic_load(&_touchKeys);
         GCKeyboardInput* keyboard = GCKeyboard.coalescedKeyboard.keyboardInput;
         if (keyboard != nil) {
             for (size_t i = 0; i < sizeof(kKeyBindings) / sizeof(kKeyBindings[0]); i++) {
@@ -308,6 +310,16 @@ int InputCheckKeyCodes(void) {
         wrong += kKeyBindings[i].keyCode != named[i];
     }
     return wrong;
+}
+
+- (void)setTouchKeys:(uint16_t)keys {
+    if (keys != atomic_exchange(&_touchKeys, keys)) {
+        LatencyInputEvent(LATENCY_KEY, LatencyNowNs());
+    }
+}
+
+- (BOOL)hasGamepad {
+    return _connected.count > 0;
 }
 
 - (BOOL)hasController {

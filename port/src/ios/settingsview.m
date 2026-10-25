@@ -6,6 +6,7 @@
 #import "settingsview.h"
 
 #import "settingsstore.h"
+#import "touchcontrols.h"
 
 #include "audio.h"
 #include "frontend.h"
@@ -563,7 +564,16 @@ static SettingsPage* ControlsPage(id<SettingsHost> host) {
     if (connected.count == 0) {
         [connected addObject:Info(@"None", @"")];
     }
+    void (^touchChanged)(BOOL) = ^(BOOL on) {
+        [NSNotificationCenter.defaultCenter postNotificationName:kTouchControlsChangedNotification object:nil];
+    };
     page.sections = @[
+        [SettingsSection header:@"Touch"
+                           rows:@[
+                               DefaultsToggle(@"Touch controls", kTouchControlsDefault, touchChanged),
+                               DefaultsToggle(@"Haptics", kTouchHapticsDefault, touchChanged),
+                           ]
+                         footer:@"On-screen buttons, hidden while a gamepad is connected. Their ☰ opens the settings."],
         [SettingsSection header:@"Gamepad"
                            rows:@[ Choice(
                                     @"A and B", @[ @"By label (A is A)", @"By position (right is A)" ],
@@ -735,7 +745,7 @@ static SettingsRow* PageRow(NSString* title, NSString* symbol, SettingsPage* (*m
                                PageRow(@"About", @"info.circle", AboutPage, host),
                            ]
                          footer:@"B closes. In the game, press Home or hold ☰ (Escape on a keyboard), or tap the "
-                                @"screen, to come back here."],
+                                @"screen (☰ with touch controls on), to come back here."],
     ];
     if ((self = [super initWithRootViewController:root]) != nil) {
         _host = host;
