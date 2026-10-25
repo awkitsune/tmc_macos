@@ -1,3 +1,6 @@
+#ifdef PLATFORM_NATIVE
+#define ZMALLOC_DEFINITION // zMalloc itself, not the call-site wrapper (common.h)
+#endif
 #include "common.h"
 
 #include "assets/map_offsets.h"

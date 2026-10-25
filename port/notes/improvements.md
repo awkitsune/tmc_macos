@@ -2,21 +2,18 @@
 
 Things that work today but could be better. Not bugs.
 
-## Keep ASLR on in the app
+## `HwRomAddress` depends on the build's layout
 
-`StateDisableAslr` (`port/src/state.c`) re-executes the headless runner and the app with address randomization off, so
-quick saves load byte for byte into the same build. It uses `_POSIX_SPAWN_DISABLE_ASLR`, a private, undocumented
-spawn flag, and it turns off a security feature. The hardened runtime that notarization requires may also refuse it.
-If the re-exec fails, the program carries on with ASLR on and states load by symbol.
-
-Better: quick saves record which words are pointers (the exact pointer list that `TMC_STATE_REFERENCE` gives
-checkpoints today), so they load exactly at any address. The app then never re-executes itself. Keep the re-exec
-only for the test tooling (headless determinism and `checkpoints.sh`), or drop it there too.
+`LoadRoomEntity` (`src/room.c`) keeps a cutscene script pointer as 32-bit data too, as the GBA did, through
+`HwRomAddress`: 0x08000000 plus its offset in the program. That is the same at every load address, but not in another
+build: a rebuild that moves the game's data gives entities created after a state load other values than the build
+that saved it, so state checksums differ between builds from then on (the pictures do not; nothing seen reads the
+value back as a pointer). Better: the script's real GBA address, from the GBA link (datagen knows it).
 
 ## Packaging
 
 - App icon, name and About box.
-- Signing, notarization and a `.dmg`. Check the ASLR item above first.
+- Signing, notarization and a `.dmg`.
 
 ## Input latency with a controller (on hold)
 

@@ -945,8 +945,6 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 @end
 
 int main(int argc, const char* argv[]) {
-    // Same addresses every run, so the app's states load byte for byte.
-    StateDisableAslr((char**)argv);
     @autoreleasepool {
         NSApplication* app = NSApplication.sharedApplication;
         app.activationPolicy = NSApplicationActivationPolicyRegular;

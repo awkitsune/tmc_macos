@@ -278,9 +278,11 @@ Runs: the 24000-frame playthrough, the Ezlo replay, and a warp scan (a scratch `
 Link to each of the 661 rooms from the `hyrule_town` checkpoint, at full health, for 90 frames with control. **No report in any
 run.** The warp scan reached control in 499 rooms; 72 timed out and 91 crashed with other bugs already known from the earlier
 warp scan (80 in `sub_0804AF90`, NULL room properties; `LoadRoomTileSet`, `LoadRoomGfx`, `sub_0802D650`, OctorokBoss,
-FrozenOctorok, GyorgBossObject; most likely warp artefacts). The gust jar state (`frame_001329`) does not load into any build
-whose code layout differs, re-saved with a reference run or not (an entity list pointer is re-pointed into dyld memory), so it
-was not run instrumented; the lily pad state was not found on disk. Both run clean on the fixed build.
+FrozenOctorok, GyorgBossObject; most likely warp artefacts). The gust jar state (`frame_001329`) did not load into any build
+whose code layout differs, so it was not run instrumented. (The cause was the version 1 state format guessing pointers from
+values: four entities' kind/id/type words, e.g. `0x1005f0506`, looked like pointers into `gGfx_94_0` and were re-pointed, so
+the entities' kinds changed and `ram_UpdateEntities` called a NULL update. States now list pointers exactly from the C types,
+and old states load through that map; see port/README.md, save states.) the lily pad state was not found on disk. Both run clean on the fixed build.
 
 **Fixed** (all GBA-faithful: the index wraps backwards as on the GBA instead of jumping 4 GB):
 
