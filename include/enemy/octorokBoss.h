@@ -46,6 +46,14 @@ struct OctorokBossEntity {
     /*0x84*/ OctorokBossHeap* heap; /**< Heap data allocated with #zMalloc. */
 };
 
+// The mouth's health, read by the legs. The legs are created, and first updated, before the mouth, whose init sets
+// heap->mouthObject; until then the GBA reads the health from the BIOS (not 1, and at least 2).
+#ifdef PLATFORM_NATIVE
+#define OCTOROK_MOUTH_HEALTH(heap) ((heap)->mouthObject != NULL ? (heap)->mouthObject->base.health : 0xff)
+#else
+#define OCTOROK_MOUTH_HEALTH(heap) ((heap)->mouthObject->base.health)
+#endif
+
 enum OctorokRotation { ROTATION_CW, ROTATION_CCW, NO_ROTATION = 0xff };
 
 enum OctorokBossPart { WHOLE, LEG_BR, LEG_FR, LEG_FL, LEG_BL, MOUTH, TAIL_END, TAIL };

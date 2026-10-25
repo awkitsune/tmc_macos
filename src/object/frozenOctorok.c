@@ -216,7 +216,7 @@ void FrozenOctorok_Action1(FrozenOctorokEntity* this) {
             tmp1 = 0x10000 / (((FrozenOctorokEntity*)super->parent)->unk_76);
             tmp1 = ((tmp1 << 0xd) >> 8);
             tmp1 -= 0x2000;
-            if (this->heap->mouthObject->base.health == 1) {
+            if (OCTOROK_MOUTH_HEALTH(this->heap) == 1) {
                 tmp1 = 0x2200 + tmp1;
             } else {
                 tmp1 = (tmp1 >> 1) + 0x2200;

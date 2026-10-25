@@ -333,8 +333,47 @@ void sub_080A1D8C(GyorgBossObjectEntity* this, s32 unk1) {
     }
 }
 
+#ifdef PLATFORM_NATIVE
+// The female's first update creates the mouth and the tail, and the tail's segments come later still; until then
+// the GBA's stores through the missing parts below go to the BIOS (or through BIOS words) and are lost. The heap
+// is NULL while GyorgBossObject_SetupStart waits for free entity slots.
+static void GyorgSetPartsFlag(GyorgHeap* heap, bool32 set) {
+    Entity* part;
+    u32 i;
+
+    if (heap->mouth != NULL) {
+        if (set) {
+            heap->mouth->base.flags |= 0x80;
+        } else {
+            heap->mouth->base.flags &= ~0x80;
+        }
+    }
+    part = heap->tail != NULL ? &heap->tail->base : NULL;
+    for (i = 0; i < 4 && part != NULL; i++, part = part->child) {
+        if (set) {
+            part->flags |= 0x80;
+        } else {
+            part->flags &= ~0x80;
+        }
+    }
+}
+#endif
+
 void sub_080A1DCC(GyorgBossObjectEntity* this) {
     GenericEntity* tmp;
+#ifdef PLATFORM_NATIVE
+    if (super->myHeap == NULL) {
+        return;
+    }
+    if (((tmp = (GenericEntity*)((GyorgHeap*)super->myHeap)->male1) != NULL ||
+         (tmp = (GenericEntity*)((GyorgHeap*)super->myHeap)->male2) != NULL) &&
+        tmp->field_0x7c.BYTES.byte0 && tmp->base.spriteRendering.b3 == 2) {
+        GyorgSetPartsFlag(super->myHeap, FALSE);
+    } else {
+        GyorgSetPartsFlag(super->myHeap, TRUE);
+    }
+    return;
+#endif
     if ((tmp = (GenericEntity*)((GyorgHeap*)super->myHeap)->male1) != NULL ||
         (tmp = (GenericEntity*)((GyorgHeap*)super->myHeap)->male2) != NULL) {
         if (tmp->field_0x7c.BYTES.byte0 && tmp->base.spriteRendering.b3 == 2) {

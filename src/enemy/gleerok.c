@@ -1394,7 +1394,12 @@ void sub_0802E7E4(Gleerok_HeapStruct* this) {
                 this->entities[i + 1]->spritePriority.b0 = bVar6;
             }
         }
-        this->entity1->spritePriority.b0 = 0;
+#ifdef PLATFORM_NATIVE
+        // entity1 is only set once the fight starts (sub_0802D714); during the intro the GBA's store goes to the
+        // BIOS and is lost.
+        if (this->entity1 != NULL)
+#endif
+            this->entity1->spritePriority.b0 = 0;
     } else {
         bVar6 = 5;
 
@@ -1414,7 +1419,12 @@ void sub_0802E7E4(Gleerok_HeapStruct* this) {
                 this->entities[i + 1]->spritePriority.b0 = bVar6;
             }
         }
-        this->entity1->spritePriority.b0 = 6;
+#ifdef PLATFORM_NATIVE
+        // entity1 is only set once the fight starts (sub_0802D714); during the intro the GBA's store goes to the
+        // BIOS and is lost.
+        if (this->entity1 != NULL)
+#endif
+            this->entity1->spritePriority.b0 = 6;
     }
 }
 

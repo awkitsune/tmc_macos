@@ -569,7 +569,7 @@ void OctorokBoss_Action1(OctorokBossEntity* this) {
             if (((Enemy*)super->parent)->enemyFlags & EM_FLAG_BOSS_KILLED) {
                 DeleteThisEntity();
             }
-            if (this->heap->mouthObject->base.health == 1) {
+            if (OCTOROK_MOUTH_HEALTH(this->heap) == 1) {
                 if ((s16)this->unk_76 < 0) {
                     this->unk_76 -= 4;
                 } else {
@@ -594,7 +594,7 @@ void OctorokBoss_Action1(OctorokBossEntity* this) {
             radius = 0x10000 / ((OctorokBossEntity*)super->parent)->unk_76;
             radius = radius << 0xd >> 0x8;
             radius = radius - 0x2000;
-            if (this->heap->mouthObject->base.health == 1) {
+            if (OCTOROK_MOUTH_HEALTH(this->heap) == 1) {
                 radius = radius + 0x2200;
             } else {
                 radius = (radius >> 1) + 0x2200;

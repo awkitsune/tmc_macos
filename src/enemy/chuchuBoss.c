@@ -1715,6 +1715,12 @@ void sub_080279AC(ChuchuBossEntity* this, Entity* param_2, s32 param_3) {
     param_2->spriteOffsetY = param_2->y.HALF.HI - (super->y.HALF.HI + temp);
     param_2->x.HALF.HI = super->x.HALF_U.HI;
     param_2->y.HALF.HI = super->y.HALF.HI + temp;
+#ifdef PLATFORM_NATIVE
+    // A part can be without a hitbox here; the GBA's stores then go to the BIOS at address 0 and are lost.
+    if (param_2->hitbox == NULL) {
+        return;
+    }
+#endif
     param_2->hitbox->offset_x = param_2->spriteOffsetX;
     param_2->hitbox->offset_y = param_2->spriteOffsetY;
 }
