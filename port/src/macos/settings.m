@@ -51,6 +51,16 @@ static NSString* KnobText(const Knob* knob, float value) {
     return [NSString stringWithFormat:knob->format ?: @"%.2f", value];
 }
 
+NSArray<NSString*>* SettingsKeys(void) {
+    NSMutableArray* keys = [NSMutableArray arrayWithObjects:kFilterDefault, kIntegerScalingDefault, kLcdResponseDefault,
+                                                            kPacingDefault, kGamepadLayoutDefault, kDebugMenuDefault,
+                                                            kDebugToolbarDefault, nil];
+    for (size_t i = 0; i < KNOB_COUNT; i++) {
+        [keys addObject:kKnobs[i].key];
+    }
+    return keys;
+}
+
 FilterParams LoadFilterParams(void) {
     NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
     FilterParams params = FilterParamsDefaults();
@@ -62,6 +72,85 @@ FilterParams LoadFilterParams(void) {
     }
     return params;
 }
+
+static NSTextField* Label(NSString* text, BOOL bold) {
+    NSTextField* label = [NSTextField labelWithString:text];
+    if (bold) {
+        label.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
+    }
+    return label;
+}
+
+// One tab's rows, laid out as a grid: label, control, value.
+@interface SettingsPage : NSObject
+@property(nonatomic, copy) NSString* title;
+@property(nonatomic, strong) NSMutableArray<NSArray<NSView*>*>* rows;
+@property(nonatomic, strong) NSMutableIndexSet* headerRows;
+@end
+
+@implementation SettingsPage
+
+- (instancetype)initWithTitle:(NSString*)title {
+    if ((self = [super init]) != nil) {
+        _title = [title copy];
+        _rows = [NSMutableArray array];
+        _headerRows = [NSMutableIndexSet indexSet];
+    }
+    return self;
+}
+
+- (void)addHeader:(NSString*)text {
+    [_headerRows addIndex:_rows.count];
+    [_rows addObject:@[ Label(text, YES) ]];
+}
+
+- (void)addRow:(nullable NSString*)label control:(NSView*)control value:(nullable NSView*)value {
+    [_rows addObject:@[ label ? Label(label, NO) : NSGridCell.emptyContentView, control,
+                        value ?: NSGridCell.emptyContentView ]];
+}
+
+- (NSGridView*)grid {
+    NSGridView* grid = [NSGridView gridViewWithViews:_rows];
+    grid.rowSpacing = 8;
+    grid.columnSpacing = 10;
+    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    [_headerRows enumerateIndexesUsingBlock:^(NSUInteger row, BOOL* stop) {
+        NSGridRow* gridRow = [grid rowAtIndex:row];
+        gridRow.topPadding = row == 0 ? 0 : 10;
+        [gridRow mergeCellsInRange:NSMakeRange(0, 3)];
+        [gridRow cellAtIndex:0].xPlacement = NSGridCellPlacementLeading;
+    }];
+    for (NSInteger row = 0; row < grid.numberOfRows; row++) {
+        [grid rowAtIndex:row].yPlacement = NSGridCellPlacementCenter;
+    }
+    return grid;
+}
+
+@end
+
+// Scrolled content starts at the top.
+@interface FlippedView : NSView
+@end
+
+@implementation FlippedView
+
+- (BOOL)isFlipped {
+    return YES;
+}
+
+@end
+
+static NSTextField* Note(NSString* text) {
+    NSTextField* note = Label(text, NO);
+    note.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    note.textColor = NSColor.secondaryLabelColor;
+    return note;
+}
+
+static NSString* const kSettingsTabDefault = @"SettingsTab";
+
+@interface SettingsWindowController () <NSTabViewDelegate>
+@end
 
 @implementation SettingsWindowController {
     Renderer* _renderer;
@@ -77,6 +166,9 @@ FilterParams LoadFilterParams(void) {
     NSButton* _lcdResponse;
     NSSlider* _sliders[KNOB_COUNT];
     NSTextField* _values[KNOB_COUNT];
+    NSTabView* _tabs;
+    NSLayoutConstraint* _tabsHeight;
+    CGFloat _fullTabsHeight;
 }
 
 - (instancetype)initWithRenderer:(Renderer*)renderer input:(Input*)input pacingStatus:(NSString* (^)(void))pacingStatus {
@@ -99,43 +191,51 @@ FilterParams LoadFilterParams(void) {
     return self;
 }
 
-static NSTextField* Label(NSString* text, BOOL bold) {
-    NSTextField* label = [NSTextField labelWithString:text];
-    if (bold) {
-        label.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
-    }
-    return label;
-}
-
 - (void)buildContent {
-    NSMutableArray<NSArray<NSView*>*>* rows = [NSMutableArray array];
-    NSMutableIndexSet* headerRows = [NSMutableIndexSet indexSet];
+    SettingsPage* display = [[SettingsPage alloc] initWithTitle:@"Display"];
+    SettingsPage* filters = [[SettingsPage alloc] initWithTitle:@"Filters"];
+    SettingsPage* timing = [[SettingsPage alloc] initWithTitle:@"Timing"];
+    SettingsPage* controls = [[SettingsPage alloc] initWithTitle:@"Controls"];
+    SettingsPage* debug = [[SettingsPage alloc] initWithTitle:@"Debug"];
+    // The knob sections' tabs: one filter's knobs on Filters, the ones for every filter on Display.
+    NSDictionary<NSString*, SettingsPage*>* knobPages = @{
+        @"LCD Grid" : filters,
+        @"CRT Scanlines" : filters,
+        @"LCD Response (all filters)" : display,
+        @"Colour (all filters)" : display,
+    };
 
+    [display addHeader:@"Picture"];
     _filterPopup = [NSPopUpButton new];
     for (NSUInteger mode = 0; mode < FilterModeCount; mode++) {
         [_filterPopup addItemWithTitle:FilterModeName(mode)];
     }
     _filterPopup.target = self;
     _filterPopup.action = @selector(filterChanged:);
-    [rows addObject:@[ Label(@"Filter", NO), _filterPopup, NSGridCell.emptyContentView ]];
-
+    _filterPopup.identifier = kFilterDefault;
+    [display addRow:@"Filter" control:_filterPopup value:nil];
     _integerScaling = [NSButton checkboxWithTitle:@"Integer scaling" target:self action:@selector(integerScalingChanged:)];
-    [rows addObject:@[ NSGridCell.emptyContentView, _integerScaling, NSGridCell.emptyContentView ]];
+    _integerScaling.identifier = kIntegerScalingDefault;
+    [display addRow:nil control:_integerScaling value:nil];
 
+    SettingsPage* page = nil;
     for (size_t i = 0; i < KNOB_COUNT; i++) {
         if (kKnobs[i].section != nil) {
-            [headerRows addIndex:rows.count];
-            [rows addObject:@[ Label(kKnobs[i].section, YES) ]];
+            page = knobPages[kKnobs[i].section];
+            NSAssert(page != nil, @"no tab for %@", kKnobs[i].section);
+            [page addHeader:kKnobs[i].section];
             if (kKnobs[i].offset == offsetof(FilterParams, lcdResponseMs)) {
                 _lcdResponse = [NSButton checkboxWithTitle:@"LCD response (pixel ghosting)" target:self
                                                     action:@selector(lcdResponseChanged:)];
-                [rows addObject:@[ NSGridCell.emptyContentView, _lcdResponse, NSGridCell.emptyContentView ]];
+                _lcdResponse.identifier = kLcdResponseDefault;
+                [page addRow:nil control:_lcdResponse value:nil];
             }
         }
         NSSlider* slider = [NSSlider sliderWithValue:0 minValue:kKnobs[i].min maxValue:kKnobs[i].max
                                               target:self action:@selector(sliderChanged:)];
         slider.tag = (NSInteger)i;
         slider.continuous = YES;
+        slider.identifier = kKnobs[i].key;
         [slider.widthAnchor constraintGreaterThanOrEqualToConstant:200].active = YES;
         NSTextField* value = Label(@"", NO);
         value.font = [NSFont monospacedDigitSystemFontOfSize:NSFont.smallSystemFontSize weight:NSFontWeightRegular];
@@ -143,74 +243,135 @@ static NSTextField* Label(NSString* text, BOOL bold) {
         [value.widthAnchor constraintEqualToConstant:46].active = YES;
         _sliders[i] = slider;
         _values[i] = value;
-        [rows addObject:@[ Label(kKnobs[i].title, NO), slider, value ]];
+        [page addRow:kKnobs[i].title control:slider value:value];
     }
 
-    [headerRows addIndex:rows.count];
-    [rows addObject:@[ Label(@"Timing", YES) ]];
+    [timing addHeader:@"Timing"];
     _pacingPopup = [NSPopUpButton new];
     [_pacingPopup addItemsWithTitles:@[ @"Accurate (59.73 Hz)", @"Display sync (60 Hz, less lag)" ]];
     _pacingPopup.target = self;
     _pacingPopup.action = @selector(pacingChanged:);
-    [rows addObject:@[ Label(@"Frame pacing", NO), _pacingPopup, NSGridCell.emptyContentView ]];
-    _pacingNote = Label(@"", NO);
-    _pacingNote.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    _pacingNote.textColor = NSColor.secondaryLabelColor;
+    _pacingPopup.identifier = kPacingDefault;
+    [timing addRow:@"Frame pacing" control:_pacingPopup value:nil];
+    _pacingNote = Note(@"");
     _pacingNote.preferredMaxLayoutWidth = 260;
-    [rows addObject:@[ NSGridCell.emptyContentView, _pacingNote, NSGridCell.emptyContentView ]];
+    [timing addRow:nil control:_pacingNote value:nil];
 
-    [headerRows addIndex:rows.count];
-    [rows addObject:@[ Label(@"Controls", YES) ]];
+    [controls addHeader:@"Controls"];
     _gamepadPopup = [NSPopUpButton new];
     [_gamepadPopup addItemsWithTitles:@[ @"By label (A is A)", @"By position (right is A)" ]];
     _gamepadPopup.target = self;
     _gamepadPopup.action = @selector(gamepadLayoutChanged:);
-    [rows addObject:@[ Label(@"Gamepad A/B", NO), _gamepadPopup, NSGridCell.emptyContentView ]];
-    NSTextField* note = Label(@"Nintendo pads use their labels either way; this\nchanges Xbox and PlayStation pads.", NO);
-    note.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    note.textColor = NSColor.secondaryLabelColor;
-    [rows addObject:@[ NSGridCell.emptyContentView, note, NSGridCell.emptyContentView ]];
+    _gamepadPopup.identifier = kGamepadLayoutDefault;
+    [controls addRow:@"Gamepad A/B" control:_gamepadPopup value:nil];
+    [controls addRow:nil
+             control:Note(@"Nintendo pads use their labels either way; this\nchanges Xbox and PlayStation pads.")
+               value:nil];
 
-    [headerRows addIndex:rows.count];
-    [rows addObject:@[ Label(@"Debug", YES) ]];
+    [debug addHeader:@"Debug"];
     _debugMenu = [NSButton checkboxWithTitle:@"Show Debug menu" target:self action:@selector(debugMenuChanged:)];
-    [rows addObject:@[ NSGridCell.emptyContentView, _debugMenu, NSGridCell.emptyContentView ]];
+    _debugMenu.identifier = kDebugMenuDefault;
+    [debug addRow:nil control:_debugMenu value:nil];
     _debugToolbar = [NSButton checkboxWithTitle:@"Show debug tools in toolbar" target:self
                                          action:@selector(debugToolbarChanged:)];
-    [rows addObject:@[ NSGridCell.emptyContentView, _debugToolbar, NSGridCell.emptyContentView ]];
+    _debugToolbar.identifier = kDebugToolbarDefault;
+    [debug addRow:nil control:_debugToolbar value:nil];
 
-    NSGridView* grid = [NSGridView gridViewWithViews:rows];
-    grid.rowSpacing = 8;
-    grid.columnSpacing = 10;
-    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
-    [headerRows enumerateIndexesUsingBlock:^(NSUInteger row, BOOL* stop) {
-        NSGridRow* gridRow = [grid rowAtIndex:row];
-        gridRow.topPadding = 10;
-        [gridRow mergeCellsInRange:NSMakeRange(0, 3)];
-        [gridRow cellAtIndex:0].xPlacement = NSGridCellPlacementLeading;
-    }];
-    for (NSInteger row = 0; row < grid.numberOfRows; row++) {
-        [grid rowAtIndex:row].yPlacement = NSGridCellPlacementCenter;
+    // Each tab scrolls, so the window can be as short as the screen needs.
+    _tabs = [NSTabView new];
+    _tabs.translatesAutoresizingMaskIntoConstraints = NO;
+    NSSize largest = NSZeroSize;
+    for (SettingsPage* each in @[ display, filters, timing, controls, debug ]) {
+        NSGridView* grid = each.grid;
+        grid.translatesAutoresizingMaskIntoConstraints = NO;
+        FlippedView* document = [FlippedView new];
+        document.translatesAutoresizingMaskIntoConstraints = NO;
+        [document addSubview:grid];
+        NSScrollView* scroll = [NSScrollView new];
+        scroll.hasVerticalScroller = YES;
+        scroll.autohidesScrollers = YES;
+        scroll.drawsBackground = NO;
+        scroll.documentView = document;
+        [NSLayoutConstraint activateConstraints:@[
+            [grid.leadingAnchor constraintEqualToAnchor:document.leadingAnchor constant:16],
+            [grid.trailingAnchor constraintLessThanOrEqualToAnchor:document.trailingAnchor constant:-16],
+            [grid.topAnchor constraintEqualToAnchor:document.topAnchor constant:12],
+            [grid.bottomAnchor constraintEqualToAnchor:document.bottomAnchor constant:-12],
+            [document.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
+        ]];
+        NSSize fitting = grid.fittingSize;
+        largest.width = MAX(largest.width, fitting.width + 32);
+        largest.height = MAX(largest.height, fitting.height + 24);
+        NSTabViewItem* item = [[NSTabViewItem alloc] initWithIdentifier:each.title];
+        item.label = each.title;
+        item.view = scroll;
+        [_tabs addTabViewItem:item];
     }
+    NSString* tab = [NSUserDefaults.standardUserDefaults stringForKey:kSettingsTabDefault];
+    if (tab != nil && [_tabs indexOfTabViewItemWithIdentifier:tab] != NSNotFound) {
+        [_tabs selectTabViewItemWithIdentifier:tab];
+    }
+    _tabs.delegate = self;
 
     NSButton* reset = [NSButton buttonWithTitle:@"Reset to Defaults" target:self action:@selector(resetToDefaults:)];
-
-    NSStackView* stack = [NSStackView stackViewWithViews:@[ grid, reset ]];
-    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    stack.alignment = NSLayoutAttributeTrailing;
-    stack.spacing = 16;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    reset.translatesAutoresizingMaskIntoConstraints = NO;
 
     NSView* content = [NSView new];
-    [content addSubview:stack];
+    [content addSubview:_tabs];
+    [content addSubview:reset];
+    // The tab view's frame around its content (the tabs on top, the border).
+    _tabs.frame = NSMakeRect(0, 0, 1000, 1000);
+    NSSize chrome = NSMakeSize(1000 - NSWidth(_tabs.contentRect), 1000 - NSHeight(_tabs.contentRect));
+    _fullTabsHeight = largest.height + chrome.height;
+    _tabsHeight = [_tabs.heightAnchor constraintEqualToConstant:_fullTabsHeight];
     [NSLayoutConstraint activateConstraints:@[
-        [stack.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:20],
-        [stack.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-20],
-        [stack.topAnchor constraintEqualToAnchor:content.topAnchor constant:20],
-        [stack.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-20],
+        [_tabs.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:12],
+        [_tabs.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-12],
+        [_tabs.topAnchor constraintEqualToAnchor:content.topAnchor constant:12],
+        [_tabs.widthAnchor constraintGreaterThanOrEqualToConstant:largest.width + chrome.width],
+        _tabsHeight,
+        [reset.topAnchor constraintEqualToAnchor:_tabs.bottomAnchor constant:12],
+        [reset.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-20],
+        [reset.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-16],
     ]];
     self.window.contentView = content;
-    [self.window setContentSize:content.fittingSize];
+    [self fitToHeight:0];
+}
+
+- (void)tabView:(NSTabView*)tabView didSelectTabViewItem:(NSTabViewItem*)item {
+    [NSUserDefaults.standardUserDefaults setObject:item.identifier forKey:kSettingsTabDefault];
+}
+
+// As tall as the tallest tab, or less to keep the window within maxHeight (0:
+// the screen's visible frame); a tab that does not fit scrolls.
+- (void)fitToHeight:(CGFloat)maxHeight {
+    NSWindow* window = self.window;
+    if (maxHeight <= 0) {
+        NSScreen* screen = window.screen ?: NSScreen.mainScreen;
+        maxHeight = NSHeight(screen.visibleFrame);
+    }
+    NSView* content = window.contentView;
+    _tabsHeight.constant = _fullTabsHeight;
+    CGFloat around = content.fittingSize.height - _fullTabsHeight; // margins and the button
+    CGFloat titleBar = NSHeight(window.frame) - NSHeight([window contentRectForFrameRect:window.frame]);
+    _tabsHeight.constant = MAX(80, MIN(_fullTabsHeight, maxHeight - titleBar - around));
+    NSRect frame = window.frame;
+    [window setContentSize:content.fittingSize];
+    // Keep the top edge, and the whole window on its screen.
+    [window setFrameTopLeftPoint:NSMakePoint(NSMinX(frame), NSMaxY(frame))];
+    if (window.screen != nil) {
+        [window setFrame:[window constrainFrameRect:window.frame toScreen:window.screen] display:NO];
+    }
+}
+
+// Fitted to the screen it opens on.
+- (void)showWindow:(id)sender {
+    [self fitToHeight:0];
+    [super showWindow:sender];
+}
+
+- (NSTabView*)tabView {
+    return _tabs;
 }
 
 - (void)refresh {

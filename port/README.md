@@ -179,7 +179,7 @@ point instead of the GBA's 15.7 kHz 8-bit mix; both are remembered.
 
 Keys are matched by position, so other keyboard layouts use the same physical
 keys. Any extended gamepad (Xbox, PlayStation, Switch Pro, MFi) works and can be
-connected or disconnected while the game runs. Settings → Gamepad A/B
+connected or disconnected while the game runs. Settings → Controls → Gamepad A/B
 switches Xbox and PlayStation pads to the GBA's positions instead (right and top
 buttons = A, bottom and left = B); Nintendo pads already have A on the right, so
 they are the same either way.
@@ -217,7 +217,7 @@ in full screen. Beam and gap sizes follow one brightness value per pixel
 channels, so bloom adds no colour fringes. Each CRT pixel sums the beams of its
 own scanline and the two around it, so bright lines spread into dark ones.
 
-**LCD response** (Settings → LCD response, off by default) imitates the GBA
+**LCD response** (Settings → Display → LCD response, off by default) imitates the GBA
 screen's slow pixels, which some effects count on: sprites flickered on
 alternate frames look see-through and flashes leave a short afterglow. A
 compute pass keeps what the simulated LCD shows in a 240×160 float16 texture,
@@ -245,7 +245,7 @@ Save states (see [Save states](#save-states-and-checkpoints)) are in the Game
 menu: Quick Save (F5) and Quick Load (F7) use one of four slots (⌥⌘1–⌥⌘4),
 Save State As… (⇧⌘S) and Load State… (⌘O) use any file. They live in
 `~/Library/Application Support/tmc_macos/states`. The Debug menu (shown except
-in Release builds; Settings → Show Debug menu switches it) has Step Frame (F8:
+in Release builds; Settings → Debug → Show Debug menu switches it) has Step Frame (F8:
 pauses, then advances one frame per press; ⌘P resumes), Show Frame Counter (in
 the window's subtitle), Load Checkpoint (the states `port/scripts/checkpoints.sh`
 wrote in this source tree) and Show State Folder. `TMC_LOAD_STATE=path` starts
@@ -255,7 +255,7 @@ the app from a state. It also opens the graphics viewers (see
 
 The window's toolbar has Save/Load (the Game menu's state items), Filter (the
 View menu's filters and Integer Scaling) and Settings buttons on the right, and
-a Debug button with the Debug menu's items when Settings → Show debug tools in
+a Debug button with the Debug menu's items when Settings → Debug → Show debug tools in
 toolbar is on. The buttons never take the keyboard, and View → Customize
 Toolbar… rearranges them. The subtitle names the room the player is in
 ("Hyrule Field – Lon Lon Ranch", or the area's name for rooms without one, from
@@ -351,7 +351,11 @@ synthesized key presses, saving what it presented as PNGs in `dir`, then quit;
 it needs no screen-recording permission. Besides the game screens it draws a
 grey/colour test card (`pattern_<filter>_<integer|fractional|fullscreen>.png`)
 with each filter at a whole-number scale, a fractional one and in full screen,
-using the default knob values, and an image of the settings window. It also
+using the default knob values, and an image of each settings tab
+(`settings_<tab>.png`). It checks that every setting is on one control in some
+tab and that using it sets its default (`selftest: settings: … ok`), that the
+window fits the screen and scrolls on a short one, and that it reopens on the
+last tab. It also
 runs the LCD response pass on one pixel through a black-to-white and a
 white-to-black step and logs the values per frame and the 10–90% times it
 measures against the setting (`selftest: LCD response … ok`). It copies back
@@ -545,7 +549,7 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/scripts/room_names.py`, `port/src/macos/roomname.c` | Room names for the window's subtitle |
 | `port/src/macos/renderer.m`, `shaders.metal` | Metal presentation and filters (shaders compiled at launch) |
 | `port/src/macos/input.m` | Keyboard and GameController input |
-| `port/src/macos/settings.m` | Settings window and the saved filter knobs |
+| `port/src/macos/settings.m` | Settings window (tabs that scroll, fitted to the screen) and the saved filter knobs |
 | `port/src/macos/displaysync.m` | Display refresh rate and present times, for display-sync pacing |
 | `port/src/macos/latency.c` | Opt-in input latency log (`TMC_LATENCY_LOG`) |
 | `port/src/macos/selftest.m` | `TMC_SELFTEST` scripted run with PNG captures |

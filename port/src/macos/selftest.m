@@ -226,6 +226,117 @@ static void CheckSubtitle(NSWindow* window, NSString* room, NSString* status) {
           ok ? @"ok" : [NSString stringWithFormat:@"FAILED, expected \"%@\"%@", expected, counter ? @" · Frame …" : @""]);
 }
 
+static void CollectControls(NSView* view, NSMutableArray<NSControl*>* out) {
+    if ([view isKindOfClass:NSControl.class] && view.identifier.length != 0) {
+        [out addObject:(NSControl*)view];
+    }
+    for (NSView* sub in view.subviews) {
+        CollectControls(sub, out);
+    }
+}
+
+// Settings: every setting is on exactly one control in some tab, and using the
+// control sets its key (then it is put back as it was, saved value included).
+static void CheckSettings(SettingsWindowController* settings, Renderer* renderer, Input* input) {
+    NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+    int failures = 0;
+    NSMutableDictionary<NSString*, NSString*>* tabOf = [NSMutableDictionary dictionary];
+    NSMutableArray<NSControl*>* controls = [NSMutableArray array];
+    for (NSTabViewItem* item in settings.tabView.tabViewItems) {
+        NSMutableArray<NSControl*>* found = [NSMutableArray array];
+        CollectControls(item.view, found);
+        for (NSControl* control in found) {
+            if (tabOf[control.identifier] != nil) {
+                NSLog(@"selftest: FAIL setting %@ is on two controls", control.identifier);
+                failures++;
+            }
+            tabOf[control.identifier] = item.label;
+        }
+        [controls addObjectsFromArray:found];
+    }
+    NSSet* expected = [NSSet setWithArray:SettingsKeys()];
+    if (![[NSSet setWithArray:tabOf.allKeys] isEqualToSet:expected]) {
+        NSMutableSet* missing = [expected mutableCopy];
+        [missing minusSet:[NSSet setWithArray:tabOf.allKeys]];
+        NSMutableSet* extra = [NSMutableSet setWithArray:tabOf.allKeys];
+        [extra minusSet:expected];
+        NSLog(@"selftest: FAIL settings not on a tab: %@; unknown: %@", missing.allObjects, extra.allObjects);
+        failures++;
+    }
+    for (NSControl* control in controls) {
+        NSString* key = control.identifier;
+        id saved = [defaults objectForKey:key];
+        BOOL ok = YES;
+        if ([control isKindOfClass:NSPopUpButton.class]) {
+            NSPopUpButton* popup = (NSPopUpButton*)control;
+            NSInteger picks[2] = { (popup.indexOfSelectedItem + 1) % popup.numberOfItems, popup.indexOfSelectedItem };
+            for (int i = 0; i < 2; i++) {
+                [popup selectItemAtIndex:picks[i]];
+                [popup sendAction:popup.action to:popup.target];
+                ok &= [defaults integerForKey:key] == picks[i];
+            }
+        } else if ([control isKindOfClass:NSSlider.class]) {
+            // To an end of its range (a whole step) and back.
+            NSSlider* slider = (NSSlider*)control;
+            double was = slider.doubleValue;
+            double picks[2] = { fabs(was - slider.minValue) < 1e-6 ? slider.maxValue : slider.minValue, was };
+            for (int i = 0; i < 2; i++) {
+                slider.doubleValue = picks[i];
+                [slider sendAction:slider.action to:slider.target];
+                ok &= i == 1 || fabs([defaults doubleForKey:key] - picks[i]) < 1e-4;
+            }
+        } else if ([control isKindOfClass:NSButton.class]) {
+            NSButton* box = (NSButton*)control;
+            for (int click = 0; click < 2; click++) {
+                [box performClick:nil];
+                ok &= [defaults boolForKey:key] == (box.state == NSControlStateValueOn);
+            }
+        } else {
+            ok = NO;
+        }
+        if (saved != nil) {
+            [defaults setObject:saved forKey:key];
+        } else {
+            [defaults removeObjectForKey:key];
+        }
+        if (!ok) {
+            NSLog(@"selftest: FAIL setting %@ (%@ tab) does not set its default", key, tabOf[key]);
+            failures++;
+        }
+    }
+    NSLog(@"selftest: settings: %lu settings on %ld tabs, each setting its default %@", (unsigned long)controls.count,
+          (long)settings.tabView.numberOfTabViewItems, failures ? @"FAILED" : @"ok");
+
+    // The window fits the screen, and a short one scrolls.
+    NSWindow* window = settings.window;
+    CGFloat screen = NSHeight((window.screen ?: NSScreen.mainScreen).visibleFrame);
+    BOOL fits = NSHeight(window.frame) <= screen;
+    NSLog(@"selftest: settings window %.0fx%.0f, visible screen height %.0f %@", NSWidth(window.frame),
+          NSHeight(window.frame), screen, fits ? @"ok" : @"FAILED");
+    NSString* tab = [defaults objectForKey:@"SettingsTab"];
+    [settings.tabView selectTabViewItemWithIdentifier:@"Filters"];
+    [settings fitToHeight:300];
+    [window.contentView layoutSubtreeIfNeeded];
+    NSScrollView* scroll = (NSScrollView*)settings.tabView.selectedTabViewItem.view;
+    BOOL scrolls = NSHeight(window.frame) <= 300 && NSHeight(scroll.documentView.frame) > NSHeight(scroll.contentView.bounds);
+    NSLog(@"selftest: settings window for a 300 pt screen %.0f high, Filters tab %.0f of %.0f shown %@",
+          NSHeight(window.frame), NSHeight(scroll.contentView.bounds), NSHeight(scroll.documentView.frame),
+          scrolls ? @"ok" : @"FAILED");
+    [settings fitToHeight:0];
+
+    // It reopens on the last tab.
+    [settings.tabView selectTabViewItemWithIdentifier:@"Timing"];
+    SettingsWindowController* again = [[SettingsWindowController alloc] initWithRenderer:renderer input:input pacingStatus:nil];
+    BOOL remembered = [again.tabView.selectedTabViewItem.identifier isEqual:@"Timing"];
+    NSLog(@"selftest: settings reopen on the last tab %@", remembered ? @"ok" : @"FAILED");
+    [again close];
+    if (tab != nil) {
+        [defaults setObject:tab forKey:@"SettingsTab"];
+    } else {
+        [defaults removeObjectForKey:@"SettingsTab"];
+    }
+}
+
 void SelfTestSnapshotWindow(NSWindow* window, NSString* name) {
     NSString* dir = NSProcessInfo.processInfo.environment[@"TMC_SELFTEST"];
     if (dir.length == 0) {
@@ -477,7 +588,16 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
         settings = [[SettingsWindowController alloc] initWithRenderer:renderer input:input pacingStatus:nil];
         [settings showWindow:nil];
     });
-    add(10, ^{ SelfTestSnapshotWindow(settings.window, @"settings"); });
+    add(10, ^{
+        NSString* tab = [NSUserDefaults.standardUserDefaults objectForKey:@"SettingsTab"];
+        for (NSTabViewItem* item in settings.tabView.tabViewItems) {
+            [settings.tabView selectTabViewItem:item];
+            [settings.window.contentView layoutSubtreeIfNeeded];
+            SelfTestSnapshotWindow(settings.window, [@"settings_" stringByAppendingString:item.label.lowercaseString]);
+        }
+        CheckSettings(settings, renderer, input);
+        [NSUserDefaults.standardUserDefaults setObject:tab forKey:@"SettingsTab"];
+    });
     if ([NSFileManager.defaultManager fileExistsAtPath:town]) {
         add(90, ^{ CheckSubtitle(window, @"Festival Town", nil); }); // the status is over
     }

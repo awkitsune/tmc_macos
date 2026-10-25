@@ -24,18 +24,28 @@ extern NSString* const kDebugToolbarDefault;
 // Posted when the Debug button setting changes, to update the toolbar.
 extern NSString* const kDebugToolbarChangedNotification;
 
+/* Every NSUserDefaults key the Settings window sets, one control each. */
+NSArray<NSString*>* SettingsKeys(void);
+
 /* Filter knobs saved in NSUserDefaults; missing values fall back to the defaults. */
 FilterParams LoadFilterParams(void);
 
 /*
- * Settings window: filter, integer scaling, every shader knob as a
- * slider, LCD response, frame pacing, the gamepad button layout, the Debug menu and its toolbar button. Changes apply to the running game
- * immediately and are saved.
+ * Settings window, in tabs: Display (filter, integer scaling, LCD response,
+ * colour), Filters (the LCD and CRT knobs as sliders), Timing (frame pacing),
+ * Controls (the gamepad button layout) and Debug (the Debug menu and its
+ * toolbar button). Each tab scrolls, so the window fits short screens; it
+ * reopens on the last tab. Changes apply to the running game immediately and
+ * are saved. Each setting's control has its NSUserDefaults key as identifier.
  */
 @interface SettingsWindowController : NSWindowController
 - (instancetype)initWithRenderer:(Renderer*)renderer input:(Input*)input pacingStatus:(nullable NSString* (^)(void))pacingStatus;
 // Re-read the renderer's state (after a menu changed the filter or scaling).
 - (void)refresh;
+// Size the window to its tallest tab, but no taller than maxHeight (0: the
+// screen's visible frame); the tabs scroll.
+- (void)fitToHeight:(CGFloat)maxHeight;
+@property(nonatomic, readonly) NSTabView* tabView;
 @end
 
 NS_ASSUME_NONNULL_END
