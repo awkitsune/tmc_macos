@@ -12,13 +12,9 @@ value back as a pointer). Better: the script's real GBA address, from the GBA li
 
 ## Packaging
 
-- App icon, name and About box.
-- Signing, notarization and a `.dmg`.
-
-## Input latency with a controller (on hold)
-
-Only keyboard key-to-screen latency was measured (`TMC_LATENCY_LOG`). A Bluetooth pad feels the same as the
-keyboard in play, so this waits until it feels worse. Then measure the GameController path.
+- About box.
+- Signing with a Developer ID, notarization and a `.dmg`. A shared build is ad-hoc signed today, so the
+  recipient has to use Open Anyway.
 
 ## Late-game checks
 
