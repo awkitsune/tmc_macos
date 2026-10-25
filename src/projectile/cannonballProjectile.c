@@ -11,6 +11,9 @@
 #include "entity.h"
 #include "physics.h"
 #include "asm.h"
+#ifdef PLATFORM_NATIVE
+#include "manager/angryStatueManager.h"
+#endif
 
 extern void (*const CannonballProjectile_Functions[])(Entity*);
 extern void (*const CannonballProjectile_Actions[])(Entity*);
@@ -81,7 +84,13 @@ bool32 sub_080AB5F4(Entity* this) {
 }
 
 bool32 sub_080AB634(Entity* this) {
+#ifdef PLATFORM_NATIVE
+    // parent is the AngryStatueManager; its statue list is at 0x20 on the GBA, where Entity has zVelocity,
+    // but natively the two layouts differ, so read the list by its own name.
+    Entity** entities = ((AngryStatueManager*)this->parent)->field_0x20;
+#else
     Entity** entities = ((Entity**)&this->parent->zVelocity);
+#endif
     u32 i;
     for (i = 0; i <= 3; ++i) {
         if (entities[i] != NULL && (IsColliding(this, entities[i]) != 0)) {
