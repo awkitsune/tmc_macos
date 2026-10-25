@@ -4,8 +4,24 @@ cmake_minimum_required(VERSION 3.24)
 # universal app (Apple silicon and Intel) configure with
 # -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64". Both must be set before project();
 # older build directories have the target cached empty.
-if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0 CACHE STRING "Oldest macOS the programs run on" FORCE)
+#
+# The iOS/iPadOS app is a separate Xcode build (see "The iOS app" below):
+#   cmake -S port -B build/ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DTMC_BAKE_DATA=OFF
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(TMC_IOS ON)
+    if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET 16.0 CACHE STRING "Oldest iOS the app runs on" FORCE)
+    endif()
+    if(NOT CMAKE_OSX_ARCHITECTURES)
+        set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "iOS devices are arm64" FORCE)
+    endif()
+    # Xcode's own default warnings on top of the compiler's: off, as in the macOS build.
+    set(CMAKE_XCODE_ATTRIBUTE_GCC_WARN_64_TO_32_BIT_CONVERSION NO)
+else()
+    set(TMC_IOS OFF)
+    if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0 CACHE STRING "Oldest macOS the programs run on" FORCE)
+    endif()
 endif()
 
 project(tmc_native VERSION 0.1 LANGUAGES C OBJC ASM)
@@ -48,7 +64,15 @@ foreach(pending ${TMC_NATIVE_PENDING})
     list(REMOVE_ITEM TMC_GAME_SOURCES ${TMC_ROOT}/${pending})
 endforeach()
 
-add_library(tmc_game OBJECT ${TMC_GAME_SOURCES})
+# Object libraries, linked whole into each program. The Xcode generator (iOS)
+# renames objects whose sources share a name, which $<TARGET_OBJECTS> does not
+# follow, so there they are static libraries that the app loads whole.
+if(TMC_IOS)
+    set(TMC_OBJECTS_TYPE STATIC)
+else()
+    set(TMC_OBJECTS_TYPE OBJECT)
+endif()
+add_library(tmc_game ${TMC_OBJECTS_TYPE} ${TMC_GAME_SOURCES})
 target_include_directories(tmc_game PRIVATE
     ${TMC_ROOT}/include
     ${TMC_ASSETS_BUILD_DIR}
@@ -147,7 +171,7 @@ add_custom_target(datagen
     COMMENT "Regenerating native game data"
 )
 
-add_library(tmc_data OBJECT ${TMC_DATA_SOURCES})
+add_library(tmc_data ${TMC_OBJECTS_TYPE} ${TMC_DATA_SOURCES})
 
 # Which bytes of the save state segment can hold a pointer, from the C types of
 # every source whose globals are in it (port/tools/datagen/statemap.py, which
@@ -216,18 +240,6 @@ target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tmc_port PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR} ${TMC_DATA_DIR})
 target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
 
-# `link-report` lists unresolved symbols if the link ever breaks again.
-add_executable(tmc src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
-target_link_libraries(tmc PRIVATE tmc_port z)
-# Every variable of the save state segment must be in the pointer map.
-add_custom_command(TARGET tmc POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E env TMC_STATE_MAP_CHECK=1 $<TARGET_FILE:tmc>
-    COMMENT "Checking the save state pointer map"
-    VERBATIM
-)
-
-# The macOS app: a window with the Metal renderer, keyboard and gamepad input,
-# Core Audio sound, running the game at 59.73 Hz. Builds "build/native/The Minish Cap.app".
 # The Metal renderer, sound, input, game thread and settings storage are shared
 # with the iOS app (src/apple); the AppKit shell is in src/macos.
 set(TMC_APPLE_SOURCES
@@ -241,7 +253,7 @@ set(TMC_APPLE_SOURCES
     src/apple/settingsstore.m
 )
 set(TMC_APP_SHADERS src/apple/shaders.metal)
-# The window's subtitle names the room the player is in.
+# The room the player is in, for the macOS window's subtitle and the iOS settings.
 set(TMC_ROOM_NAMES ${CMAKE_BINARY_DIR}/room_names.c)
 add_custom_command(
     OUTPUT ${TMC_ROOM_NAMES}
@@ -250,6 +262,25 @@ add_custom_command(
     DEPENDS scripts/room_names.py ${TMC_ROOT}/include/area.h ${TMC_ROOT}/include/roomid.h
     COMMENT "Generating the room name table"
 )
+# roomname.c reads the game's globals, so it builds with the game's headers.
+set_source_files_properties(src/apple/roomname.c PROPERTIES
+    INCLUDE_DIRECTORIES "${TMC_ROOT}/include;${TMC_ASSETS_BUILD_DIR}"
+    COMPILE_DEFINITIONS "PLATFORM_NATIVE=1;NON_MATCHING=1;${TMC_GAME_VERSION};ENGLISH;REVISION=0")
+
+if(NOT TMC_IOS)
+
+# `link-report` lists unresolved symbols if the link ever breaks again.
+add_executable(tmc src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
+target_link_libraries(tmc PRIVATE tmc_port z)
+# Every variable of the save state segment must be in the pointer map.
+add_custom_command(TARGET tmc POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E env TMC_STATE_MAP_CHECK=1 $<TARGET_FILE:tmc>
+    COMMENT "Checking the save state pointer map"
+    VERBATIM
+)
+
+# The macOS app: a window with the Metal renderer, keyboard and gamepad input,
+# Core Audio sound, running the game at 59.73 Hz. Builds "build/native/The Minish Cap.app".
 add_executable(tmc_app MACOSX_BUNDLE
     src/macos/app.m
     src/macos/debugwindows.m
@@ -289,10 +320,6 @@ target_compile_definitions(tmc_app PRIVATE
     TMC_DEBUG_MENU_DEFAULT=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>
     TMC_CHECKPOINT_DIR="${TMC_CHECKPOINT_DIR}"
 )
-# roomname.c reads the game's globals, so it builds with the game's headers.
-set_source_files_properties(src/apple/roomname.c PROPERTIES
-    INCLUDE_DIRECTORIES "${TMC_ROOT}/include;${TMC_ASSETS_BUILD_DIR}"
-    COMPILE_DEFINITIONS "PLATFORM_NATIVE=1;NON_MATCHING=1;${TMC_GAME_VERSION};ENGLISH;REVISION=0")
 target_include_directories(tmc_app PRIVATE src/macos src/apple)
 target_compile_options(tmc_app PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>)
 target_compile_options(tmc_app PRIVATE -Wall -Wno-unused-parameter)
@@ -344,3 +371,65 @@ add_custom_target(link-report
     USES_TERMINAL
     COMMENT "Linking tmc and summarizing unresolved symbols"
 )
+
+endif() # NOT TMC_IOS
+
+# The iOS/iPadOS app (iPhone and iPad): a full-screen Metal view, gamepad and
+# hardware keyboard input, settings in a sheet; the shell is in src/ios. Only
+# the Xcode generator can sign and package it:
+#   cmake -S port -B build/ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+#       -DTMC_BAKE_DATA=OFF -DTMC_IOS_TEAM=<team id>
+#   xcodebuild -project build/ios/tmc_native.xcodeproj -scheme tmc_ios -destination 'generic/platform=iOS' build
+# (port/scripts/ios_install.sh builds and installs it on a connected device.)
+# Without TMC_BAKE_DATA=OFF the app would carry the game's data; it reads the
+# player's ROM instead, imported on first launch.
+if(TMC_IOS)
+    set(TMC_IOS_TEAM "" CACHE STRING "Apple development team ID that signs the iOS app (Xcode > Settings > Accounts)")
+    set(TMC_IOS_BUNDLE_ID io.github.awkitsune.tmc-ios CACHE STRING "Bundle identifier of the iOS app")
+    add_executable(tmc_ios MACOSX_BUNDLE
+        src/ios/app.m
+        src/ios/audiosession.m
+        src/ios/displaysync.m
+        src/ios/gameview.m
+        src/ios/romimport.m
+        src/ios/selftest.m
+        src/ios/settingsview.m
+        ${TMC_APPLE_SOURCES}
+        ${TMC_ROOM_NAMES}
+        ${TMC_APP_SHADERS}
+        src/ios/Assets.xcassets
+    )
+    # The shaders are copied as text and compiled at launch, as on macOS.
+    set_source_files_properties(${TMC_APP_SHADERS} PROPERTIES XCODE_EXPLICIT_FILE_TYPE text)
+    set_target_properties(tmc_ios PROPERTIES
+        OUTPUT_NAME "TheMinishCap"
+        RESOURCE "${TMC_APP_SHADERS};src/ios/Assets.xcassets"
+        MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/src/ios/Info.plist.in
+        MACOSX_BUNDLE_BUNDLE_NAME "The Minish Cap"
+        MACOSX_BUNDLE_GUI_IDENTIFIER ${TMC_IOS_BUNDLE_ID}
+        MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+        MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${TMC_IOS_BUNDLE_ID}
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET ${CMAKE_OSX_DEPLOYMENT_TARGET}
+        XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME AppIcon
+        XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES
+        XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic
+        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development"
+        XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${TMC_IOS_TEAM}"
+        XCODE_ATTRIBUTE_ENABLE_BITCODE NO
+    )
+    target_include_directories(tmc_ios PRIVATE src/ios src/apple)
+    target_compile_options(tmc_ios PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>)
+    target_compile_options(tmc_ios PRIVATE -Wall -Wno-unused-parameter)
+    # Every object of the game and its data, referenced or not (the data's
+    # sections are found by name, not by symbol).
+    add_dependencies(tmc_ios tmc_game tmc_data)
+    target_link_libraries(tmc_ios PRIVATE
+        "-Wl,-force_load,$<TARGET_FILE:tmc_game>" "-Wl,-force_load,$<TARGET_FILE:tmc_data>"
+        tmc_port z
+        "-framework UIKit" "-framework CoreGraphics" "-framework Metal" "-framework MetalKit" "-framework GameController"
+        "-framework QuartzCore" "-framework AudioToolbox" "-framework AVFAudio"
+        "-framework UniformTypeIdentifiers" "-framework ImageIO"
+    )
+endif()

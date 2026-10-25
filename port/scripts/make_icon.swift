@@ -4,6 +4,11 @@
 // which garbled a run of pixels in the 32 px icon.
 //
 // usage: swift port/scripts/make_icon.swift port/src/macos/icon/icon_32.png port/src/macos/icon/AppIcon.icns
+//
+// With a .png output it writes the iOS app's 1024 px icon instead, without an
+// alpha channel (iOS icons are opaque):
+//        swift port/scripts/make_icon.swift port/src/macos/icon/icon_32.png \
+//            port/src/ios/Assets.xcassets/AppIcon.appiconset/icon_1024.png
 import AppKit
 
 let args = CommandLine.arguments
@@ -13,13 +18,19 @@ guard args.count == 3, let source = NSImage(contentsOfFile: args[1]),
     exit(1)
 }
 
-func png(_ size: Int) -> Data {
+func png(_ size: Int, opaque: Bool = false) -> Data {
     let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    let alpha = opaque ? CGImageAlphaInfo.noneSkipLast : CGImageAlphaInfo.premultipliedLast
     let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: space,
-                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                        bitmapInfo: alpha.rawValue)!
     ctx.interpolationQuality = .none
     ctx.draw(cg, in: CGRect(x: 0, y: 0, width: size, height: size))
     return NSBitmapImageRep(cgImage: ctx.makeImage()!).representation(using: .png, properties: [:])!
+}
+
+if args[2].hasSuffix(".png") {
+    try! png(1024, opaque: true).write(to: URL(fileURLWithPath: args[2]))
+    exit(0)
 }
 
 func be32(_ v: Int) -> Data { withUnsafeBytes(of: UInt32(v).bigEndian) { Data($0) } }
