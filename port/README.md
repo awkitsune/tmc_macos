@@ -2,7 +2,9 @@
 
 Native macOS build of the decompiled game code (Apple silicon and Intel, macOS 12
 or later): a Metal app with keyboard
-and gamepad input, plus a headless runner for automated testing. The GBA build in the repository root stays
+and gamepad input, plus a headless runner for automated testing. The same game
+core, renderer and sound also build as an iPhone and iPad app (iOS 16 or later;
+see [iPhone and iPad](#iphone-and-ipad)). The GBA build in the repository root stays
 byte-matching: every port change is either under `port/` or behind
 `#ifdef PLATFORM_NATIVE`.
 
@@ -430,6 +432,53 @@ its size below the toolbar) and the subtitle in the checkpoint's room
 TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest "build/native/The Minish Cap.app/Contents/MacOS/The Minish Cap"
 ```
 
+### iPhone and iPad
+
+The iOS/iPadOS app (`port/src/ios`) shares the game thread, renderer, shaders,
+sound, input and settings storage with the Mac app (`port/src/apple`); only the
+UIKit shell is its own. Installing it with a free Apple ID is described in the
+[repository README](../README.md#iphone-and-ipad). It is an Xcode project made by
+CMake, always without the game's data (`TMC_BAKE_DATA=OFF`):
+
+```bash
+cmake -S port -B build/ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DTMC_BAKE_DATA=OFF
+xcodebuild -project build/ios/tmc_native.xcodeproj -scheme tmc_ios -destination 'generic/platform=iOS' -jobs 4 CODE_SIGNING_ALLOWED=NO build
+```
+
+The second line checks that it compiles and links for devices without signing;
+`-DTMC_IOS_TEAM=...` (automatic signing) and `port/scripts/ios_install.sh` make
+an installable one. `TMC_IOS_BUNDLE_ID` changes the bundle ID
+(`io.github.awkitsune.tmc-ios`).
+
+- **Screen.** Full screen, the status bar and home indicator hidden, in any
+  orientation, scaled by a whole number by default inside the safe area.
+- **Input.** Gamepads as on the Mac, and a hardware keyboard through
+  GCKeyboard with the Mac's keys. There are no touch controls: without a
+  controller the game pauses under a "Connect a controller" overlay, also when
+  one disconnects.
+- **Settings.** A sheet (medium and large on iPhone, a card on iPad) with the
+  Mac's settings in pages: Display (filter, integer scaling, LCD response,
+  the knobs), Controls, Timing (frame pacing), Game (quick save slots, reset,
+  fast-forward, sound) and About; no Debug tools. It opens from the
+  controller's Home button, by holding ☰ (a press is Start), with Escape, or
+  with a tap anywhere; the D-pad moves, left and right change a value, A
+  selects, B goes back and closes. The game pauses while it is open.
+- **Life cycle.** The game pauses when the app resigns active (and the save
+  file is synced to disk) and in the background, and goes on when it returns.
+  Sound is an `AVAudioSession` (playback) with RemoteIO, stopped during
+  interruptions and remade at the new rate after a route change. Display sync
+  uses a `CADisplayLink` at 60 Hz on its own thread.
+- **Files.** `tmc.sav` and `states/` are in the app's Documents, shown in the
+  Files app; the extracted game data is in `Library/Application Support/tmc_macos`
+  inside the app's container (`port/src/romdata.c`), imported on first launch
+  from a ROM chosen in a document picker and checked as on the Mac.
+- **Self-test.** `TMC_SELFTEST=1` runs the app's checks on the device and quits
+  with "N failed checks" on standard output: the renderer and LCD response
+  kernel, the audio session, the ROM import path, the files, the keyboard and
+  gamepad mappings, a virtual controller attaching and detaching, the frame
+  rate, a save state round trip, the settings sheet driven by keys, and pausing
+  on resign active. `port/scripts/ios_install.sh --selftest` installs and runs it.
+
 ### Running headless
 
 Environment variables control the headless runner:
@@ -637,16 +686,19 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/heap.c` | `zMalloc` call sites, so save states know each heap block's type |
 | `port/scripts/checkpoints.sh`, `state_diff.py` | Checkpoint states along the playthrough; comparing two states |
 | `port/src/frame.c` | Frame boundary shared by both platforms: latch keys, raise VCOUNT and VBLANK |
-| `port/src/macos/game.c` | App platform layer: game thread, 59.73 Hz pacing, frame hand-off |
+| `port/src/apple/game.c` | App platform layer (macOS and iOS): game thread, 59.73 Hz pacing, frame hand-off |
 | `port/src/macos/app.m` | Window, menus, toolbar, subtitle, full screen, save location |
-| `port/scripts/room_names.py`, `port/src/macos/roomname.c` | Room names for the window's subtitle |
-| `port/src/macos/renderer.m`, `shaders.metal` | Metal presentation and filters (shaders compiled at launch) |
-| `port/src/macos/input.m` | Keyboard and GameController input |
-| `port/src/macos/settings.m` | Settings window (tabs that scroll, fitted to the screen) and the saved filter knobs |
-| `port/src/macos/displaysync.m` | Display refresh rate and present times, for display-sync pacing |
-| `port/src/macos/latency.c` | Opt-in input latency log (`TMC_LATENCY_LOG`) |
+| `port/scripts/room_names.py`, `port/src/apple/roomname.c` | Room names for the window's subtitle and the iOS settings |
+| `port/src/apple/renderer.m`, `shaders.metal` | Metal presentation and filters (shaders compiled at launch) |
+| `port/src/apple/input.m` | Keyboard and GameController input (GCKeyboard on iOS) |
+| `port/src/apple/settingsstore.m` | The settings' keys and the saved filter knobs |
+| `port/src/macos/settings.m` | Settings window (tabs that scroll, fitted to the screen) |
+| `port/src/apple/displaysynccore.m`, `port/src/macos/displaysync.m` | Display refresh rate and present times, for display-sync pacing (CVDisplayLink) |
+| `port/src/apple/latency.c` | Opt-in input latency log (`TMC_LATENCY_LOG`) |
 | `port/src/macos/selftest.m` | `TMC_SELFTEST` scripted run with PNG captures |
 | `port/src/macos/romsetup.m` | First launch: ROM open panel, progress window, errors, Change ROM… |
+| `port/src/ios/` | The iOS/iPadOS app: game screen, settings sheet, ROM import, audio session, CADisplayLink, self-test |
+| `port/scripts/ios_install.sh` | Builds the iOS app signed with your team and installs it on a connected device |
 | `port/src/romdata.c` | ROM checks, extraction to `gamedata.bin`, filling the game data from it |
 | `port/tools/datagen/provenance.py` | Tells asset bytes (from `baserom.gba`) from source-written ones |
 | `port/scripts/asset_overlap.py` | Lists what a program shares with the extracted asset files |
@@ -654,7 +706,7 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/src/asm/` | C versions of every function in `asm/src/*.s` |
 | `port/src/eeprom.c` | Emulated save EEPROM (replaces `src/eeprom.c`) |
 | `port/src/sound/` | Native sound: `asm/lib/m4a_asm.s` in C, the mixer, CGB channels, WAV output (see [Sound](#sound)) |
-| `port/src/macos/audio.c` | Core Audio output with drift control |
+| `port/src/apple/audio.c` | Core Audio output with drift control (RemoteIO on iOS) |
 | `port/src/tools/tmc_songs.c` | The song exporter |
 | `port/src/trace.c` | Game-state tracing for the headless runner |
 | `port/src/gfxdebug.c` | Graphics debugging: hardware snapshots per frame, sprite/layer/register decoders, `TMC_DUMP_*` text (see [Graphics debugging](#graphics-debugging)) |
