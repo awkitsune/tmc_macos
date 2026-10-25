@@ -31,6 +31,8 @@ static atomic_bool sPaused;
 static atomic_bool sFastForward;
 static atomic_int sResetFrames;
 static atomic_bool sStopRequested;
+static atomic_bool sWaiting; // paused at a loop boundary
+static atomic_bool sStarted;
 static atomic_bool sStopped;
 static atomic_int sStepFrames;
 static atomic_int sPacing; // FrontendPacing
@@ -97,6 +99,16 @@ void FrontendSetFrameHandler(void (*handler)(void* context), void* context) {
 
 void FrontendSetPaused(bool paused) {
     atomic_store(&sPaused, paused);
+}
+
+bool FrontendWaitUntilPaused(int timeoutMs) {
+    for (int waited = 0; !atomic_load(&sWaiting); waited++) {
+        if (!atomic_load(&sStarted) || !atomic_load(&sPaused) || waited >= timeoutMs) {
+            return atomic_load(&sWaiting) || !atomic_load(&sStarted);
+        }
+        usleep(1000);
+    }
+    return true;
 }
 
 bool FrontendIsPaused(void) {
@@ -391,6 +403,7 @@ static void WaitWhilePaused(void) {
         return;
     }
     sSkipWork = true;
+    atomic_store(&sWaiting, true);
     while (atomic_load(&sPaused) && !atomic_load(&sStopRequested)) {
         int steps = atomic_load(&sStepFrames);
         if (steps > 0 && atomic_compare_exchange_strong(&sStepFrames, &steps, steps - 1)) {
@@ -402,6 +415,7 @@ static void WaitWhilePaused(void) {
         }
         usleep(5000);
     }
+    atomic_store(&sWaiting, false);
     sNextDeadline = mach_absolute_time();
 }
 
@@ -481,6 +495,7 @@ void FrontendStartGame(void) {
         abort();
     }
     pthread_attr_destroy(&attr);
+    atomic_store(&sStarted, true);
 }
 
 void FrontendStopGame(void) {

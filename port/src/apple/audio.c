@@ -12,12 +12,17 @@
  * 50 ms. On an underrun (pause, a stall) it fades to silence and waits for the
  * ring to refill before playing again, so neither case clicks.
  *
+ * On iOS the output unit is RemoteIO, at the audio session's rate
+ * (ios/audiosession.m sets the session up and restarts the unit when the
+ * route or the rate changes).
+ *
  * TMC_AUDIO_WAV=path records what the callback produced (up to ten minutes) and
  * writes it on exit, with underrun and drop counts on stderr, for checking the
  * real output path without listening.
  */
 
 #include <AudioToolbox/AudioToolbox.h>
+#include <TargetConditionals.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -181,10 +186,15 @@ static bool Check(OSStatus status, const char* what) {
     return true;
 }
 
-bool AudioStart(void) {
+// Create and initialize the output unit, fed at the device's rate.
+static bool OpenUnit(void) {
     AudioComponentDescription desc = {
         .componentType = kAudioUnitType_Output,
+#if TARGET_OS_IOS
+        .componentSubType = kAudioUnitSubType_RemoteIO,
+#else
         .componentSubType = kAudioUnitSubType_DefaultOutput,
+#endif
         .componentManufacturer = kAudioUnitManufacturer_Apple,
     };
     AudioComponent component = AudioComponentFindNext(NULL, &desc);
@@ -192,7 +202,6 @@ bool AudioStart(void) {
     UInt32 size = sizeof(device);
     AudioStreamBasicDescription format;
     AURenderCallbackStruct callback = { Render, NULL };
-    const char* record = getenv("TMC_AUDIO_WAV");
 
     if (component == NULL) {
         fprintf(stderr, "audio: no default output unit\n");
@@ -202,7 +211,12 @@ bool AudioStart(void) {
         return false;
     }
     // Feed the unit at the device's own rate so there is only one resampler.
+#if TARGET_OS_IOS
+    (void)size;
+    device.mSampleRate = AudioSessionSampleRate();
+#else
     AudioUnitGetProperty(sUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &device, &size);
+#endif
     sDeviceRate = device.mSampleRate >= 8000 ? device.mSampleRate : 48000;
     format = (AudioStreamBasicDescription){
         .mSampleRate = sDeviceRate,
@@ -223,6 +237,15 @@ bool AudioStart(void) {
         !Check(AudioUnitInitialize(sUnit), "AudioUnitInitialize")) {
         AudioComponentInstanceDispose(sUnit);
         sUnit = NULL;
+        return false;
+    }
+    return true;
+}
+
+bool AudioStart(void) {
+    const char* record = getenv("TMC_AUDIO_WAV");
+
+    if (!OpenUnit()) {
         return false;
     }
     if (record != NULL && record[0] != '\0') {
@@ -263,6 +286,41 @@ void AudioStop(void) {
         sRecord = NULL;
     }
 }
+
+#if TARGET_OS_IOS
+static void CloseUnit(void) {
+    AudioOutputUnitStop(sUnit);
+    AudioUnitUninitialize(sUnit);
+    AudioComponentInstanceDispose(sUnit);
+    sUnit = NULL;
+}
+
+bool AudioSetRunning(bool running) {
+    if (sUnit == NULL) {
+        return false;
+    }
+    if (!running) {
+        AudioOutputUnitStop(sUnit);
+        return true;
+    }
+    return Check(AudioOutputUnitStart(sUnit), "AudioOutputUnitStart");
+}
+
+bool AudioRestart(void) {
+    if (sUnit == NULL) {
+        return false;
+    }
+    CloseUnit();
+    if (!OpenUnit()) {
+        return false;
+    }
+    return Check(AudioOutputUnitStart(sUnit), "AudioOutputUnitStart");
+}
+
+double AudioDeviceRate(void) {
+    return sUnit != NULL ? sDeviceRate : 0;
+}
+#endif
 
 void AudioSetRateScale(double scale) {
     atomic_store(&sRateScale, fmax(0.98, fmin(1.02, scale)));

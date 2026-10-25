@@ -1,6 +1,8 @@
 #import "input.h"
 
+#if !TARGET_OS_IOS
 #import <Carbon/Carbon.h> // kVK_* virtual key codes
+#endif
 #import <GameController/GameController.h>
 
 #include <stdatomic.h>
@@ -8,6 +10,34 @@
 #include "latency.h"
 #include "port/hw.h"
 
+#if TARGET_OS_IOS
+// The keyboard layout of the macOS app, by HID usage (GCKeyCode), read through
+// GCKeyboard. Escape asks for the settings.
+typedef struct {
+    GCKeyCode keyCode;
+    uint16_t key;
+} KeyBinding;
+
+static const KeyBinding kKeyBindings[] = {
+    { 0x52, HW_KEY_UP },     // GCKeyCodeUpArrow
+    { 0x51, HW_KEY_DOWN },   // GCKeyCodeDownArrow
+    { 0x50, HW_KEY_LEFT },   // GCKeyCodeLeftArrow
+    { 0x4F, HW_KEY_RIGHT },  // GCKeyCodeRightArrow
+    { 0x1B, HW_KEY_A },      // GCKeyCodeKeyX
+    { 0x1D, HW_KEY_B },      // GCKeyCodeKeyZ
+    { 0x04, HW_KEY_L },      // GCKeyCodeKeyA
+    { 0x16, HW_KEY_R },      // GCKeyCodeKeyS
+    { 0x28, HW_KEY_START },  // GCKeyCodeReturnOrEnter
+    { 0x58, HW_KEY_START },  // GCKeyCodeKeypadEnter
+    { 0x2A, HW_KEY_SELECT }, // GCKeyCodeDeleteOrBackspace
+    { 0x31, HW_KEY_SELECT }, // GCKeyCodeBackslash
+};
+
+static const GCKeyCode kFastForwardKey = 0x2B; // GCKeyCodeTab
+static const GCKeyCode kSettingsKey = 0x29;    // GCKeyCodeEscape
+// Holding ☰ this long opens the settings (a press is GBA Start).
+static const NSTimeInterval kMenuHoldSeconds = 0.6;
+#else
 typedef struct {
     unsigned short keyCode;
     uint16_t key;
@@ -29,9 +59,10 @@ static const KeyBinding kKeyBindings[] = {
     { kVK_ANSI_Backslash, HW_KEY_SELECT },
 };
 
-static BOOL IsNintendoPad(GCController* controller);
-
 static const unsigned short kFastForwardKey = kVK_Tab;
+#endif
+
+static BOOL IsNintendoPad(GCController* controller);
 
 // The keyboard state is written by the main thread (key events) and read by the
 // game thread, right before each frame.
@@ -39,6 +70,12 @@ static const unsigned short kFastForwardKey = kVK_Tab;
     _Atomic uint16_t _keyboardKeys;
     atomic_bool _fastForwardKey;
     dispatch_queue_t _padQueue; // latency log only
+#if TARGET_OS_IOS
+    NSMutableSet<GCController*>* _connected; // main thread
+    BOOL _keyboardConnected;
+    BOOL _menuDown;
+    NSUInteger _menuPresses;
+#endif
 }
 
 - (instancetype)init {
@@ -47,6 +84,21 @@ static const unsigned short kFastForwardKey = kVK_Tab;
         [centre addObserver:self selector:@selector(controllersDidChange:) name:GCControllerDidConnectNotification object:nil];
         [centre addObserver:self selector:@selector(controllersDidChange:) name:GCControllerDidDisconnectNotification object:nil];
         [GCController startWirelessControllerDiscoveryWithCompletionHandler:nil];
+#if TARGET_OS_IOS
+        [centre addObserver:self selector:@selector(keyboardDidChange:) name:GCKeyboardDidConnectNotification object:nil];
+        [centre addObserver:self selector:@selector(keyboardDidChange:) name:GCKeyboardDidDisconnectNotification object:nil];
+        _connected = [NSMutableSet set];
+        for (GCController* controller in GCController.controllers) {
+            if (controller.extendedGamepad != nil) {
+                [_connected addObject:controller];
+                [self watchSettingsButtons:controller];
+            }
+        }
+        if (GCKeyboard.coalescedKeyboard != nil) {
+            _keyboardConnected = YES;
+            [self watchKeyboard:GCKeyboard.coalescedKeyboard];
+        }
+#endif
         if (LatencyEnabled()) {
             dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0);
             _padQueue = dispatch_queue_create("gamepad latency", attr);
@@ -70,6 +122,14 @@ static const unsigned short kFastForwardKey = kVK_Tab;
     if (connected && LatencyEnabled()) {
         [self watchController:controller];
     }
+#if TARGET_OS_IOS
+    if (connected && controller.extendedGamepad != nil) {
+        [_connected addObject:controller];
+        [self watchSettingsButtons:controller];
+    } else if (!connected) {
+        [_connected removeObject:controller];
+    }
+#endif
     if (self.controllersChanged) {
         self.controllersChanged();
     }
@@ -88,7 +148,8 @@ static const unsigned short kFastForwardKey = kVK_Tab;
         uint64_t now = LatencyNowNs();
         uint64_t stamp = (uint64_t)(pad.lastEventTimestamp * 1e9);
         Input* strongSelf = weakSelf;
-        uint16_t keys = [strongSelf keysForController:controller nintendo:IsNintendoPad(controller)];
+        GCController* owner = pad.controller; // not captured: the pad keeps its handler
+        uint16_t keys = [strongSelf keysForController:owner nintendo:IsNintendoPad(owner)];
         if (keys != last) {
             last = keys;
             // The pad's own timestamp, when it is on the clock we compare with.
@@ -106,6 +167,7 @@ static const unsigned short kFastForwardKey = kVK_Tab;
     return nil;
 }
 
+#if !TARGET_OS_IOS
 - (BOOL)handleKeyEvent:(NSEvent*)event down:(BOOL)down {
     unsigned short code = event.keyCode;
 
@@ -125,6 +187,8 @@ static const unsigned short kFastForwardKey = kVK_Tab;
     }
     return NO;
 }
+
+#endif
 
 - (void)setKeyboardKeysForTesting:(uint16_t)keys {
     if (keys != atomic_load(&_keyboardKeys)) {
@@ -188,6 +252,16 @@ static uint16_t GamepadKeys(GCController* controller, BOOL nintendo, GamepadLayo
 - (uint16_t)pollKeys {
     @autoreleasepool {
         uint16_t keys = atomic_load(&_keyboardKeys);
+#if TARGET_OS_IOS
+        GCKeyboardInput* keyboard = GCKeyboard.coalescedKeyboard.keyboardInput;
+        if (keyboard != nil) {
+            for (size_t i = 0; i < sizeof(kKeyBindings) / sizeof(kKeyBindings[0]); i++) {
+                if ([keyboard buttonForKeyCode:kKeyBindings[i].keyCode].pressed) {
+                    keys |= kKeyBindings[i].key;
+                }
+            }
+        }
+#endif
         for (GCController* controller in GCController.controllers) {
             if (controller.extendedGamepad != nil) {
                 keys |= GamepadKeys(controller, IsNintendoPad(controller), self.gamepadLayout);
@@ -201,7 +275,17 @@ static uint16_t GamepadKeys(GCController* controller, BOOL nintendo, GamepadLayo
     if (atomic_load(&_fastForwardKey)) {
         return YES;
     }
+#if TARGET_OS_IOS
+    if (self.fastForwardLatched) {
+        return YES;
+    }
+#endif
     @autoreleasepool {
+#if TARGET_OS_IOS
+        if ([GCKeyboard.coalescedKeyboard.keyboardInput buttonForKeyCode:kFastForwardKey].pressed) {
+            return YES;
+        }
+#endif
         for (GCController* controller in GCController.controllers) {
             // Right stick click doubles as fast-forward on a gamepad.
             if (controller.extendedGamepad.rightThumbstickButton.pressed) {
@@ -211,5 +295,101 @@ static uint16_t GamepadKeys(GCController* controller, BOOL nintendo, GamepadLayo
     }
     return NO;
 }
+
+#if TARGET_OS_IOS
+
+int InputCheckKeyCodes(void) {
+    const GCKeyCode named[] = { GCKeyCodeUpArrow, GCKeyCodeDownArrow, GCKeyCodeLeftArrow, GCKeyCodeRightArrow,
+                                GCKeyCodeKeyX, GCKeyCodeKeyZ, GCKeyCodeKeyA, GCKeyCodeKeyS, GCKeyCodeReturnOrEnter,
+                                GCKeyCodeKeypadEnter, GCKeyCodeDeleteOrBackspace, GCKeyCodeBackslash };
+    int wrong = kFastForwardKey != GCKeyCodeTab;
+    wrong += kSettingsKey != GCKeyCodeEscape;
+    for (size_t i = 0; i < sizeof(named) / sizeof(named[0]); i++) {
+        wrong += kKeyBindings[i].keyCode != named[i];
+    }
+    return wrong;
+}
+
+- (BOOL)hasController {
+    return _connected.count > 0 || _keyboardConnected;
+}
+
+- (NSArray<NSString*>*)controllerNames {
+    NSMutableArray<NSString*>* names = [NSMutableArray array];
+    for (GCController* controller in _connected) {
+        [names addObject:controller.vendorName ?: @"Gamepad"];
+    }
+    if (_keyboardConnected) {
+        [names addObject:@"Keyboard"];
+    }
+    return names;
+}
+
+- (void)keyboardDidChange:(NSNotification*)note {
+    BOOL connected = [note.name isEqualToString:GCKeyboardDidConnectNotification];
+    NSLog(@"keyboard %@", connected ? @"connected" : @"disconnected");
+    _keyboardConnected = connected;
+    if (connected) {
+        [self watchKeyboard:note.object];
+    } else {
+        [self releaseAll];
+    }
+    if (self.controllersChanged) {
+        self.controllersChanged();
+    }
+}
+
+- (void)requestSettings {
+    if (self.settingsRequested) {
+        self.settingsRequested();
+    }
+}
+
+- (void)watchKeyboard:(GCKeyboard*)keyboard {
+    __weak Input* weakSelf = self;
+    keyboard.keyboardInput.keyChangedHandler = ^(GCKeyboardInput* input, GCControllerButtonInput* key, GCKeyCode code,
+                                                 BOOL pressed) {
+        if (pressed && code == kSettingsKey) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weakSelf requestSettings];
+            });
+        }
+    };
+}
+
+// The settings open from the Home button (taken from the system, which would
+// show its own overlay) or from holding ☰.
+- (void)watchSettingsButtons:(GCController*)controller {
+    GCExtendedGamepad* pad = controller.extendedGamepad;
+    __weak Input* weakSelf = self;
+    pad.buttonHome.preferredSystemGestureState = GCSystemGestureStateDisabled;
+    pad.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput* button, float value, BOOL pressed) {
+        if (pressed) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weakSelf requestSettings];
+            });
+        }
+    };
+    pad.buttonMenu.pressedChangedHandler = ^(GCControllerButtonInput* button, float value, BOOL pressed) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf menuButtonPressed:pressed];
+        });
+    };
+}
+
+- (void)menuButtonPressed:(BOOL)pressed {
+    _menuDown = pressed;
+    NSUInteger press = ++_menuPresses;
+    if (!pressed) {
+        return;
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kMenuHoldSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (self->_menuDown && self->_menuPresses == press) {
+            [self requestSettings];
+        }
+    });
+}
+
+#endif
 
 @end

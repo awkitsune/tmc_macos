@@ -65,6 +65,12 @@ void FrontendSetKeys(uint16_t keys);
 
 void FrontendSetPaused(bool paused);
 bool FrontendIsPaused(void);
+/*
+ * After FrontendSetPaused(true): wait (up to timeoutMs) until the game thread
+ * has stopped at its loop boundary, so it writes nothing more (the save) until
+ * resumed. True once it has, or if the game has not started.
+ */
+bool FrontendWaitUntilPaused(int timeoutMs);
 void FrontendSetFastForward(bool on);
 
 /* Reset the game the way the game itself does (A+B+Select+Start). */

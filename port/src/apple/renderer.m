@@ -5,6 +5,11 @@
 #include <stdatomic.h>
 #include <zlib.h>
 
+#if TARGET_OS_IOS
+#import <ImageIO/ImageIO.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#endif
+
 #include "displaysync.h"
 #include "frontend.h"
 #include "latency.h"
@@ -241,10 +246,14 @@ typedef struct {
         return nil;
     }
     _device = view.device;
+#if TARGET_OS_IOS
+    _cpuStorage = MTLStorageModeShared; // every iOS GPU is an Apple GPU
+#else
     // TMC_MANAGED_TEXTURES=1 takes the Intel/AMD path on Apple silicon, to test it.
     _cpuStorage = [_device supportsFamily:MTLGPUFamilyApple1] && getenv("TMC_MANAGED_TEXTURES") == NULL
                       ? MTLStorageModeShared
                       : MTLStorageModeManaged;
+#endif
     _queue = [_device newCommandQueue];
     _inFlight = dispatch_semaphore_create(IN_FLIGHT);
 
@@ -391,8 +400,18 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     CGContextRef context = CGBitmapContextCreate(data.mutableBytes, width, height, 8, width * 4, space,
                                                  kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
     CGImageRef image = CGBitmapContextCreateImage(context);
+#if TARGET_OS_IOS
+    CGImageDestinationRef png = CGImageDestinationCreateWithURL((__bridge CFURLRef)url,
+                                                                (__bridge CFStringRef)UTTypePNG.identifier, 1, NULL);
+    if (png != NULL) {
+        CGImageDestinationAddImage(png, image, NULL);
+        CGImageDestinationFinalize(png);
+        CFRelease(png);
+    }
+#else
     NSBitmapImageRep* rep = [[NSBitmapImageRep alloc] initWithCGImage:image];
     [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToURL:url atomically:YES];
+#endif
     CGImageRelease(image);
     CGContextRelease(context);
     CGColorSpaceRelease(space);
@@ -708,9 +727,11 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
          destinationSlice:0
          destinationLevel:0
         destinationOrigin:MTLOriginMake(0, 0, 0)];
+#if !TARGET_OS_IOS
     if (readback.storageMode == MTLStorageModeManaged) {
         [blit synchronizeResource:readback];
     }
+#endif
     [blit endEncoding];
 
     uint64_t serial = ++_readbackSerial;
@@ -770,11 +791,13 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         };
         id<MTLCommandBuffer> commands = [self->_queue commandBuffer];
         EncodeResponse(commands, self->_responsePipeline, frame, history[slot], history[slot ^ 1], shown, response);
+#if !TARGET_OS_IOS
         if (history[slot ^ 1].storageMode == MTLStorageModeManaged) {
             id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
             [blit synchronizeResource:history[slot ^ 1]];
             [blit endEncoding];
         }
+#endif
         [commands commit];
         [commands waitUntilCompleted];
         slot ^= 1;
