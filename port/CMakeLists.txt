@@ -227,7 +227,7 @@ add_custom_command(TARGET tmc POST_BUILD
 )
 
 # The macOS app: a window with the Metal renderer, keyboard and gamepad input,
-# Core Audio sound, running the game at 59.73 Hz. Builds build/native/TMC.app.
+# Core Audio sound, running the game at 59.73 Hz. Builds "build/native/The Minish Cap.app".
 set(TMC_APP_SHADERS src/macos/shaders.metal)
 # The window's subtitle names the room the player is in.
 set(TMC_ROOM_NAMES ${CMAKE_BINARY_DIR}/room_names.c)
@@ -263,7 +263,7 @@ set_source_files_properties(${TMC_APP_SHADERS} PROPERTIES MACOSX_PACKAGE_LOCATIO
 # The app icon, made from src/macos/icon/icon_32.png by port/scripts/make_icon.swift.
 set_source_files_properties(src/macos/icon/AppIcon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 set_target_properties(tmc_app PROPERTIES
-    OUTPUT_NAME TMC
+    OUTPUT_NAME "The Minish Cap"
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/src/macos/Info.plist.in
     MACOSX_BUNDLE_BUNDLE_NAME "The Minish Cap"
     MACOSX_BUNDLE_GUI_IDENTIFIER io.github.awkitsune.tmc-macos
@@ -299,7 +299,7 @@ target_link_libraries(tmc_app PRIVATE
 # controller and window permissions).
 add_custom_command(TARGET tmc_app POST_BUILD
     COMMAND codesign --force --sign - $<TARGET_BUNDLE_DIR:tmc_app>
-    COMMENT "Signing TMC.app (ad hoc)"
+    COMMENT "Signing The Minish Cap.app (ad hoc)"
 )
 
 # tmc-songs: lists the songs and renders them to WAV with the native m4a engine.

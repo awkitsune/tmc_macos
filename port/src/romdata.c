@@ -505,7 +505,7 @@ void RomDataPrepareOrExit(const char* program) {
     } else if (result != ROMDATA_OK) {
         fprintf(stderr,
                 "%s: %s\n%s: this build has no game data built in. Set TMC_ROM=path/to/rom.gba (The Minish Cap, "
-                "USA) or open TMC.app once to extract it into %s.\n",
+                "USA) or open The Minish Cap.app once to extract it into %s.\n",
                 program, message, program, path);
         exit(2);
     }

@@ -91,7 +91,7 @@ cmake --build build/native -j
 
 This builds three programs from the same game code:
 
-- `build/native/TMC.app`, the macOS app (see [Playing](#playing)).
+- `build/native/The Minish Cap.app`, the macOS app (see [Playing](#playing)).
 - `build/native/tmc`, the headless runner for automated runs (see below).
 - `build/native/tmc-songs`, the song exporter (see [Exporting the music](#exporting-the-music)).
 
@@ -140,7 +140,7 @@ almost nothing.
 To check that a program carries no asset content:
 
 ```bash
-python3 port/scripts/asset_overlap.py build/native-rom/TMC.app/Contents/MacOS/TMC build/USA/assets
+python3 port/scripts/asset_overlap.py "build/native-rom/The Minish Cap.app/Contents/MacOS/The Minish Cap" build/USA/assets
 ```
 
 It lists every stretch of 64 bytes or more that the program shares with an
@@ -173,16 +173,16 @@ cmake -S port -B build/dist -DTMC_BAKE_DATA=OFF -DCMAKE_OSX_ARCHITECTURES="arm64
 ```
 
 ```bash
-cmake --build build/dist -j4 && ditto -c -k --norsrc --noextattr --keepParent build/dist/TMC.app build/TMC-macos-universal.zip
+cmake --build build/dist -j4 && ditto -c -k --norsrc --noextattr --keepParent "build/dist/The Minish Cap.app" build/TMC-macos-universal.zip
 ```
 
 Check it before sending it: `lipo -archs` and `vtool -show-build` on
-`TMC.app/Contents/MacOS/TMC` should say `x86_64 arm64` and `minos 12.0`, and
+`The Minish Cap.app/Contents/MacOS/The Minish Cap` should say `x86_64 arm64` and `minos 12.0`, and
 `asset_overlap.py` (above) the 5 known stretches.
 
 What the person you send it to does on first launch:
 
-1. Unzip it and move `TMC.app` to Applications (or anywhere).
+1. Unzip it and move `The Minish Cap.app` to Applications (or anywhere).
 2. Open it with right-click (or Control-click) → Open, then Open in the alert.
    It is signed ad hoc, not by an identified developer, so a double-click only
    says it cannot be checked. Recent macOS versions instead need System
@@ -212,7 +212,7 @@ baseline x86_64 has no FMA instructions. Rosetta cannot show:
 ### Playing
 
 ```bash
-open build/native/TMC.app
+open "build/native/The Minish Cap.app"
 ```
 
 The app runs the game at the GBA's 59.73 Hz (or, in display sync, once per
@@ -395,7 +395,7 @@ for a click. The progress window and any alert are saved as
 A first launch from a clean data folder, through to the title screen:
 
 ```bash
-TMC_CACHE_DIR=/tmp/tmc-data TMC_ROM=baserom.gba TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest build/native-rom/TMC.app/Contents/MacOS/TMC
+TMC_CACHE_DIR=/tmp/tmc-data TMC_ROM=baserom.gba TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest "build/native-rom/The Minish Cap.app/Contents/MacOS/The Minish Cap"
 ```
 
 `tmc` and `tmc-songs` from a distributable build read the same data file. If
@@ -427,7 +427,7 @@ its size below the toolbar) and the subtitle in the checkpoint's room
 (`selftest: subtitle "Festival Town · Slot 1" … ok`):
 
 ```bash
-TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest build/native/TMC.app/Contents/MacOS/TMC
+TMC_SAVE=/tmp/selftest.sav TMC_SELFTEST=/tmp/tmc-selftest "build/native/The Minish Cap.app/Contents/MacOS/The Minish Cap"
 ```
 
 ### Running headless
