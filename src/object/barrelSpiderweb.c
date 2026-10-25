@@ -13,6 +13,9 @@
 #include "flags.h"
 #include "room.h"
 #include "physics.h"
+#ifdef PLATFORM_NATIVE
+#include "manager/rollingBarrelManager.h"
+#endif
 
 #include "player.h"
 
@@ -22,6 +25,14 @@ void BarrelSpiderweb_Action2(Entity*);
 void sub_0808BDB0(Entity*);
 void sub_0808BBE0(Entity*);
 void sub_0808BD00(Entity*);
+
+#ifdef PLATFORM_NATIVE
+// parent is the RollingBarrelManager. The GBA reads its unk_20 (the barrel's roll) as Entity.zVelocity, both at
+// 0x20; natively the layouts differ, so read it by its own name.
+static s32 BarrelOffset(Entity* this) {
+    return ((RollingBarrelManager*)this->parent)->unk_20;
+}
+#endif
 
 void BarrelSpiderweb(Entity* this) {
     static void (*const BarrelSpiderweb_Actions[])(Entity*) = {
@@ -53,7 +64,11 @@ void BarrelSpiderweb_Init(Entity* this) {
         this->frameIndex = 2;
         this->collisionLayer = gPlayerEntity.base.collisionLayer;
         sub_0808BDB0(this);
+#ifdef PLATFORM_NATIVE
+        this->y.HALF.HI = 0x170 - BarrelOffset(this);
+#else
         this->y.HALF.HI = 0x170 - (this->parent)->zVelocity;
+#endif
         sub_0808BBE0(this);
     }
 }
@@ -80,7 +95,11 @@ void BarrelSpiderweb_Action1(Entity* this) {
     s32 tmp;
     this->x.HALF.HI = gRoomControls.origin_x + 0x78;
     tmp = -0x170;
+#ifdef PLATFORM_NATIVE
+    this->y.HALF.HI = gRoomControls.origin_y - (BarrelOffset(this) + tmp);
+#else
     this->y.HALF.HI = gRoomControls.origin_y - ((this->parent)->zVelocity + tmp);
+#endif
     sub_0808BBE0(this);
     if (this->contactFlags == (CONTACT_NOW | 0x13)) {
         this->timer--;
