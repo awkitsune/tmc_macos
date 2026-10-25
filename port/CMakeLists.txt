@@ -233,10 +233,16 @@ set_target_properties(tmc_app PROPERTIES
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
 )
 # The Debug menu is on by default except in Release builds (Settings switches
-# it); its Load Checkpoint lists port/states in this source tree.
+# it); its Load Checkpoint lists port/states in this source tree. Distributable
+# builds leave the path out, so the app carries no path from the build machine.
+if(TMC_BAKE_DATA)
+    set(TMC_CHECKPOINT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/states")
+else()
+    set(TMC_CHECKPOINT_DIR "")
+endif()
 target_compile_definitions(tmc_app PRIVATE
     TMC_DEBUG_MENU_DEFAULT=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>
-    TMC_CHECKPOINT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/states"
+    TMC_CHECKPOINT_DIR="${TMC_CHECKPOINT_DIR}"
 )
 # roomname.c reads the game's globals, so it builds with the game's headers.
 set_source_files_properties(src/macos/roomname.c PROPERTIES
