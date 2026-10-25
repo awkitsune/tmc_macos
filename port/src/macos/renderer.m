@@ -199,6 +199,10 @@ typedef struct {
 
 @implementation Renderer {
     id<MTLDevice> _device;
+    // For textures the CPU writes or reads: Shared on Apple GPUs; Intel and AMD
+    // GPUs allow Shared only for buffers, so Managed there (synchronized after
+    // GPU writes before the CPU reads).
+    MTLStorageMode _cpuStorage;
     id<MTLCommandQueue> _queue;
     id<MTLRenderPipelineState> _pipeline;
     id<MTLTexture> _textures[IN_FLIGHT];
@@ -236,6 +240,10 @@ typedef struct {
         return nil;
     }
     _device = view.device;
+    // TMC_MANAGED_TEXTURES=1 takes the Intel/AMD path on Apple silicon, to test it.
+    _cpuStorage = [_device supportsFamily:MTLGPUFamilyApple1] && getenv("TMC_MANAGED_TEXTURES") == NULL
+                      ? MTLStorageModeShared
+                      : MTLStorageModeManaged;
     _queue = [_device newCommandQueue];
     _inFlight = dispatch_semaphore_create(IN_FLIGHT);
 
@@ -246,7 +254,11 @@ typedef struct {
         NSLog(@"shaders.metal missing from the app bundle: %@", error);
         return nil;
     }
-    id<MTLLibrary> library = [_device newLibraryWithSource:source options:nil error:&error];
+    // Metal 2.4 is what macOS 12, the oldest supported, compiles; pinned so
+    // nothing newer slips into the shaders.
+    MTLCompileOptions* options = [MTLCompileOptions new];
+    options.languageVersion = MTLLanguageVersion2_4;
+    id<MTLLibrary> library = [_device newLibraryWithSource:source options:options error:&error];
     if (library == nil) {
         NSLog(@"shader compile failed: %@", error);
         return nil;
@@ -291,7 +303,7 @@ typedef struct {
                                                                                       height:PPU_HEIGHT
                                                                                    mipmapped:NO];
     texDesc.usage = MTLTextureUsageShaderRead;
-    texDesc.storageMode = MTLStorageModeShared;
+    texDesc.storageMode = _cpuStorage;
     for (int i = 0; i < IN_FLIGHT; i++) {
         _textures[i] = [_device newTextureWithDescriptor:texDesc];
     }
@@ -683,7 +695,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
                                       width:width
                                      height:height
                                       usage:MTLTextureUsageShaderRead
-                                    storage:MTLStorageModeShared];
+                                    storage:_cpuStorage];
     _readbackTexture = readback;
     id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
     [blit copyFromTexture:source
@@ -695,6 +707,9 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
          destinationSlice:0
          destinationLevel:0
         destinationOrigin:MTLOriginMake(0, 0, 0)];
+    if (readback.storageMode == MTLStorageModeManaged) {
+        [blit synchronizeResource:readback];
+    }
     [blit endEncoding];
 
     uint64_t serial = ++_readbackSerial;
@@ -733,7 +748,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
                                                                                     width:1
                                                                                    height:1
                                                                                 mipmapped:NO];
-    desc.storageMode = MTLStorageModeShared;
+    desc.storageMode = _cpuStorage;
     id<MTLTexture> frame = [_device newTextureWithDescriptor:desc];
     desc.pixelFormat = MTLPixelFormatRGBA16Float;
     desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
@@ -754,6 +769,11 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         };
         id<MTLCommandBuffer> commands = [self->_queue commandBuffer];
         EncodeResponse(commands, self->_responsePipeline, frame, history[slot], history[slot ^ 1], shown, response);
+        if (history[slot ^ 1].storageMode == MTLStorageModeManaged) {
+            id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+            [blit synchronizeResource:history[slot ^ 1]];
+            [blit endEncoding];
+        }
         [commands commit];
         [commands waitUntilCompleted];
         slot ^= 1;

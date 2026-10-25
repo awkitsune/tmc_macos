@@ -717,6 +717,7 @@ bool StateLoad(const char* path, uint64_t* frame, char* message, size_t messageS
 
 void StateDisableAslr(char** argv) {
     posix_spawnattr_t attr;
+    cpu_type_t cpuType = _mh_execute_header.cputype;
     char path[PATH_MAX];
     uint32_t size = sizeof(path);
     const char* keep = getenv("TMC_ASLR");
@@ -732,6 +733,9 @@ void StateDisableAslr(char** argv) {
     setenv("TMC_ASLR_REEXEC", "1", 1);
     posix_spawnattr_init(&attr);
     posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETEXEC | _POSIX_SPAWN_DISABLE_ASLR);
+    // Stay on this slice of a universal binary: an x86_64 run (Rosetta) would
+    // otherwise come back as arm64.
+    posix_spawnattr_setbinpref_np(&attr, 1, &cpuType, NULL);
     posix_spawn(NULL, path, NULL, &attr, argv, environ); // returns only on failure
     posix_spawnattr_destroy(&attr);
     unsetenv("TMC_ASLR_REEXEC");

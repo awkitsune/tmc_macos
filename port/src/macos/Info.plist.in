@@ -23,7 +23,7 @@
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.action-games</string>
     <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
+    <string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>

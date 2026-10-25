@@ -731,8 +731,11 @@ static void ReportAndExit(const char* what, void* address) {
 // TMC_ROM_WRITES=log: a store into the game's read-only data (__DATA_CONST, __TEXT,__const) is
 // logged (address and pc, as symbol+offset) and skipped, which is what the GBA does with a write
 // to ROM. Without it such a store crashes, as the game's data is mapped read-only.
+// arm64 only, as skipping a store means decoding it: on x86_64 the option is turned off
+// (InstallDiagnostics).
 static int sRomWrites;
 
+#if defined(__aarch64__)
 static int InRomData(uintptr_t address) {
     static const char* const kSections[][2] = { { "__DATA_CONST", "__const" }, { "__TEXT", "__const" } };
     for (size_t i = 0; i < sizeof(kSections) / sizeof(kSections[0]); i++) {
@@ -793,8 +796,10 @@ static int SkipStore(ucontext_t* uc) {
     uc->uc_mcontext->__ss.__pc += 4;
     return 1;
 }
+#endif
 
 static void OnCrash(int sig, siginfo_t* info, void* context) {
+#if defined(__aarch64__)
     if (sRomWrites && (sig == SIGBUS || sig == SIGSEGV) && InRomData((uintptr_t)info->si_addr)) {
         ucontext_t* uc = context;
         static uintptr_t sSeen[256];
@@ -820,6 +825,7 @@ static void OnCrash(int sig, siginfo_t* info, void* context) {
             return;
         }
     }
+#endif
     ReportAndExit(sig == SIGSEGV ? "SIGSEGV" : sig == SIGBUS ? "SIGBUS" : "signal", info->si_addr);
 }
 
@@ -835,6 +841,12 @@ static void InstallDiagnostics(void) {
 
     sigaltstack(&alt, NULL);
     sRomWrites = getenv("TMC_ROM_WRITES") != NULL;
+#if !defined(__aarch64__)
+    if (sRomWrites) {
+        fprintf(stderr, "headless: TMC_ROM_WRITES needs the arm64 build (it decodes arm64 stores); ignored\n");
+        sRomWrites = 0;
+    }
+#endif
     action.sa_sigaction = OnCrash;
     action.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigaction(SIGSEGV, &action, NULL);

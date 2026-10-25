@@ -1,6 +1,7 @@
 # Native macOS port
 
-Native arm64 macOS build of the decompiled game code: a Metal app with keyboard
+Native macOS build of the decompiled game code (Apple silicon and Intel, macOS 12
+or later): a Metal app with keyboard
 and gamepad input, plus a headless runner for automated testing. The GBA build in the repository root stays
 byte-matching: every port change is either under `port/` or behind
 `#ifdef PLATFORM_NATIVE`.
@@ -153,6 +154,60 @@ a C table in `src/manager/diggingCaveEntranceManager.c`.
 In a development build with `TMC_ROM=path` set, `tmc` checks every run of the
 manifest against that ROM before it starts (`built-in data: all 46923 manifest
 runs ... match the ROM`).
+
+### Universal builds and a package to share
+
+The programs run on macOS 12 and later (`CMAKE_OSX_DEPLOYMENT_TARGET`, which
+also sets the app's `LSMinimumSystemVersion`). Using anything newer than that
+is a build error (`-Werror=unguarded-availability-new`) unless it is behind an
+`@available` check. They build for this Mac's architecture unless
+`CMAKE_OSX_ARCHITECTURES` says otherwise; `"arm64;x86_64"` makes universal
+programs that also run on Intel Macs. Only Python runs during the build
+(datagen, the name tables), and datagen's output suits both architectures,
+since the native data layouts are the same.
+
+A universal distributable app, zipped with its ad hoc signature intact:
+
+```bash
+cmake -S port -B build/dist -DTMC_BAKE_DATA=OFF -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_BUILD_TYPE=Release
+```
+
+```bash
+cmake --build build/dist -j4 && ditto -c -k --norsrc --noextattr --keepParent build/dist/TMC.app build/TMC-macos-universal.zip
+```
+
+Check it before sending it: `lipo -archs` and `vtool -show-build` on
+`TMC.app/Contents/MacOS/TMC` should say `x86_64 arm64` and `minos 12.0`, and
+`asset_overlap.py` (above) the 5 known stretches.
+
+What the person you send it to does on first launch:
+
+1. Unzip it and move `TMC.app` to Applications (or anywhere).
+2. Open it with right-click (or Control-click) → Open, then Open in the alert.
+   It is signed ad hoc, not by an identified developer, so a double-click only
+   says it cannot be checked. Recent macOS versions instead need System
+   Settings → Privacy & Security → Open Anyway after the first try.
+3. Choose their own *The Minish Cap* (USA) ROM when asked
+   ([First launch](#first-launch)). Its data goes to
+   `~/Library/Application Support/tmc_macos`; the app holds no game assets.
+
+The x86_64 programs were checked under Rosetta 2 on Apple silicon: the
+24000-frame playthrough's frame checksums and player trace, the Ezlo replay and
+the app self-test (`TMC_SELFTEST`) match the arm64 programs. Its save states
+match too, apart from addresses that depend on the program's layout. The audio
+mixer's samples differ in the last bit, as arm64 fuses multiply-adds and
+baseline x86_64 has no FMA instructions. Rosetta cannot show:
+
+- **An Intel or AMD GPU.** Under Rosetta the app draws on the Apple GPU. On
+  those GPUs textures cannot use shared storage, so the renderer uses managed
+  textures there and synchronizes them before reading them back.
+  `TMC_MANAGED_TEXTURES=1` takes that path on Apple silicon too, and the
+  self-test passes with it, with the same shader buffer checksums. Drivers can
+  still differ: the shaders (compiled at launch as Metal 2.4, the version
+  macOS 12 has) and full-screen and display sync behaviour are untested on such
+  a GPU.
+- **macOS 12 itself.** Only the compiler's availability checks stand for it.
+- **Speed on an older Intel Mac**, CPU or GPU.
 
 ### Playing
 
@@ -408,6 +463,7 @@ Environment variables control the headless runner:
 | `TMC_HASH="frame,..."` or `"every:n"` | Print `hash F state S video V`: checksums of the state and of the picture |
 | `TMC_RECORD_INPUT=path` | Write the keys held each frame as a `TMC_INPUT` script, to replay a run exactly |
 | `TMC_ASLR=1` | Keep address randomization (normally the program re-executes itself without it) |
+| `TMC_ROM_WRITES=1` | Log stores into the game's read-only data and skip them instead of crashing (arm64 only: it decodes the faulting instruction) |
 | `TMC_DUMP_OAM="frame,..."` or `"every:n"` | Print the decoded sprite table as that frame was drawn (`TMC_DUMP_OAM_ALL=1`: hidden entries too) |
 | `TMC_DUMP_BG="frame,..."` | Print each layer's settings and a summary of its map (tiles, palettes, flips, per-line changes) |
 | `TMC_DUMP_PAL="frame,..."` | Print the 512 palette colours (BGR555) with hashes |

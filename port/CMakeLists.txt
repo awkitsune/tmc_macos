@@ -1,8 +1,16 @@
 cmake_minimum_required(VERSION 3.24)
 
+# Runs on macOS 12 and later. The architectures default to this Mac's; for a
+# universal app (Apple silicon and Intel) configure with
+# -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64". Both must be set before project();
+# older build directories have the target cached empty.
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0 CACHE STRING "Oldest macOS the programs run on" FORCE)
+endif()
+
 project(tmc_native VERSION 0.1 LANGUAGES C OBJC ASM)
 
-# Native (arm64 macOS) build of the decompiled game code. The GBA build in the
+# Native (macOS, arm64 and/or x86_64) build of the decompiled game code. The GBA build in the
 # repository root is unaffected; everything here is opt-in via PLATFORM_NATIVE.
 #
 #   cmake -S port -B build/native
@@ -26,7 +34,8 @@ endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
-set(CMAKE_OSX_ARCHITECTURES arm64)
+# Anything newer than the deployment target needs an @available check.
+add_compile_options(-Werror=unguarded-availability-new)
 
 file(GLOB_RECURSE TMC_GAME_SOURCES CONFIGURE_DEPENDS ${TMC_ROOT}/src/*.c)
 
