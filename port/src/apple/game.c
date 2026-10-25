@@ -284,6 +284,7 @@ static uint64_t sLatchTime;     // when the keys were last latched
 static bool sSkipWork;          // this frame is not a typical one
 static uint64_t sPublished;     // sequence of the last frame published
 static uint64_t sLastVsync;     // the refresh the last display-driven frame was aimed at
+static atomic_int sStallMs;     // self-test: make the next frame this long (as an in-game save can)
 
 static void NoteWork(uint64_t ticks) {
     if (sSkipWork) {
@@ -328,8 +329,11 @@ static void LatchInput(bool driven) {
         if (driven) {
             if (DisplaySyncPredictVsync(now + budget, &vsync)) {
                 uint64_t grid = DisplaySyncFramePeriod();
-                if (sLastVsync != 0 && vsync < sLastVsync + grid) {
-                    vsync = sLastVsync + grid; // one frame per refresh
+                // One frame per refresh. A refresh before the last one aimed at means
+                // that aim was too far ahead (planned with a slow frame's budget,
+                // which has since dropped out): start again from the display.
+                if (sLastVsync != 0 && vsync >= sLastVsync && vsync < sLastVsync + grid) {
+                    vsync = sLastVsync + grid;
                 }
                 sLastVsync = vsync;
                 target = vsync - budget;
@@ -453,6 +457,10 @@ void PlatformVBlank(void) {
     } else {
         HwRunFrame(sRaw);
     }
+    int stall = atomic_exchange(&sStallMs, 0);
+    if (stall > 0) {
+        usleep((useconds_t)stall * 1000);
+    }
     sPublished = PublishFrame(sRaw);
     LatencyFrameDone(sPublished, frameStart);
     gPlatformFrame++;
@@ -466,6 +474,10 @@ void PlatformVBlank(void) {
     // the audio, whose clock-drift correction then has only the rest to do.
     AudioSetRateScale(GameFrameRate(driven) / FRONTEND_FRAME_RATE);
     LatchInput(driven);
+}
+
+void FrontendStallNextFrameForTesting(int ms) {
+    atomic_store(&sStallMs, ms);
 }
 
 _Noreturn void PlatformSoftReset(void) {

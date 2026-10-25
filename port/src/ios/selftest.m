@@ -104,7 +104,9 @@ static void CheckRomImport(void) {
     NSString* cache = RomImport.cachePath;
     NSString* support = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/tmc_macos"];
     NSLog(@"selftest: game data %@, cache %@", RomImport.launchSummary, cache);
-    Check([cache isEqualToString:[support stringByAppendingPathComponent:@"gamedata.bin"]],
+    // NSHomeDirectory() is /var/mobile/..., the cache path its /private/var/mobile/... spelling.
+    Check([cache.stringByResolvingSymlinksInPath
+              isEqualToString:[support stringByAppendingPathComponent:@"gamedata.bin"].stringByResolvingSymlinksInPath],
           @"game data cache in the app's Application Support");
     Check(![RomImport.launchSummary isEqualToString:@"not prepared"], @"game data ready at launch");
 
@@ -154,7 +156,15 @@ void SelfTestStart(GameViewController* game) {
     };
     Input* input = game.input;
     GCController* virtualPad = [GCController controllerWithExtendedGamepad];
-    BOOL realController = input.hasController;
+    // A real controller can connect while the test runs (a Bluetooth pad waking up).
+    BOOL (^realController)(void) = ^BOOL {
+        for (GCController* controller in GCController.controllers) {
+            if (controller != virtualPad && controller.extendedGamepad != nil) {
+                return YES;
+            }
+        }
+        return NO;
+    };
     NSString* statePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"selftest." STATE_EXTENSION];
     __block uint64_t frameMark = 0;
     __block CFTimeInterval timeMark = 0;
@@ -162,7 +172,7 @@ void SelfTestStart(GameViewController* game) {
     add(0.5, ^{
         UIDevice* device = UIDevice.currentDevice;
         NSLog(@"selftest: %@ %@ %@, real controller %s", device.model, device.systemName, device.systemVersion,
-              realController ? "connected" : "none");
+              realController() ? "connected" : "none");
         Renderer* renderer = game.renderer;
         CGSize size = game.gameView.drawableSize;
         NSLog(@"selftest: renderer on %@, drawable %.0fx%.0f, filter %@", game.gameView.device.name, size.width, size.height,
@@ -179,8 +189,8 @@ void SelfTestStart(GameViewController* game) {
         CheckFiles();
         Check(InputCheckKeyCodes() == 0, @"keyboard bindings match GCKeyCode");
         CheckGamepadMapping(input);
-        Check(game.controllerOverlayShown == !realController &&
-                  ((game.pauseReasons & PauseReasonNoController) != 0) == !realController,
+        BOOL real = realController();
+        Check(game.controllerOverlayShown == !real && ((game.pauseReasons & PauseReasonNoController) != 0) == !real,
               @"overlay and pause follow the controllers at launch");
     });
     // Attach a controller: the overlay goes and the game runs.
@@ -200,8 +210,8 @@ void SelfTestStart(GameViewController* game) {
               @"display sync follows the display");
         // Detach it again: back to the overlay and the pause (unless a real one is there).
         [NSNotificationCenter.defaultCenter postNotificationName:GCControllerDidDisconnectNotification object:virtualPad];
-        Check(input.hasController == realController && game.controllerOverlayShown == !realController &&
-                  FrontendIsPaused() == !realController,
+        BOOL real = realController();
+        Check(input.hasController == real && game.controllerOverlayShown == !real && FrontendIsPaused() == !real,
               @"controller detach pauses with the overlay");
         [NSNotificationCenter.defaultCenter postNotificationName:GCControllerDidConnectNotification object:virtualPad];
     });
@@ -256,6 +266,20 @@ void SelfTestStart(GameViewController* game) {
         Check(FrontendIsPaused() && FrontendWaitUntilPaused(200), @"paused when the app resigns active");
         [game sceneDidBecomeActive];
         Check(!FrontendIsPaused(), @"resumed when the app is active again");
+    });
+    // One slow frame (an in-game save writing tmc.sav): once it has dropped out of
+    // the frame-time samples, the game still keeps to the display.
+    add(1, ^{
+        FrontendStallNextFrameForTesting(120);
+    });
+    add(2, ^{
+        frameMark = FrontendFrame();
+        timeMark = CACurrentMediaTime();
+    });
+    add(3, ^{
+        double rate = (FrontendFrame() - frameMark) / (CACurrentMediaTime() - timeMark);
+        NSLog(@"selftest: %.2f game frames per second after a slow frame", rate);
+        Check(rate > 57 && rate < 62, @"the game runs at ~60 Hz after a slow frame");
     });
     add(0.5, ^{
         int failed = atomic_load(&sFailures);

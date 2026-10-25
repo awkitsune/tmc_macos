@@ -73,6 +73,9 @@ bool FrontendIsPaused(void);
 bool FrontendWaitUntilPaused(int timeoutMs);
 void FrontendSetFastForward(bool on);
 
+/* Self-test: the next frame takes this much longer to compute, as a slow one does (an in-game save). */
+void FrontendStallNextFrameForTesting(int ms);
+
 /* Reset the game the way the game itself does (A+B+Select+Start). */
 void FrontendRequestReset(void);
 
