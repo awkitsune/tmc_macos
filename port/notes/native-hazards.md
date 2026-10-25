@@ -318,3 +318,69 @@ the only sites where a "negative" value is possible from the code and data, as o
   native-fixed for `collisionData` in 2b987919, the `mapData` reads stay u32 (needs a block within three rows of the top).
 - Coverage of the dynamic pass is the playthrough (first hours), the Ezlo replay, and 90 idle frames per room: interaction-time
   code (pushing, bombing, boss phases) in late-game rooms is static only.
+
+## Struct punning: Manager fields (and other structs) read through `Entity` members
+
+On the GBA a Manager's own fields start at 0x20, and several objects reach them through their `parent` typed `Entity*`, using
+whichever Entity member sits at the same GBA offset (`parent->zVelocity` for a manager's 0x20 field). Natively `Entity` and
+`Manager` only agree up to `flags` (GBA 0x10): `Manager.parent`/`child` are 8-byte pointers at native 0x20/0x28 and a manager's
+own fields start at 0x38, while `Entity.zVelocity` is at 0x28. So the same expression natively reads or writes the manager's
+`child` pointer, a statue pointer, or padding. Fixed before this sweep: 5a2c3adc (cannonball, AngryStatueManager.field_0x20),
+41d18989 (Deepwood barrel spiderweb, RollingBarrelManager.unk_20).
+
+**Method** (static, all 618 game TUs, tools in the side-session notes folder `manager-fields-tools/`):
+1. Layouts: libclang parses every TU twice, once with the native flags and once as `arm-none-eabi -mcpu=arm7tdmi
+   -fno-short-enums` without `PLATFORM_NATIVE` and the port's forced include (the decomp's GBA layout). Every record is flattened
+   to leaves (path, bit offset, bit size) in both, keyed by declaration location. Checked against the `/*0x..*/` comments
+   (Entity 0x68/0x90, Manager 0x20/0x38).
+2. Facts (native parse): every member access with the pointer root it goes through and that root's provenance (casts, locals and
+   their assignments, `&x->base`, field loads, calls with their arguments, params), every store of a pointer into a field, every
+   call's pointer arguments, every record-pointer cast.
+3. Checks. A "mismatch" is an access whose leaf (GBA g, native n) lands, in the record the object really is, on a leaf whose
+   native placement of byte g is not n.
+   - Managers stored into another struct's field (`object->parent = (Entity*)this`: 9 sites). The stored-into object's ID
+     (`CreateObject(ID)`) maps through `gObjectFunctions`/`gEnemyFunctions` to its file; every read of that field there, and
+     every function it is passed to (per-param access summaries, transitive), is checked against the manager's layout.
+   - Every Manager pointer cast to a non-Manager type and used directly or passed to a function (`SetEntityPriority`,
+     `RequestPriorityDuration`, `AppendEntityToList`, `EntityHasDuplicateID`, `UnlinkEntity`; all 30 call sites): only header
+     fields, or guarded by `kind != MANAGER`.
+   - Code walking `gEntityLists` (casts from `LinkedList`, `->next`/`->prev` chains) that touches fields past 0x14 without a
+     `kind` filter: 8 functions, one real (`sub_0805ACC0`), the rest filter on kind or walk lists without managers.
+   - General: every access through a cast between two record types, compared against the source type's layout; objects reached
+     through several views (the `gMenu` views, `void*` fields such as `myHeap` per file); and entity-to-entity links: a
+     `parent`/`child` (or other field) store whose holder and value are resolved to their files (Create calls, `this`), and every
+     read of that field through a subtype cast in the holder's file compared with the value's own views of itself (131 links).
+     Menu views are consistent with each other; no entity subtype link disagrees.
+
+**Fixed** (all `#ifdef PLATFORM_NATIVE`, the field read by its own name; GBA build `tmc.gba: OK`):
+
+| Site | GBA meaning | Natively hit before the fix | Reached | Effect natively before the fix |
+|---|---|---|---|---|
+| [houseSign.c](../../src/object/houseSign.c) `HouseSign` | clear the sign's bit in HouseSignManager.bitfield (0x20) via `zVelocity` | low half of the manager's `child` (NULL) | Festival Town / Hyrule Town (`Entities_HyruleTown_0_1`, `_1_1`), every time a house sign scrolls off screen | the bit stays set, so a sign that scrolled off screen never comes back. **In the playthrough**: 7 signs created before, 12 after (5 respawns) |
+| [minishSizedEntrance.c](../../src/object/minishSizedEntrance.c) `MinishSizedEntrance_Action1` | test the entrance's bit in MinishSizedEntranceManager.field_0x20 via `zVelocity` | the manager's `child` (normally NULL): bit clear | Hyrule Town (`Entities_HyruleTown_0_1`, manager type 0xe) | the type-1 entrance deletes itself on its first frame and the manager's bit stays set: the Minish-sized entrance never appears, so Minish Link cannot use it |
+| [angryStatue.c](../../src/object/angryStatue.c) `AngryStatue_Action3` | set the statue's hit bit in AngryStatueManager.field_0x36 via `z.BYTES.byte2` | byte 6 of `field_0x20[0]`, the first statue's pointer | Dark Hyrule Castle (outside NE/SE, 1F loop left, B1 cannons), when a reflected cannonball hits a statue (`sub_080AB634` sets action 3 for 30 frames) | the puzzle never sees all four bits (never solved), and the first statue pointer becomes non-canonical: the next cannonball collision check (`sub_080AB634`) or the solve (`sub_0805D11C`) dereferences it: crash |
+| [itemForSale.c](../../src/object/itemForSale.c) `sub_080819B4` | mark the kinstone sold in GoronMerchantShopManager.itemActive (0x20) | a byte of the manager's `parent` pointer | the Goron merchant's kinstone shop (GoronMerchantShopManager, created by `goronMerchant.c`), buying a kinstone | the purchase is not recorded (`GORON_KAKERA_*` never set), so bought kinstones come back and the stock never advances; the manager's `parent` gets 0xff in one byte |
+| [pushableFurniture.c](../../src/object/pushableFurniture.c) `sub_0808FC5C` | set the piece's bit in PushableFurnitureManager.unk_28 via `spriteAnimation[2]` | `Manager.unused2` | only managers with a flag (type2 != 0xff); every USA room has 0xff (house interiors, Cafe, Carpenter, ranch houses) | none with USA data (latent: the "all in place" flag would never be set) |
+| [delayedEntityLoadManager.c](../../src/manager/delayedEntityLoadManager.c) `sub_0805ACC0` | DelayedEntityLoadManager.spawnedCount (0x21) as the second byte of `zVelocity` | a byte of `child` (0) | townsperson, cat, dog, cow, guard, kid, castle maid spawned by the loader (53 calls in the playthrough) | always returned 0 (the probe saw `spawned=26`, old byte 0), so NPCs took their current position as home instead of the spawn point from the room data; they are equal at the call, so nothing visible in the runs |
+| [gleerok.c](../../src/enemy/gleerok.c) `sub_0802D170`, `sub_0802D218` | `((Entity*)heap)->parent`: Gleerok_HeapStruct.ent2 (0x50) | `entities[4]` (native 0x60; `ent2` is at 0x68) | Gleerok (Cave of Flames boss) | sets the timer of the wrong body segment; `ent2` (the last segment created in the init loop) has its `timer` compared with 12 by `sub_0802DCE0` and others, so the fight's phase handshake goes wrong |
+
+Ambiguous / checked and fine: `itemForSale.c` parent is only ever the Goron shop manager or NULL (other shop items come from room
+data without a parent). `vaatiAppearingManager.c` `sub_0805D9D8` reads `super->parent->x`: its parent is the Vaati NPC
+(`CreateVaatiApparateManager` is only called from `vaati.c` with the NPC), not a manager. FightManagerHelper reads its parent
+as `FightManager*` (right type). FloatingPlatform and LightRay read only `timer`/`subAction` of their manager (header, same
+offsets). `cutsceneMiscObject.c` type 31 views itself as `Type1F` (`anim` at 0x84) and never uses the script context there,
+so its own view is consistent. `gyorgMale.c` reads `((Entity*)myHeap)->next`: `GyorgHeap` starts with pointers, so `next` is
+`female` in both layouts.
+
+**Runtime**: the playthrough hash still ends on `23999 89eb5912`, but frames 15336-15521, 15826-15996 and 17257-22132 (Festival
+Town) differ, all from the house sign fix (reverting only that file gives the old hashes exactly; reverting the minish entrance
+or the delayed loader fix changes nothing): the signs that scroll back on screen are drawn again. Step timings in the play log
+are the same frame for frame. The Ezlo and gust jar states exit 0, the self-test prints `0 failed checks`. The minish entrance,
+angry statues, Goron shop, furniture flag and Gleerok sites are not on any recorded path (lldb hit count 0), so they rest on the
+static analysis.
+
+**Blind spots**: provenance does not cross globals or struct fields other than the stored-into one (a manager pointer saved in a
+global and read elsewhere would be missed; none was seen by grep); objects spawned by `LoadRoomEntity` (room data) are not
+resolved to a file (FloatingPlatformManager was checked by hand); entity links whose holder or value is found at run time
+(`FindEntity*`, list walks, `gPlayerEntity.carriedEntity`) are not typed; accesses through integer arithmetic on addresses (e.g.
+`(u8*)&e->field + k`) count as the field they start from; and bitfields are judged by their containing unit.
