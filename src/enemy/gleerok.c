@@ -235,7 +235,13 @@ void sub_0802D170(GleerokEntity* this) {
     } else {
         super->action = 3;
         this->unk_80 = 0;
+#ifdef PLATFORM_NATIVE
+        // unk_84 is the Gleerok_HeapStruct, not an Entity: the GBA reads its ent2 (0x50) as Entity.parent, also at
+        // 0x50. Natively the layouts differ, so use the field's own name.
+        this->unk_84->ent2->timer = 24;
+#else
         ((Entity*)this->unk_84)->parent->timer = 24;
+#endif
         this->unk_84->filler2[0].unk0.HALF.HI = 0;
     }
 }
@@ -248,7 +254,12 @@ void sub_0802D218(GleerokEntity* this) {
     super->timer = 0;
     super->subtimer = 0;
     this->unk_7c.HALF_U.LO = 0xb4;
+#ifdef PLATFORM_NATIVE
+    // See sub_0802D170: ent2 of the heap struct, read as Entity.parent on the GBA.
+    this->unk_84->ent2->timer = 12;
+#else
     ((Entity*)(this->unk_84))->parent->timer = 12;
+#endif
     CreateObjectWithParent(super, GLEEROK_PARTICLE, 0x2, this->unk_7c.HALF_U.LO);
 }
 

@@ -14,6 +14,9 @@
 #include "player.h"
 #include "physics.h"
 #include "map.h"
+#ifdef PLATFORM_NATIVE
+#include "manager/pushableFurnitureManager.h"
+#endif
 
 extern const s16 gUnk_080B4488[];
 
@@ -237,7 +240,13 @@ bool32 sub_0808FC5C(PushableFurnitureEntity* this) {
             SetFlag((u32)this->flag);
         } else {
             if ((this->unk_82 & 0x80) != 0) {
+#ifdef PLATFORM_NATIVE
+                // parent is the PushableFurnitureManager. The GBA sets the placed bit in its unk_28 through
+                // Entity.spriteAnimation[2], both at 0x28; natively the layouts differ, so use the field's own name.
+                puVar5 = &((PushableFurnitureManager*)super->parent)->unk_28;
+#else
                 puVar5 = super->parent->spriteAnimation + 2;
+#endif
                 *puVar5 = (1 << (this->unk_7a)) | *puVar5;
             } else {
                 SetLocalFlag((u32)this->unk_82);

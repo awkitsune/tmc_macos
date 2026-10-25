@@ -103,7 +103,13 @@ u32 sub_0805ACC0(Entity* param_1) {
 
     for (entity = gEntityLists[6].first; entity != list; entity = entity->next) {
         if ((entity->kind == 9 && entity->id == 0x16) && entity->type2 <= tmp &&
+#ifdef PLATFORM_NATIVE
+            // entity is a DelayedEntityLoadManager; the GBA reads its spawnedCount (0x21) as the second byte of
+            // Entity.zVelocity (0x20). Natively the layouts differ, so use the field's own name.
+            (entity->type2 + ((DelayedEntityLoadManager*)entity)->spawnedCount) > tmp) {
+#else
             (entity->type2 + *(u8*)((uintptr_t)&entity->zVelocity + 1)) > tmp) {
+#endif
 
             ptr = (u16*)GetCurrentRoomProperty(entity->type);
             if (ptr != NULL) {

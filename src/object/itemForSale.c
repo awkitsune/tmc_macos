@@ -13,6 +13,9 @@
 #include "ui.h"
 #include "room.h"
 #include "player.h"
+#ifdef PLATFORM_NATIVE
+#include "manager/goronMerchantShopManager.h"
+#endif
 
 typedef struct {
     u8 before[0x20];
@@ -132,7 +135,13 @@ void sub_080819B4(ItemForSaleEntity* this) {
 
     if (gRoomVars.shopItemType == 0) {
         if (super->parent != NULL) {
+#ifdef PLATFORM_NATIVE
+            // parent is the GoronMerchantShopManager. The GBA marks the item sold in its itemActive (0x20) through
+            // a struct with a byte array at 0x20; natively the manager's fields start later, so use their own name.
+            ((GoronMerchantShopManager*)super->parent)->itemActive[super->subtimer] = 0xff;
+#else
             ((ModifiedParentEntity*)super->parent)->unk_20[super->subtimer] = 0xff;
+#endif
         }
         DeleteThisEntity();
     }
