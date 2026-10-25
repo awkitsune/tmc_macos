@@ -15,6 +15,12 @@
  *   TMC_ROM_WRITES=1         log stores into the game's read-only data (ROM on
  *                            the GBA) as "rom write: symbol from function" and
  *                            skip them, instead of crashing with SIGBUS
+ *   TMC_WARP=AA:RR[:X:Y]     once the player has control, go to that room (hex
+ *                            area and room; X,Y room-relative) through the game's
+ *                            own exit transition, see port/src/warp.c; prints
+ *                            "warp: end ..." with the room it is in when the run
+ *                            ends. TMC_WARP_ITEMS=A,B also equips those items
+ *                            (ids from include/item.h) when the warp starts
  *
  * Graphics dumps (port/gfxdebug.h), each a frame list (F,F,... or every:K), of
  * the hardware as that frame was drawn:
@@ -59,6 +65,10 @@ void TraceEntities(uint64_t frame);
 void DumpRoomMap(const char* path); // mapdump.c
 void CheckEntityLists(const char* path); // entitylistcheck.c
 void TracePlayer(uint64_t frame);
+int WarpRequest(int area, int room, int x, int y);
+void WarpSetItems(int a, int b);
+void WarpUpdate(unsigned long long frame);
+void WarpReport(unsigned long long frame);
 
 void AgbMain(void);
 
@@ -67,6 +77,12 @@ static const char* sMapDir; // TMC_MAPDUMP
 static uint64_t sFrameLimit;
 static int sFrameLimitRelative; // TMC_FRAMES=+n
 static jmp_buf sResetPoint;
+static int sWarping;          // TMC_WARP
+static int sLastArea = -1, sLastRoom = -1; // for crash reports
+
+static void ReportWarp(void) {
+    WarpReport(gPlatformFrame);
+}
 
 // TMC_INPUT="step,step,...": scripted buttons (a b select start right left up
 // down r l, joined with +). TMC_INPUT=@path reads the steps from a file,
@@ -656,6 +672,13 @@ void PlatformVBlank(void) {
     uint16_t keys;
 
     HeadlessStates();
+    if (sWarping && sLoadState == NULL) {
+        HeadlessState s;
+        WarpUpdate(gPlatformFrame);
+        HeadlessGetState(&s);
+        sLastArea = s.area;
+        sLastRoom = s.room;
+    }
     keys = ScriptedKeys();
     if (sRecord != NULL) {
         RecordKeys(keys);
@@ -718,6 +741,10 @@ static void ReportAndExit(const char* what, void* address) {
                        (unsigned long long)gPlatformFrame,
                        0x100000000ul + (unsigned long)_dyld_get_image_vmaddr_slide(0));
     write(STDERR_FILENO, line, len);
+    if (sWarping) {
+        len = snprintf(line, sizeof(line), "warp: crashed in area %02x room %02x\n", sLastArea, sLastRoom);
+        write(STDERR_FILENO, line, len);
+    }
     backtrace_symbols_fd(frames, count, STDERR_FILENO);
     _exit(2);
 }
@@ -873,6 +900,23 @@ int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     InstallDiagnostics();
     RomDataPrepareOrExit("tmc");
+    if (getenv("TMC_WARP") != NULL) {
+        const char* warp = getenv("TMC_WARP");
+        unsigned area, room;
+        int x = -1, y = -1;
+
+        if (sscanf(warp, "%x:%x:%d:%d", &area, &room, &x, &y) < 2 || !WarpRequest(area, room, x, y)) {
+            fprintf(stderr, "TMC_WARP: '%s' is not a valid area:room\n", warp);
+            exit(1);
+        }
+        if (getenv("TMC_WARP_ITEMS") != NULL) {
+            int a = 0, b = 0;
+            sscanf(getenv("TMC_WARP_ITEMS"), "%i,%i", &a, &b);
+            WarpSetItems(a, b);
+        }
+        sWarping = 1;
+        atexit(ReportWarp);
+    }
     if (getenv("TMC_INPUT") != NULL) {
         ParseInput(getenv("TMC_INPUT"));
     }

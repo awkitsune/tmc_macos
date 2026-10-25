@@ -201,6 +201,7 @@ add_library(tmc_port STATIC
     src/data_glue.c
     src/eeprom.c
     src/trace.c
+    src/warp.c
     src/mapdump.c
     src/entitylistcheck.c
     src/ppu.c

@@ -511,6 +511,7 @@ Environment variables control the headless runner:
 | `TMC_HASH="frame,..."` or `"every:n"` | Print `hash F state S video V`: checksums of the state and of the picture |
 | `TMC_RECORD_INPUT=path` | Write the keys held each frame as a `TMC_INPUT` script, to replay a run exactly |
 | `TMC_ROM_WRITES=1` | Log stores into the game's read-only data and skip them instead of crashing (arm64 only: it decodes the faulting instruction) |
+| `TMC_WARP=AA:RR[:X:Y]` | Once the player has control, go to that room (hex area and room) through the game's own exit transition; `TMC_WARP_ITEMS=A,B` also equips two items. Used by `port/scripts/room_smoke.sh`, see `port/notes/room-smoke.md` |
 | `TMC_DUMP_OAM="frame,..."` or `"every:n"` | Print the decoded sprite table as that frame was drawn (`TMC_DUMP_OAM_ALL=1`: hidden entries too) |
 | `TMC_DUMP_BG="frame,..."` | Print each layer's settings and a summary of its map (tiles, palettes, flips, per-line changes) |
 | `TMC_DUMP_PAL="frame,..."` | Print the 512 palette colours (BGR555) with hashes |
