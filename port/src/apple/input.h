@@ -41,6 +41,11 @@ typedef NS_ENUM(NSInteger, GamepadLayout) {
 #if TARGET_OS_IOS
 // Fast-forward switched on in the settings (in addition to holding its button).
 @property(nonatomic) BOOL fastForwardLatched;
+// GBA keys held on the on-screen touch controls (main thread; read with the
+// other keys in pollKeys). releaseAll leaves them to the touch controls.
+- (void)setTouchKeys:(uint16_t)keys;
+// An extended gamepad is connected (the touch controls hide).
+@property(nonatomic, readonly) BOOL hasGamepad;
 // A gamepad or a hardware keyboard is connected (as the connect and disconnect
 // notifications have it).
 @property(nonatomic, readonly) BOOL hasController;

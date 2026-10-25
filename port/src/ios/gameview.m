@@ -10,6 +10,7 @@
 #import "selftest.h"
 #import "settingsstore.h"
 #import "settingsview.h"
+#import "touchcontrols.h"
 
 #include <fcntl.h>
 #include <stdatomic.h>
@@ -64,6 +65,9 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     Input* _input;
     MTKView* _view;
     Renderer* _renderer;
+    TouchControlsView* _touch;
+    UITapGestureRecognizer* _tap;
+    BOOL _hadController;
     DisplaySync* _displaySync;
     atomic_bool _drawQueued;
     CFTimeInterval _lastDraw;
@@ -118,10 +122,16 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         kHighQualityAudioDefault : @NO,
         kStateSlotDefault : @1,
         kPacingDefault : @(FRONTEND_PACING_DISPLAY_SYNC),
+        kTouchControlsDefault : @NO,
+        kTouchHapticsDefault : @YES,
     }];
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(applyPacing)
                                                name:kPacingChangedNotification
+                                             object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(applyControllers)
+                                               name:kTouchControlsChangedNotification
                                              object:nil];
 
     _input = [Input new];
@@ -155,7 +165,17 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         [_view.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [_view.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
     ]];
-    [self.view addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped:)]];
+    _tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped:)];
+    _tap.enabled = !self.touchControlsOn;
+    [self.view addGestureRecognizer:_tap];
+    _touch = [[TouchControlsView alloc] initWithInput:_input];
+    _touch.frame = self.view.bounds;
+    _touch.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _touch.hidden = YES;
+    _touch.menuTapped = ^{
+        [weakSelf showSettings];
+    };
+    [self.view addSubview:_touch];
     [self buildOverlay];
     [self buildToast];
 
@@ -199,6 +219,17 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     return YES;
 }
 
+// A press near the bottom edge goes to the touch controls at once, not after
+// the system has waited to see whether it is the home gesture.
+- (UIRectEdge)preferredScreenEdgesDeferringSystemGestures {
+    return _touch.hidden ? UIRectEdgeNone : UIRectEdgeAll;
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self layoutPicture];
+}
+
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations {
     return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll
                                                                                  : UIInterfaceOrientationMaskAllButUpsideDown;
@@ -214,6 +245,10 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 
 - (MTKView*)gameView {
     return _view;
+}
+
+- (TouchControlsView*)touchControls {
+    return _touch;
 }
 
 - (void)fail:(NSString*)message {
@@ -253,10 +288,8 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     if (!AudioSessionStart()) {
         NSLog(@"no sound output: the game runs silently");
     }
-    if (!_input.hasController) {
-        _pause |= PauseReasonNoController;
-    }
-    [self applyPause];
+    _hadController = _input.hasController;
+    [self applyControllers];
     FrontendStartGame();
     _started = YES;
 
@@ -386,7 +419,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     title.textColor = UIColor.whiteColor;
     _overlayDetail = [UILabel new];
     _overlayDetail.text = @"Pair a gamepad in Settings › Bluetooth, or attach a keyboard. The game goes on when one "
-                          @"is connected.\nTap the screen for the settings.";
+                          @"is connected.\nTap the screen for the settings, where Controls can turn on touch controls.";
     _overlayDetail.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
     _overlayDetail.adjustsFontForContentSizeCategory = YES;
     _overlayDetail.textColor = [UIColor colorWithWhite:1 alpha:0.75];
@@ -422,14 +455,48 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 }
 
 - (void)controllersChanged {
-    BOOL had = (_pause & PauseReasonNoController) == 0;
     BOOL has = _input.hasController;
-    if (has != had) {
-        [self setPause:PauseReasonNoController on:!has];
+    if (has != _hadController) {
+        _hadController = has;
         [self showStatus:has ? [NSString stringWithFormat:@"%@ connected", _input.controllerNames.firstObject ?: @"Controller"]
                              : @"Controller disconnected"];
     }
+    [self applyControllers];
     [_input releaseAll];
+}
+
+#pragma mark Touch controls
+
+- (BOOL)touchControlsOn {
+    return [NSUserDefaults.standardUserDefaults boolForKey:kTouchControlsDefault];
+}
+
+- (BOOL)tapOpensSettings {
+    return _tap.enabled;
+}
+
+// With touch controls on, the game needs no controller and ☰ takes the place of
+// a tap; they hide (and the picture has the screen) while a gamepad is there.
+- (void)applyControllers {
+    BOOL touch = self.touchControlsOn;
+    _tap.enabled = !touch;
+    _touch.haptics = [NSUserDefaults.standardUserDefaults boolForKey:kTouchHapticsDefault];
+    _touch.hidden = !touch || _input.hasGamepad || _renderer == nil;
+    [self setPause:PauseReasonNoController on:!touch && !_input.hasController];
+    [self layoutPicture];
+    [self setNeedsUpdateOfScreenEdgesDeferringSystemGestures];
+}
+
+- (void)layoutPicture {
+    CGSize size = self.view.bounds.size;
+    if (size.width <= 0 || size.height <= 0) {
+        return;
+    }
+    CGFloat scale = _view.contentScaleFactor;
+    TouchLayout layout = TouchLayoutMake(size, self.view.safeAreaInsets, size.height > size.width,
+                                         UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad, scale);
+    _touch.layout = layout;
+    _renderer.pictureRect = _touch.hidden ? CGRectZero : TouchLayoutPixelRect(layout.picture, scale);
 }
 
 #pragma mark Status
@@ -495,6 +562,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         return;
     }
     _resumeBy = 0;
+    [_touch releaseAll];
     [self setPause:PauseReasonSettings on:YES];
     _settings = [[SettingsController alloc] initWithHost:self];
     // A sheet that can be pulled up on iPhone; a centred card on iPad.
@@ -613,6 +681,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [self setPause:PauseReasonInactive on:YES];
     [self flushSave];
     [_input releaseAll];
+    [_touch releaseAll];
 }
 
 - (void)sceneDidBecomeActive {

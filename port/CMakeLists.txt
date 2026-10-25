@@ -394,6 +394,8 @@ if(TMC_IOS)
         src/ios/romimport.m
         src/ios/selftest.m
         src/ios/settingsview.m
+        src/ios/touchcontrols.m
+        src/ios/touchlayout.m
         ${TMC_APPLE_SOURCES}
         ${TMC_ROOM_NAMES}
         ${TMC_APP_SHADERS}

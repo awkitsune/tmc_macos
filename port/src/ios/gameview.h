@@ -3,6 +3,7 @@
 
 #import "input.h"
 #import "renderer.h"
+#import "touchcontrols.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -18,15 +19,20 @@ typedef NS_OPTIONS(NSUInteger, PauseReason) {
  * The game screen: the full-screen Metal view (status bar and home indicator
  * hidden), the game thread, sound and input. It pauses in the background,
  * while the settings are open and while no controller is connected (with an
- * overlay asking for one), and saves the EEPROM file to disk when the app
- * resigns active. The settings open from the controller (Home, or holding ☰),
- * Escape on a keyboard, or a tap on the screen, the only touch input.
+ * overlay asking for one, unless the touch controls are on), and saves the
+ * EEPROM file to disk when the app resigns active. The settings open from the
+ * controller (Home, or holding ☰), Escape on a keyboard, and a tap on the
+ * screen, or with the touch controls on, their ☰ button.
  */
 @interface GameViewController : UIViewController
 
 @property(nonatomic, readonly, nullable) Renderer* renderer;
 @property(nonatomic, readonly) Input* input;
 @property(nonatomic, readonly) MTKView* gameView;
+// The on-screen controls (hidden while off, or while a gamepad is connected).
+@property(nonatomic, readonly) TouchControlsView* touchControls;
+@property(nonatomic, readonly) BOOL touchControlsOn;
+@property(nonatomic, readonly) BOOL tapOpensSettings;
 @property(nonatomic, readonly) PauseReason pauseReasons;
 @property(nonatomic, readonly) BOOL controllerOverlayShown;
 @property(nonatomic, readonly) BOOL settingsShown;

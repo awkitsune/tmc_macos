@@ -85,13 +85,23 @@ NSString* DebugBufferName(DebugBuffer buffer);
 @end
 
 /*
+ * The largest rect with the GBA's 3:2 shape that fits, centred, in the area, in
+ * whole pixels: scaled by a whole number (integerScaling) or as large as the
+ * aspect ratio allows.
+ */
+CGRect RendererFitPicture(CGRect area, BOOL integerScaling);
+
+/*
  * Presents the game's newest frame in an MTKView: uploads it to a texture when
- * it changes and draws it centred, scaled by a whole number (integerScaling) or
- * as large as the aspect ratio allows.
+ * it changes and draws it fitted in pictureRect (RendererFitPicture), or in the
+ * whole drawable.
  */
 @interface Renderer : NSObject <MTKViewDelegate>
 @property(nonatomic) FilterMode filter;
 @property(nonatomic) BOOL integerScaling;
+// Where the picture goes, in drawable pixels (iOS touch controls keep it clear
+// of the buttons); empty, the default, for the whole drawable.
+@property(nonatomic) CGRect pictureRect;
 @property(nonatomic) FilterParams params;
 // Show a fixed grey/white/colour test card instead of the game (for checking filters).
 @property(nonatomic) BOOL testPattern;

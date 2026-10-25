@@ -48,8 +48,8 @@ Documentation: <https://zeldaret.github.io/tmc>
 
 ## iPhone and iPad
 
-The port also runs on iPhone and iPad (iOS/iPadOS 16 or later), played with a game controller or a hardware
-keyboard. It has no touch controls; a tap opens the settings. The app contains none of the game's data: on first
+The port also runs on iPhone and iPad (iOS/iPadOS 16 or later), played with a game controller, a hardware
+keyboard or optional on-screen [touch controls](#touch-controls). The app contains none of the game's data: on first
 launch it asks for your own ROM of The Minish Cap (USA) and extracts what it needs.
 
 A free Apple ID is enough to install it on your own device. It needs a Mac with Xcode (the iOS platform, from
@@ -83,8 +83,28 @@ Xcode > Settings > Components; the Simulator is not needed) and this repository 
    Management, tap your Apple ID under Developer App and tap **Trust**.
 6. **Give it the ROM.** Put your `.gba` in the Files app (AirDrop, iCloud Drive, or Finder with the device
    connected), open The Minish Cap and tap **Choose ROM…**. The data is extracted once.
-7. **Connect a controller** (Settings > Bluetooth on the device) or a keyboard. Press Home or hold ☰ on the controller,
-   press Escape, or tap the screen for the settings.
+7. **Connect a controller** (Settings > Bluetooth on the device) or a keyboard, or turn on the touch controls. Press
+   Home or hold ☰ on the controller, press Escape, or tap the screen for the settings.
+
+### Touch controls
+
+Settings > Controls > **Touch controls** puts the GBA's buttons on the screen (off by default). With them on the game
+needs no controller, and the **☰** button opens the settings instead of a tap (Home, holding ☰ on a controller and
+Escape still work).
+
+- **Landscape** is laid out like the original GBA: the D-pad with Start and Select under it on the left, A and B on the
+  right, L and R in the top corners, ☰ bottom right, and the picture in the middle (5x on an iPhone 15).
+- **Portrait** is like the GBA SP: the screen in halves, the picture in the top one (4x on an iPhone 15) and the
+  controls in the bottom one: L and R as bars at its top, then the D-pad and A and B, with Start, Select and ☰ in the
+  middle at the bottom.
+- The buttons are the same size in points on iPhone and iPad, and the picture never sits under them: it gets the
+  largest whole-number scale that leaves them room.
+- Every finger counts on its own. The D-pad goes 8 ways by the angle of your thumb, and slides from one direction to
+  the next without lifting. Slide between A and B to move the press; the gap between them presses both.
+- **Haptics** (on by default): a light tap on each press and a softer tick when the D-pad changes direction. Devices
+  without a Taptic Engine, like the iPad mini, have none.
+- The buttons hide while a gamepad is connected, and the picture has the whole screen again; they come back when it
+  disconnects.
 
 With a free Apple ID:
 
