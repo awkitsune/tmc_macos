@@ -112,7 +112,7 @@ static int SongLoops(const MusicPlayerInfo* player) {
 // ---- rendering ------------------------------------------------------------
 
 static void ResetEngine(void) {
-    memset(gHwIo + REG_OFFSET_NR10, 0, REG_OFFSET_WAVE_RAM0 + 16 - REG_OFFSET_NR10);
+    RegisterRamReset(RESET_SOUND_REGS);
     m4aSoundInit();
     SoundMixerReset();
 }

@@ -31,6 +31,7 @@
 #include <unistd.h>
 #include <zlib.h>
 
+#include "port/hw.h"
 #include "port/state.h"
 #include "port/state_map.h"
 
@@ -1145,6 +1146,12 @@ bool StateLoad(const char* path, uint64_t* frame, char* message, size_t messageS
     free(body);
     if (ok) {
         *frame = header.frame;
+        // States saved before RegisterRamReset set SOUNDBIAS (0x088) hold bias level 0,
+        // which would clip every negative sample; give them the BIOS default.
+        if (((gHwIo[0x88] | (gHwIo[0x89] << 8)) & 0x3FE) == 0) {
+            gHwIo[0x88] = 0x00;
+            gHwIo[0x89] = (gHwIo[0x89] & 0xC0) | 0x02;
+        }
     }
     return ok;
 }
