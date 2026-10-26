@@ -289,7 +289,9 @@ IWRAM is 32 KB:
 
 - **Option 1:** map the DS shared WRAM (32 KB at 0x03000000) entirely to the ARM9
   (`WRAMCNT`) and keep IWRAM at its GBA address. This needs the ARM7 core to live
-  in its own 64 KB WRAM, and shared WRAM is uncached on the ARM9.
+  in its own 64 KB WRAM, and shared WRAM is uncached on the ARM9. Note: BlocksDS's
+  ARM7 cores put their DSi-only `.twl` code in NWRAM mapped at 0x03000000
+  (`ds_arm7.ld`, `twl_iwram`), so this option would also need that moved.
 - **Option 2:** put IWRAM as a block in main RAM (cached) and have
   `GBA_PTR`/`HwGbaPtr` add the offset for 0x03xxxxxx. No data word points into
   IWRAM, and the BIOS-reserved words (0x3007FF0/8/C) are already the named
@@ -434,7 +436,7 @@ reference is the Mac headless build at the same game frame.
 | # | Milestone | Verified by |
 |---|---|---|
 | 0 | **Done**: toolchain, DSi hello world (16,128 KB malloc-able, SD and DLDI), measurements, melonDS automation | README figures |
-| 1 | **Load address and macro split.** (a) Hello world linked at 0x02040000 boots in melonDS DSi mode and on the DSi from TWiLight Menu++ and Unlaunch. (b) `PORT_HOSTED`/`PORT_LAYOUT_64` split. | (a) `gHelloDone`/`hello.txt` from each loader. (b) `tmc.gba: OK`; Mac `TMC_FRAME_HASH` for 3,000 frames identical before/after; room smoke 576/576 |
+| 1 | **Load address and macro split.** (a) status: `make -C port/dsi/hello GBA_EWRAM=1` (`port/dsi/ld/`) boots in melonDS DSi direct boot, and 0x02000000-0x0203FFFF tests clean (65,536/65,536 words, cached and uncached); TWiLight Menu++ and Unlaunch on hardware still to do. (a) Hello world linked at 0x02040000 boots in melonDS DSi mode and on the DSi from TWiLight Menu++ and Unlaunch. (b) `PORT_HOSTED`/`PORT_LAYOUT_64` split. | (a) `gHelloDone`/`hello.txt` from each loader. (b) `tmc.gba: OK`; Mac `TMC_FRAME_HASH` for 3,000 frames identical before/after; room smoke 576/576 |
 | 2 | **Link.** `tmc_dsi.nds` links: all game C, `port/src/{bios,interrupts,eeprom}.c`, `port/src/asm`, generated `rom_symbols.ld`/`ram_layout.ld`/`rom_relocs.s`, stub presenter | no undefined symbols; link-map figures recorded (.text, .rodata, .bss, NOLOAD blocks) against this plan's estimates; 16,356 ROM symbols and 15,849 relocations generated |
 | 3 | **ROM load and relocation.** Boot reads `tmc/baserom.gba`, checks SHA-1, relocates, stops | boot log: bytes read, load ms, SHA-1 = `b4bd50e4…`, counts per relocation kind = generator's counts; CRC32 of the relocated copy equals the CRC a host tool computes from the same ROM, base address and list (run locally, nothing shipped); a wrong-ROM run shows the mismatch |
 | 4 | **Game runs blind.** VBlank IRQ drives game frames into the shadows, nothing on screen | per frame, CRC32 of `gHwPltt`, `gHwOam`, `gHwVram` and the display registers in `gHwIo`, into a RAM ring buffer; Mac headless writes the same CRCs (a `TMC_HW_HASH` next to `TMC_FRAME_HASH`); identical for frames 1…N, where N is the frame the Mac run shows the title screen fully faded in; plus game state values (task/state bytes) at N; frame time (timer ticks) min/avg/max |
@@ -444,13 +446,63 @@ reference is the Mac headless build at the same game frame.
 Milestone 6 is the proof of concept: it boots in DSi mode, loads and relocates the
 ROM, and reaches the title screen with graphics and no sound.
 
-The full game, step by step after approval:
+## After the proof of concept
 
-- input with input scripts (past the title, then the Mac checkpoint runs);
-- saves;
-- ARM7 sound;
-- performance work;
-- extended view, and the bottom-screen HUD and map.
+In this order, each step approved on its own:
+
+1. **Input and saves:** keys and input scripts get past the title screen, then the
+   Mac checkpoint runs; EEPROM goes to `sd:/tmc/tmc.sav`.
+2. **Extended view:** fullscreen 256x192 with no border (next section).
+3. **ARM7 sound** (section above).
+4. **Performance work**, as milestone 4's numbers demand. It may move earlier if
+   the game is too slow to play.
+5. **Bottom screen:** HUD and map on engine B.
+
+### Extended view: fullscreen without a border
+
+The DS can't scale its 2D output, and 240x160 to 256x192 isn't a whole-number scale
+(1.07x across, 1.2x down). So "fullscreen" means the game draws **more of the world**:
+256x192 of it, with sharp pixels.
+
+**Approach:**
+
+- The presenter's screen offset becomes (0, 0) and the border window goes away.
+- The game's view size becomes a pair of constants (`PORT_SCREEN_W/H`, 240x160 on
+  GBA and Mac, 256x192 on DSi extended).
+- Every place the game assumes 240x160 is moved onto those constants:
+  - camera clamping at room edges;
+  - on-screen and off-screen checks for entities, so things don't pop in at the new
+    edges;
+  - tile streaming of the BG maps. The GBA map buffers are 256x256 pixels, so 16
+    more columns and 32 more rows of tiles have to be valid.
+  - sprite culling;
+  - screen-space effects (iris and fade windows, HBlank tables of 160 lines become
+    192).
+- Menus, the HUD, text boxes and cutscenes keep their 240x160 layout, centred, or
+  are re-anchored to the screen edges one by one (the HUD to the corners, for
+  example).
+- Rooms smaller than 256x192 are centred with backdrop around them.
+
+**Finding the sites:**
+
+- grep for 240/160/`DISPLAY_WIDTH`-style constants and `0xF0`/`0xA0`.
+- The Mac build can run with a 256x192 software PPU: `port/src/ppu.c` with a larger
+  frame and the same constants, as a quick visual and numeric check on the Mac.
+  The room smoke test (576 rooms) then shows any crash or edge glitch per room.
+
+**Verification:**
+
+- The Mac headless run in extended mode against the DSi at the same frame
+  (shadow-buffer hashes, as in milestone 4).
+- Room smoke with extended view on.
+- Visuals on the DSi checked by the user.
+- The bordered mode stays as an option, a setting at boot.
+
+**Scaling instead**, the other route: capture each frame and show it stretched
+through the 3D engine or a scaled bitmap layer. It isn't planned. TMC uses all four
+BG layers, so nothing is free to show the picture without trading frames. It adds a
+frame of lag and needs two VRAM banks, and a 1.2x vertical stretch repeats every
+fifth line. It may come back as an experiment later.
 
 ## Risks and unknowns
 

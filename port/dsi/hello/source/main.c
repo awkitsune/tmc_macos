@@ -1,5 +1,7 @@
 // DSi-mode toolchain check for the TMC port: reports free main RAM, lists the
-// SD card root and writes hello.txt there, then reads it back. The report goes
+// SD card root and writes hello.txt there, then reads it back. Built with
+// TMC_GBA_EWRAM (make GBA_EWRAM=1) it is linked at 0x02040000 and also checks
+// that 0x02000000-0x0203FFFF is RAM nobody else uses. The report goes
 // to the screen and to gHelloOut, which a debugger reads once gHelloDone is 1
 // (port/dsi/scripts/melonds_run.py).
 #include <dirent.h>
@@ -32,6 +34,27 @@ static size_t MallocTotal(void) {
         free(blocks[i]);
     return count * BLOCK;
 }
+
+#ifdef TMC_GBA_EWRAM
+// Fills the GBA EWRAM range through the cached mapping, flushes, and checks the
+// pattern through the uncached mirror at 0x0C000000 (DSi) and back through the cache.
+static void CheckGbaEwram(void) {
+    enum { BASE = 0x02000000, SIZE = 0x40000 };
+    volatile u32* cached = (volatile u32*)BASE;
+    for (u32 i = 0; i < SIZE / 4; i++)
+        cached[i] = 0xA5000000u ^ (i * 2654435761u);
+    DC_FlushRange((void*)BASE, SIZE);
+    volatile u32* uncached = (volatile u32*)(isDSiMode() ? BASE - 0x02000000 + 0x0C000000 : BASE + 0x400000);
+    u32 bad = 0, badCached = 0;
+    for (u32 i = 0; i < SIZE / 4; i++) {
+        u32 want = 0xA5000000u ^ (i * 2654435761u);
+        bad += uncached[i] != want;
+        badCached += cached[i] != want;
+    }
+    OUT("gba ewram 0x%08x-0x%08x: %u/%u words wrong (uncached), %u (cached)\n", BASE, BASE + SIZE - 1,
+        (unsigned)bad, SIZE / 4, (unsigned)badCached);
+}
+#endif
 
 static void ListRoot(const char* root) {
     DIR* dir = opendir(root);
@@ -77,11 +100,15 @@ int main(int argc, char** argv) {
     extern char __end__[];
     OUT("mode: %s\n", isDSiMode() ? "DSi" : "DS");
     OUT("argv0: %s\n", argc > 0 && argv[0] ? argv[0] : "(none)");
+    OUT("main at: %p\n", (void*)main);
     OUT("binary end: %p\n", (void*)__end__);
     OUT("heap start: %p\n", (void*)getHeapStart());
     OUT("heap limit: %p\n", (void*)getHeapLimit());
     OUT("heap span: %u KB\n", (unsigned)((getHeapLimit() - getHeapStart()) >> 10));
     OUT("malloc total: %u KB\n", (unsigned)(MallocTotal() >> 10));
+#ifdef TMC_GBA_EWRAM
+    CheckGbaEwram();
+#endif
 
     bool fat = fatInitDefault();
     OUT("fatInitDefault: %s\n", fat ? "ok" : "FAILED");

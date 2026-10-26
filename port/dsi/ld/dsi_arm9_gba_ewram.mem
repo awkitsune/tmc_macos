@@ -1,0 +1,11 @@
+/* ARM9 memory for the DSi port: like BlocksDS's dsi_arm9.mem, but the binary
+ * starts at 0x02040000 so that 0x02000000-0x0203FFFF can hold the game's EWRAM
+ * at its GBA addresses (port/dsi/PLAN.md, "Fixed GBA RAM addresses").
+ * Used through dsi_arm9_gba_ewram.specs (BlocksDS ds_arm9.specs with this file as
+ * the memory map), which finds it through $TMC_DSI_LD. */
+
+MEMORY {
+	ewram	: ORIGIN = 0x02040000, LENGTH = 15M - 512k - 256k
+	dtcm	: ORIGIN = 0x02ff4000, LENGTH = 16K
+	itcm	: ORIGIN = 0x01000000, LENGTH = 32K
+}

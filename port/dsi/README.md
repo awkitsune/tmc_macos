@@ -124,6 +124,13 @@ This builds `port/dsi/hello/dsihello.nds` (150 KB). Its header has unit code 0x0
 (NDS + DSi enhanced), with the DSi extended header, so loaders start it in DSi mode
 with 16 MB.
 
+`make -C port/dsi/hello GBA_EWRAM=1` builds `dsihello_gbaewram.nds`, linked at
+0x02040000 through `port/dsi/ld/` (BlocksDS's specs with a shifted memory map). It
+also checks that 0x02000000-0x0203FFFF, where the game's EWRAM will sit at its GBA
+addresses, is RAM nobody else uses. In melonDS DSi mode: `main` at 0x02045789,
+0 of 65,536 words wrong through the cache and through the uncached mirror, heap
+15,980 KB. Both `.nds` files are also on `~/dsi/support/dsisd.bin`.
+
 The source is `port/dsi/hello/source/main.c`. It prints the report on the top
 screen and keeps it in `gHelloOut`, setting `gHelloDone` to 1 at the end.
 
