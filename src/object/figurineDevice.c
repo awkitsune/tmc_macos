@@ -18,6 +18,7 @@
 #include "physics.h"
 #include "player.h"
 #include "screen.h"
+#include "vram.h"
 #include "tiles.h"
 #include "subtask.h"
 #include "color.h"
@@ -604,17 +605,38 @@ void sub_080882A8(FigurineDeviceEntity* this) {
         206, 79, 3, 2, 0, 208, 0, 6, 0, 13, 0, 2, 0, 0, 0, 0, 128, 240, 208, 139, 2, 0, 1, 0,
     };
 #endif
+#ifdef PLATFORM_NATIVE
+    // The bytes above are a Font with GBA addresses in it (as in phonograph.c).
+#ifdef EU
+#define FIGURINE_BORDER 3
+#else
+#define FIGURINE_BORDER 8
+#endif
+    static const Font sFontLeft = {
+        (u16*)((u8*)gBG0Buffer + 0x31e), (void*)(VRAM + 0xd000), gTextGfxBuffer, 0, 0xf080, 0x68, 0, 0, 0, 1,
+        FIGURINE_BORDER, 2, 0, 1, 0
+    };
+    static const Font sFontRight = {
+        (u16*)((u8*)gBG0Buffer + 0x31e), (void*)(VRAM + 0xd000), gTextGfxBuffer, 0, 0xf080, 0xd0, 1, 1, 0, 1,
+        FIGURINE_BORDER, 2, 0, 1, 0
+    };
+#undef FIGURINE_BORDER
+#endif
     static const u16 gUnk_08120AE4[] = { TEXT_INDEX(TEXT_CARLOV, 0x18), TEXT_INDEX(TEXT_CARLOV, 0x19) };
     u8* ptr;
     sub_08050384();
     NumberToAsciiPad3Digits(this->shells, &gUnk_020227E8[0], 0x202020);
     NumberToAsciiPad3Digits(this->chance, &gUnk_020227E8[1], 0x202020);
     ptr = (u8*)gSaveHeader;
+#ifdef PLATFORM_NATIVE
+    ShowTextBox(gUnk_08120AE4[super->type2], ptr[7] == 0 ? &sFontLeft : &sFontRight);
+#else
     if (ptr[7] == 0) {
         ShowTextBox(gUnk_08120AE4[super->type2], (Font*)&gUnk_08120AB4); // TODO convert data
     } else {
         ShowTextBox(gUnk_08120AE4[super->type2], (Font*)&gUnk_08120ACC); // TODO convert data
     }
+#endif
     gScreen.bg0.updated = 1;
 }
 

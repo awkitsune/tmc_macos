@@ -469,3 +469,12 @@ death animation (the second lava boss, Cave of Flames). Fixed under `#ifdef PLAT
 pointers (`n` is 0, 1, 4 or 5; 5 is `ent2`, right after `entities[4]`). The room smoke test could not reach it:
 it needs the boss beaten. Sweep for `*(T**)(` casts through byte pointers: `src/interrupts.c` (GBA-only branch)
 and vaatiArm (already native-specific).
+
+## Structs written as GBA byte arrays
+
+The figurine device (shell trading, `sub_080882A8`) passed two `u8[24]` arrays to `ShowTextBox` as `Font*`
+("TODO convert data"). The bytes hold GBA addresses (the BG0 buffer, VRAM, `gTextGfxBuffer`) at 4 bytes each;
+natively `Font` has 8-byte pointers, so its `dest` came out as `0x0600d000_02034fb6` and `DispMessageFrame`
+crashed writing through it as soon as the trade text box opened. Fixed under `#ifdef PLATFORM_NATIVE` with two
+`Font` initializers (the native pointers, as phonograph.c does); a check program confirmed that the same field
+values give back the original 24 bytes on GBA. Sweep for `(Font*)` / `(const Font*)` casts: none left.
