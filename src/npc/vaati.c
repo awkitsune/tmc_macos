@@ -20,8 +20,14 @@ typedef struct {
 } VaatiEntity;
 
 extern void sub_08095CB0(Entity*);
+#ifdef PLATFORM_NATIVE
+// Both read the script context, which the GBA calls below leave in r1 by chance.
+extern void CreateRepeatedSoundManager(Entity*, ScriptExecutionContext*);
+extern void DeleteRepeatedSoundManager(Entity*, ScriptExecutionContext*);
+#else
 extern void CreateRepeatedSoundManager(Entity*);
 extern void DeleteRepeatedSoundManager(Entity*);
+#endif
 extern void CreateVaatiApparateManager(Entity*, u32);
 
 void VaatiAction0(VaatiEntity*);
@@ -64,12 +70,20 @@ void VaatiAction1(VaatiEntity* this) {
             case 3:
                 context = this->context;
                 context->intVariable = 4;
+#ifdef PLATFORM_NATIVE
+                CreateRepeatedSoundManager(super, context);
+#else
                 CreateRepeatedSoundManager(super);
+#endif
                 break;
             case 4:
                 context = this->context;
                 context->intVariable = 4;
+#ifdef PLATFORM_NATIVE
+                DeleteRepeatedSoundManager(super, context);
+#else
                 DeleteRepeatedSoundManager(super);
+#endif
                 EnqueueSFX(SFX_21D);
                 break;
         }

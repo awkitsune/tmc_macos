@@ -399,3 +399,16 @@ Found by warping into every room ([room-smoke.md](room-smoke.md)); all fixed und
   for NULL.
 - **An entity's heap used by someone else before the entity's own first update allocates it.** zeldaFollower
   `sub_08068578`, called through `SetZeldaFollowTarget` when the player arrives by stairs with Zelda following.
+
+## Calls missing an argument the callee reads
+
+A function declared without a prototype (`void f();`), or with fewer parameters than its definition, is called
+with fewer arguments than it uses. On the GBA the missing one is whatever the caller left in that register,
+which happens to be the right value; natively it is garbage. Found from a crash after the Big Green Chuchu's
+defeat (the element's background); swept with libclang over every call in the game sources (call argument
+count against the definition's parameter count). Fixed under `#ifdef PLATFORM_NATIVE` by passing the value:
+
+- elementsBackground `sub_080A04E8()`: its entity (`this`), from both callers. Crashed when an element appears.
+- vaati `CreateRepeatedSoundManager(super)` / `DeleteRepeatedSoundManager(super)`: the script context, which
+  they read (`context->intVariable`).
+- room.c `sub_080186EC()` takes a parameter it never reads: left alone.

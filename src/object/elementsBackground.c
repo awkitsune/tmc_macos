@@ -9,6 +9,7 @@
 
 void ElementsBackground_Init(Entity*);
 void ElementsBackground_Action1(Entity*);
+// Called without its entity: on the GBA `this` is still in r0 from the caller. Natively the argument is passed.
 void sub_080A04E8();
 
 void ElementsBackground(Entity* this) {
@@ -28,11 +29,19 @@ void ElementsBackground_Init(Entity* this) {
     this->spritePriority.b0 = 7;
     this->z.WORD = 0;
     this->spriteRendering.alphaBlend = 1;
+#ifdef PLATFORM_NATIVE
+    sub_080A04E8(this);
+#else
     sub_080A04E8();
+#endif
 }
 
 void ElementsBackground_Action1(Entity* this) {
+#ifdef PLATFORM_NATIVE
+    sub_080A04E8(this);
+#else
     sub_080A04E8();
+#endif
 }
 
 void sub_080A04E8(Entity* this) {
