@@ -2,6 +2,7 @@
 """Compare the DSi port's per-frame records with the Mac headless run (milestones 4, 5).
 
     TMC_FRAMES=1024 TMC_HW_HASH=mac.txt TMC_FRAME_HASH=mac_pic.txt TMC_PPU_DS_EFFECTS=1 build/native/tmc
+    make -C port/dsi -j4 DSI_CHECKS=1
     python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf ... \\
         --gdb "dump binary value dsi.bin gDsiFrames" --gdb "dump binary value dsi_pic.bin gDsiPictures"
     python3 -I port/dsi/scripts/compare_frames.py mac.txt dsi.bin [--frames N] \\

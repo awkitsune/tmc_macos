@@ -16,7 +16,7 @@ void DsiLog(const char* format, ...) __attribute__((format(printf, 1, 2)));
 _Noreturn void DsiFatal(const char* format, ...) __attribute__((format(printf, 1, 2)));
 #define DSI_LOG_SIZE 4096
 extern char gDsiLog[DSI_LOG_SIZE];
-/* Set once the log is complete (after 2 * DSI_FRAME_RECORDS frames). */
+/* Set once the log is complete (after DSI_FRAME_RECORDS frames, twice that with DSI_CHECKS). */
 extern volatile int gDsiLogDone;
 
 /* The GBA IWRAM (32 KB): the game's IWRAM globals live here (ram_layout.ld). */

@@ -50,7 +50,11 @@ GAME_FLAGS := $(COMMON_FLAGS) $(GAME_DEFINES) -std=gnu11 -fwrapv -fno-short-enum
 	-Wno-builtin-declaration-mismatch -Wno-multichar
 # The DSi layer: libnds, never the game's headers. DSI_DEFINES is for test
 # builds (-DDSI_TEST_STRAY_READ: main.c reads the GBA slot, which must fault).
-DSI_FLAGS := $(COMMON_FLAGS) -Wall -I$(BLOCKSDS)/libs/libnds/include -I$(ROOT)/port/include $(DSI_DEFINES)
+# DSI_CHECKS=1 records the first 1,024 frames for the comparison with the Mac
+# (README.md): about half speed for those frames, and no input until they end.
+DSI_CHECKS ?= 0
+DSI_FLAGS := $(COMMON_FLAGS) -Wall -I$(BLOCKSDS)/libs/libnds/include -I$(ROOT)/port/include \
+	-DDSI_CHECKS=$(DSI_CHECKS) $(DSI_DEFINES)
 
 GAME_SRCS := $(filter-out src/eeprom.c,$(shell cd $(ROOT) && find src -name '*.c' | sort))
 PORT_SRCS := port/src/bios.c port/src/interrupts.c port/src/eeprom.c port/src/data_glue.c \
@@ -86,6 +90,11 @@ $(BUILD)/obj/port/dsi/src/%.o: $(ROOT)/port/dsi/src/%.c
 	@mkdir -p $(@D)
 	@echo "  CC      port/dsi/src/$*.c"
 	@$(CC) $(DSI_FLAGS) -c -o $@ $<
+
+# platform_dsi.c is rebuilt when DSI_CHECKS changes.
+CHECKS_STAMP := $(BUILD)/dsi_checks.txt
+$(shell mkdir -p $(BUILD) && [ "`cat $(CHECKS_STAMP) 2>/dev/null`" = "$(DSI_CHECKS)" ] || echo $(DSI_CHECKS) > $(CHECKS_STAMP))
+$(BUILD)/obj/port/dsi/src/platform_dsi.o: $(CHECKS_STAMP)
 
 # The symbols the DSi objects define: those win over the ROM copy's.
 $(GEN)/native_defs.txt: $(OBJS)

@@ -240,12 +240,16 @@ python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_d
 ```
 
 At milestone 5 it loads, checks and relocates the ROM, then runs the game
-on the top screen, centred with a black border. There is no input or sound
-yet. The first 1,024 frames run at about half speed: each one records the
-shadows' CRC and every even one captures the screen to check it (below). It
-logs the frame times after 1,024 frames and again, without the checks, after
-2,048 (the copy's CRC depends on the build; `rom_crc.py` must print the same
-one):
+on the top screen, centred with a black border. The DS's A, B, Select,
+Start, D-pad, R and L are the GBA's; there is no sound yet. It logs the
+frame times after 1,024 frames.
+
+The comparison with the Mac (below) needs a build with the checks,
+`make -C port/dsi -j4 DSI_CHECKS=1`. Its first 1,024 frames run at about
+half speed, with all keys up: each one records the shadows' CRC and every
+even one captures the screen. It logs the frame times after 1,024 frames and
+again, without the checks, after 2,048 (the copy's CRC depends on the build;
+`rom_crc.py` must print the same one):
 
 ```
 TMC DSi port
@@ -266,14 +270,15 @@ shadow CRC (us): avg 9046; picture check avg 12543 per 2 frames
 DS VBlanks 1759 (716 game frames over one)
 presenter so far: two-window lines 0, wrap+OBJ-window lines 0, wrapped sprites 0, bitmap lines 0
 presenter so far: per-line DISPCNT in 1024 frames, other registers in 774, up to 2 words
-frames 1024-2047 (no checks), game time per frame (us): min 208 avg 211 max 219
+frames 1024-2047 (no checks, keys), game time per frame (us): min 208 avg 211 max 219
 frame work (lines, DMA, IRQs, prepare) (us): min 5674 avg 5675 max 5699
 present (us): min 1596 avg 1596 max 1605, ended by line 217, 0 after VBlank
 DS VBlanks 1025 (0 game frames over one)
 ...
 ```
 
-Compare the game's first 1,024 frames with the Mac headless build: the
+Compare the game's first 1,024 frames with the Mac headless build (a
+`DSI_CHECKS=1` build): the
 shadows' CRC and the game task on every frame, and the DS's display capture
 of every even frame with the Mac's picture. The DS rounds blends and fades
 on 6-bit channels, so the Mac draws with the same rounding
@@ -300,7 +305,7 @@ compare it with the Mac's screenshot:
 
 ```bash
 (cd build/native && TMC_FRAMES=251 TMC_SCREENSHOT=250 TMC_SCREENSHOT_DIR=/tmp/shots TMC_PPU_DS_EFFECTS=1 ./tmc)
-touch port/dsi/src/present.c && make -C port/dsi -j4 DSI_DEFINES=-DDSI_CAPTURE_DUMP=250
+touch port/dsi/src/present.c && make -C port/dsi -j4 DSI_CHECKS=1 DSI_DEFINES=-DDSI_CAPTURE_DUMP=250
 python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
     --seconds 120 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img \
     --gdb "dump binary memory /tmp/cap.bin (char*)gDsiCaptureDump (char*)gDsiCaptureDump+98304"

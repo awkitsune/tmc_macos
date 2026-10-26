@@ -536,8 +536,10 @@ twice, and DMA in repeat mode would otherwise run past its table.
   bits (A, B, Select, Start, directions, R, L) are the same on DS.
 - X and Y come from the ARM7 through libnds IPC (`KEY_X`, `KEY_Y`, bits 10-11 of
   `keysHeld()`), free for later bindings.
-- Scripted input for tests comes from the input-script file.
-- Not needed for the title screen; it comes in the milestone after.
+- Scripted input for tests comes from the input-script file (not yet).
+- As built (milestone 5): `scanKeys()` and `keysHeld() & 0x3FF` into `HwSetKeys` at
+  the start of each frame. A `DSI_CHECKS=1` build keeps all keys up for the
+  1,024 recorded frames, so they stay comparable with the Mac.
 
 **Saves**:
 
@@ -596,7 +598,7 @@ reference is the Mac headless build at the same game frame.
 | 2 | **Link.** Done: `make -C port/dsi -j4` links `build/dsi/tmc_dsi.nds` (974 KB) with no undefined symbols: all game C, `port/src/{bios,interrupts,eeprom,data_glue}.c`, `port/src/asm`, the sound engine, the generated `rom_symbols.ld`/`ram_layout.ld`/`rom_relocs.s`, a stub presenter. In melonDS DSi mode it boots, logs its layout and stops before ROM loading | no undefined symbols; figures in [Measurements](#arm9-code-size) and [Build structure](#where-it-lives); 16,545 ROM symbols and 16,089 relocations generated; boot log read through GDB |
 | 3 | **ROM load and relocation.** Done: boot reads `sd:/tmc/baserom.gba` (or `fat:/`), checks SHA-1, relocates with a check of every word, logs the copy's CRC32, checks the GBA slot faults, stops ([README](README.md#the-port)) | melonDS: 16,777,216 bytes, SD read 931 ms + SHA-1 4,678 ms (DLDI read 3,758 ms); SHA-1 `b4bd50e4…`; 11,547 add-base, 3,117 symbol, 1,425 kept, 0 unexpected, as generated; copy CRC32 equals `tools/rom_crc.py`'s; a one-byte-changed ROM shows its SHA-1 and stops; a stray read of 0x08000000 aborts into the logging handler |
 | 4 | **Game runs blind.** Done: the game runs from `AgbMain`, a DS VBlank drives each game frame through `frame.c` into the shadows, nothing on screen. No input yet (all keys up). The first 1,024 frames record `HwShadowCrc` (`port/src/hw_crc.c`: display registers, palette, VRAM, OAM) and the task/state/substate/fade (`HeadlessGetState`) in `gDsiFrames`; the Mac headless runner writes the same with `TMC_HW_HASH` | melonDS: frames 0-1023 equal the Mac's on every frame, CRC and task (233 distinct CRCs; the title screen is fully faded in from frame 336; frame 1023 is task 0 state 1, CRC `3d91f6b1`), `port/dsi/scripts/compare_frames.py`. Frame time: game 14 µs min / 219 avg / 13,400 max, frame work 3.1 / 3.3 / 3.7 ms, shadow CRC 9.8 ms; 1,025 DS VBlanks for 1,024 game frames. The Mac's audio and hashes are byte-identical after the shared-file changes |
-| 5 | **Picture.** Done: the presenter (`port/dsi/src/present.c`) shows the shadows on the top screen: banks A/B, DISPCNT/BG translation, OAM, palette, per-line HBlank DMA, centring with a border. The check is stronger than planned: the DS's own display capture (bank D) of every even frame 0-1022, against the Mac's picture of that frame | melonDS: the 512 captured 240x160 pictures equal the Mac's (`TMC_FRAME_HASH` with `TMC_PPU_DS_EFFECTS=1`; with GBA rounding 400 differ by one step in one channel), the border is clean on all of them; every 64th frame is shown three times and still matches; frames 0-1023 still equal the Mac's shadows. Present 1.6 ms, ended by line 217, 0 after VBlank. Frames 1024-2047 (no checks): game 0.21 ms, frame work 5.7 ms, 1,025 VBlanks; frames 0-1023 run at about half speed because of the checks (shadow CRC 9.0 ms, picture check 12.5 ms per 2 frames) |
+| 5 | **Picture.** Done: the presenter (`port/dsi/src/present.c`) shows the shadows on the top screen: banks A/B, DISPCNT/BG translation, OAM, palette, per-line HBlank DMA, centring with a border. The check is stronger than planned: the DS's own display capture (bank D) of every even frame 0-1022, against the Mac's picture of that frame | melonDS: the 512 captured 240x160 pictures equal the Mac's (`TMC_FRAME_HASH` with `TMC_PPU_DS_EFFECTS=1`; with GBA rounding 400 differ by one step in one channel), the border is clean on all of them; every 64th frame is shown three times and still matches; frames 0-1023 still equal the Mac's shadows. Present 1.6 ms, ended by line 217, 0 after VBlank. Frames 1024-2047 (no checks): game 0.21 ms, frame work 5.7 ms, 1,025 VBlanks; the checks (shadow CRC 9.0 ms, picture check 12.5 ms per 2 frames) are in `DSI_CHECKS=1` builds only, which run frames 0-1023 at about half speed. The default build runs 1,024 frames in 1,026 VBlanks and reads the buttons |
 | 6 | **On the DSi.** Same build from TWiLight Menu++ and Unlaunch | `sd:/tmc/boot.txt` with SHA-1, load time, the frame-N CRCs (must equal melonDS's) and frame-time stats; **the user confirms the title screen visually** |
 
 Milestone 6 is the proof of concept: it boots in DSi mode, loads and relocates the
@@ -606,7 +608,7 @@ ROM, and reaches the title screen with graphics and no sound.
 
 In this order, each step approved on its own:
 
-1. **Input and saves:** keys and input scripts get past the title screen, then the
+1. **Input and saves:** keys (read since milestone 5) and input scripts get past the title screen, then the
    Mac checkpoint runs; EEPROM goes to `sd:/tmc/tmc.sav`.
 2. **Extended view:** fullscreen 256x192 with no border (next section).
 3. **ARM7 sound** (section above).

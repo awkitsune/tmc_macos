@@ -84,10 +84,13 @@ static void Report(const char* what) {
  * VCOUNT and HBlank interrupts and HBlank DMA) into the shadows, and the
  * presenter prepares what they show; at the DS VBlank it shows them, then the
  * frame's VBlank half (VBlank DMA and interrupt) runs and the game goes on.
- * No input yet: all keys up, as the Mac headless run without a script. The
- * first DSI_FRAME_RECORDS frames keep the shadows' CRC and the game's task for
- * the comparison with the Mac's TMC_HW_HASH, and the even ones a capture of
- * the picture for TMC_FRAME_HASH.
+ * The buttons are latched at the start of the frame; A, B, Select, Start, the
+ * directions, R and L have the GBA's bits.
+ *
+ * With DSI_CHECKS the first DSI_FRAME_RECORDS frames keep the shadows' CRC and
+ * the game's task for the comparison with the Mac's TMC_HW_HASH, and the even
+ * ones a capture of the picture for TMC_FRAME_HASH. Those frames have all keys
+ * up, as the Mac headless run without a script.
  */
 void PlatformVBlank(void) {
     DsiFrameStats* s = &gDsiFrameStats;
@@ -97,7 +100,8 @@ void PlatformVBlank(void) {
     if (frame != s->first) {
         Track(&s->gameMin, &s->gameMax, &s->gameSum, start - sLeft);
     }
-    HwSetKeys(0);
+    scanKeys();
+    HwSetKeys(DSI_CHECKS && frame < DSI_FRAME_RECORDS ? 0 : keysHeld() & 0x3FF);
     HwRunLines(NULL);
     DsiPresentPrepare();
     work = cpuGetTiming() - start;
@@ -117,7 +121,7 @@ void PlatformVBlank(void) {
     } else if (line > s->lastLine) {
         s->lastLine = line;
     }
-    if (frame < DSI_FRAME_RECORDS && frame % 2 == 0) {
+    if (DSI_CHECKS && frame < DSI_FRAME_RECORDS && frame % 2 == 0) {
         // Every 64th frame stays on screen two more DS frames, as a slow game
         // frame would, and the capture takes the last: the per-line registers
         // must hold over DS frames that present nothing new.
@@ -133,7 +137,7 @@ void PlatformVBlank(void) {
     work += cpuGetTiming() - t;
     Track(&s->workMin, &s->workMax, &s->workSum, work);
 
-    if (frame < DSI_FRAME_RECORDS) {
+    if (DSI_CHECKS && frame < DSI_FRAME_RECORDS) {
         DsiFrameRecord* r = &gDsiFrames[frame];
         HeadlessState state;
 
@@ -157,11 +161,11 @@ void PlatformVBlank(void) {
     }
     gPlatformFrame++;
     s->frames++;
-    if (gPlatformFrame == DSI_FRAME_RECORDS) {
+    if (DSI_CHECKS && gPlatformFrame == DSI_FRAME_RECORDS) {
         Report("with the checks");
         ResetStats();
-    } else if (gPlatformFrame == 2 * DSI_FRAME_RECORDS) {
-        Report("no checks");
+    } else if (gPlatformFrame == (DSI_CHECKS ? 2 : 1) * DSI_FRAME_RECORDS) {
+        Report(DSI_CHECKS ? "no checks, keys" : "keys");
         gDsiLogDone = 1;
         DC_FlushAll();
     }

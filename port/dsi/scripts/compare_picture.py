@@ -2,7 +2,7 @@
 """Compare a DSi display capture with the Mac's picture of the same frame (milestone 5).
 
     TMC_FRAMES=N+1 TMC_SCREENSHOT=N TMC_SCREENSHOT_DIR=shots build/native/tmc
-    make -C port/dsi -j4 DSI_DEFINES=-DDSI_CAPTURE_DUMP=N   (N even, under 1024)
+    make -C port/dsi -j4 DSI_CHECKS=1 DSI_DEFINES=-DDSI_CAPTURE_DUMP=N   (N even, under 1024)
     python3 -I port/dsi/scripts/melonds_run.py ... --gdb \\
         "dump binary memory cap.bin (char*)gDsiCaptureDump (char*)gDsiCaptureDump+98304"
     python3 -I port/dsi/scripts/compare_picture.py shots/frame_00000N.png cap.bin
