@@ -221,6 +221,7 @@ add_library(tmc_port STATIC
     src/ppucapture.c
     src/performance.c
     src/frame.c
+    src/hw_crc.c
     src/gfxdebug.c
     src/romdata.c
     src/state.c

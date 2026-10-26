@@ -9,6 +9,7 @@
  * redirect their base addresses here, and the renderer reads them back.
  */
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -95,5 +96,13 @@ void HwRunFrame(uint16_t* framebuffer);
  */
 #define HW_LINE_REGS 0x56
 extern uint8_t (*gHwLineCapture)[HW_LINE_REGS];
+
+/*
+ * hw_crc.c: CRC-32 as zlib's (pass 0 to start), and the CRC of the display
+ * registers (HW_LINE_REGS bytes), palette, VRAM and OAM in that order: the
+ * per-frame check the DSi port compares with the Mac (TMC_HW_HASH).
+ */
+uint32_t HwCrc32(uint32_t crc, const void* data, size_t length);
+uint32_t HwShadowCrc(void);
 
 #endif // PORT_HW_H

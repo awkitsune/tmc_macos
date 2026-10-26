@@ -434,13 +434,8 @@ static float Level(int ch, double dt) {
     }
 }
 
-void PsgRender(float* stereo, int frames, int sampleRate) {
-    static const float ratio[4] = { 0.5f, 1.0f, 2.0f, 0.0f };
-    int oversample = (96000 + sampleRate - 1) / sampleRate;
-    double dt = 1.0 / ((double)sampleRate * oversample);
-    int nr50, nr51, bias;
-    float psgRatio, volL, volR, low, high;
-
+// Triggers and DACs, as CgbSound left the registers this frame.
+static void BeginFrame(void) {
     for (int ch = 0; ch < 4; ch++) {
         if (gHwIo[sNrx4[ch]] & 0x80) {
             Trigger(ch);
@@ -450,6 +445,25 @@ void PsgRender(float* stereo, int frames, int sampleRate) {
             sChannels[ch].on = false;
         }
     }
+}
+
+static void EndFrame(void) {
+    REG(NR52) = (REG(NR52) & 0x80) | (sChannels[0].on ? 1 : 0) | (sChannels[1].on ? 2 : 0) | (sChannels[2].on ? 4 : 0) |
+                (sChannels[3].on ? 8 : 0);
+}
+
+static int Oversample(int sampleRate) {
+    return (96000 + sampleRate - 1) / sampleRate;
+}
+
+void PsgRender(float* stereo, int frames, int sampleRate) {
+    static const float ratio[4] = { 0.5f, 1.0f, 2.0f, 0.0f };
+    int oversample = Oversample(sampleRate);
+    double dt = 1.0 / ((double)sampleRate * oversample);
+    int nr50, nr51, bias;
+    float psgRatio, volL, volR, low, high;
+
+    BeginFrame();
 
     nr50 = REG(NR50);
     nr51 = REG(NR51);
@@ -506,6 +520,20 @@ void PsgRender(float* stereo, int frames, int sampleRate) {
     }
     TraceFrameEnd();
 
-    REG(NR52) = (REG(NR52) & 0x80) | (sChannels[0].on ? 1 : 0) | (sChannels[1].on ? 2 : 0) | (sChannels[2].on ? 4 : 0) |
-                (sChannels[3].on ? 8 : 0);
+    EndFrame();
+}
+
+void PsgAdvance(int frames, int sampleRate) {
+    int oversample = Oversample(sampleRate);
+    double dt = 1.0 / ((double)sampleRate * oversample);
+
+    BeginFrame();
+    for (int i = 0; i < frames * oversample; i++) {
+        sSequencerTime += dt;
+        if (sSequencerTime >= 1.0 / 512) {
+            sSequencerTime -= 1.0 / 512;
+            SequencerStep();
+        }
+    }
+    EndFrame();
 }

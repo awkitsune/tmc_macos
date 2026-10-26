@@ -586,6 +586,7 @@ static void MaybeCheckArea(void) {
 
 static uint64_t sTracePlayer;
 static FILE* sHashFile; // TMC_FRAME_HASH
+static FILE* sHwHashFile; // TMC_HW_HASH
 
 // TMC_FRAME_HASH=path writes "frame crc32" for every frame's picture, to compare
 // renderer changes numerically between runs.
@@ -964,6 +965,15 @@ void PlatformVBlank(void) {
             HashFrame(sFrame);
         }
     }
+    // TMC_HW_HASH=path writes "frame crc32 task state substate fade" after each
+    // frame: the hardware shadows' CRC (HwShadowCrc) and the game's task, which
+    // the DSi port records at the same point.
+    if (sHwHashFile != NULL) {
+        HeadlessState s;
+        HeadlessGetState(&s);
+        fprintf(sHwHashFile, "%llu %08lx %d %d %d %d\n", (unsigned long long)gPlatformFrame,
+                (unsigned long)HwShadowCrc(), s.task, s.state, s.substate, s.fade);
+    }
 
     gPlatformFrame++;
     if (sFrameLimit != 0 && gPlatformFrame >= sFrameLimit) {
@@ -1203,6 +1213,10 @@ int main(int argc, char** argv) {
     }
     if (getenv("TMC_FRAME_HASH") != NULL && (sHashFile = fopen(getenv("TMC_FRAME_HASH"), "w")) == NULL) {
         fprintf(stderr, "TMC_FRAME_HASH: cannot write %s\n", getenv("TMC_FRAME_HASH"));
+        exit(1);
+    }
+    if (getenv("TMC_HW_HASH") != NULL && (sHwHashFile = fopen(getenv("TMC_HW_HASH"), "w")) == NULL) {
+        fprintf(stderr, "TMC_HW_HASH: cannot write %s\n", getenv("TMC_HW_HASH"));
         exit(1);
     }
     SoundWavFromEnv();

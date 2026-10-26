@@ -8,6 +8,11 @@
 // the bias); this adds the PSG output and applies the DAC's clipping to 0-3FFh
 // around SOUNDBIAS.
 void PsgRender(float* stereo, int frames, int sampleRate);
+/*
+ * PsgRender's effect on the registers and channel state (triggers, lengths,
+ * sweep, envelopes, NR52) without synthesising: the same clock, step for step.
+ */
+void PsgAdvance(int frames, int sampleRate);
 void PsgReset(void);
 // True while a CGB channel is audible.
 bool PsgActive(void);

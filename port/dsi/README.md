@@ -13,6 +13,9 @@ Contents:
   relocation list from the GBA build.
 - `tools/rom_crc.py`: the relocated ROM copy's CRC32, computed on the host from
   your ROM and the built ELF, to compare with the boot log.
+- `tools/icon_bmp.py`: the menu icon from the Mac app's icon.
+- `scripts/compare_frames.py`: the game's per-frame records (`gDsiFrames`)
+  against the Mac headless run's `TMC_HW_HASH`.
 - `hello/`: a DSi-mode hello world. It reports free main RAM, lists the SD card
   root, writes and reads back `hello.txt`.
 - `scripts/melonds_run.py`: boots an `.nds` in melonDS and reads its results back
@@ -236,22 +239,44 @@ python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_d
 .venv/bin/python -I port/dsi/tools/rom_crc.py build/dsi/tmc_dsi.elf baserom.gba
 ```
 
-At milestone 3 it loads, checks and relocates the ROM, then stops before the
-game (the CRC depends on the build, and `rom_crc.py` must print the same one):
+At milestone 4 it loads, checks and relocates the ROM, then runs the game
+with nothing on screen. After 1,024 frames it logs the frame times (the copy's
+CRC depends on the build; `rom_crc.py` must print the same one):
 
 ```
 TMC DSi port
 DSi mode: yes
 ARM9 at 133 MHz (was 133)
-binary end 0x2170d34, ROM copy 0x220c000-0x2ff3da4
-heap 0x2171750-0x220c000
+binary end 0x2173e34, ROM copy 0x220c000-0x2ff3da4
+heap 0x2174850-0x220c000
 read 16777216 bytes from sd:/tmc/baserom.gba in 5610 ms (read 931, SHA-1 4678)
 SHA-1 b4bd50e4131b027c334547b4524e2dbbd4227130
 relocated: 11547 add-base, 3117 symbol; 1425 EWRAM kept; 0 unexpected
-copy CRC32 50345e63 (1743 ms)
+copy CRC32 1f90d077 (1525 ms)
 GBA slot unmapped (MPU)
-stopping before the game
+running the game
+frames 1-1024, game time per frame (us): min 14 avg 219 max 13400
+frame work (lines, DMA, IRQs) (us): min 3071 avg 3279 max 3693
+shadow CRC (us): avg 9774; DS VBlanks 1025 (1 game frames over one)
 ```
+
+Compare the game's first 1,024 frames with the Mac headless build (the
+shadows' CRC and the game task, per frame):
+
+```bash
+(cd build/native && TMC_FRAMES=1024 TMC_HW_HASH=/tmp/mac_hw.txt ./tmc)
+python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
+    --seconds 45 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img \
+    --gdb "dump binary value /tmp/dsi_frames.bin gDsiFrames"
+python3 -I port/dsi/scripts/compare_frames.py /tmp/mac_hw.txt /tmp/dsi_frames.bin
+```
+
+which prints `frames 0-1023 match: CRC and task on every frame (233 distinct
+CRCs)`.
+
+The menu icon is the Mac app's (`port/src/macos/icon/icon_32.png`), converted
+by `tools/icon_bmp.py`; `icon_bmp.py --check` compares the icon in a built
+`.nds` with the PNG.
 
 Measured in melonDS 1.1 (its timings are not the DSi's; milestone 6 measures
 those):
@@ -263,6 +288,7 @@ those):
 | one byte changed | `SHA-1 0b50d0ab…`, "not the USA ROM: expected b4bd50e4…", stops |
 | no ROM | "no ROM: put your USA ROM at sd:/tmc/baserom.gba", stops |
 | test build `make -C port/dsi DSI_DEFINES=-DDSI_TEST_STRAY_READ` (touch `src/main.c` first) | reading 0x08000000 aborts; the log shows PC in `main` and r3 = 08000000 |
+| game, frames 0-1023 | equal to the Mac's (`compare_frames.py`) |
 
 ## ROM-data relocation figures
 

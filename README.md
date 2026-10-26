@@ -602,6 +602,7 @@ Environment variables control the headless runner:
 | `TMC_SCREENSHOT_DIR=path` | Where screenshots go (default `screenshots`) |
 | `TMC_DUMP_IO=1` | Print display and interrupt registers with each screenshot |
 | `TMC_FRAME_HASH=path` | Write `frame crc32` of every frame's picture (draws every frame) |
+| `TMC_HW_HASH=path` | Write `frame crc32 task state substate fade` after every frame: the CRC of the hardware shadows (display registers, palette, VRAM, OAM; `HwShadowCrc`) and the game task, to compare with the DSi port |
 | `TMC_LINE_LOG="frame,frame,..."` | For those frames, print line 0's display registers and, for each later line, the ones that differ from line 0 |
 | `TMC_LINE_STATS=1` | For every frame whose display registers change between lines, print `register/lines changed` |
 | `TMC_PPU_COMPARE=1` | Draw every frame both line by line and as a whole, and print the frames and lines where they differ |

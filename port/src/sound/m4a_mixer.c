@@ -449,6 +449,14 @@ void SoundMain(void) {
             slot += samples * (soundInfo->pcmDmaPeriod - (counter - 1));
         }
         MixAuthentic(soundInfo, slot, samples);
+#ifdef PLATFORM_DSI
+        // The ARM9 keeps the engine's state as the Mac's (the PCM ring, channel
+        // envelopes and ends, the CGB registers); the ARM7 plays the sound later
+        // (port/dsi/PLAN.md, "Sound on the ARM7"), so nothing more is mixed here.
+        PsgAdvance(samples, soundInfo->pcmFreqency);
+        soundInfo->ident = ID_NUMBER;
+        return;
+#endif
         for (s32 i = 0; i < samples; i++) {
             sMono[i] = slot[i] * DS_SCALE;
         }

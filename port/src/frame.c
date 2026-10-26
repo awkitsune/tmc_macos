@@ -167,7 +167,12 @@ static void CompareFrames(const uint16_t* scanline, const uint16_t* whole) {
 }
 
 void HwRunFrame(uint16_t* framebuffer) {
+#ifndef PLATFORM_DSI
     static uint16_t sWhole[PPU_WIDTH * PPU_HEIGHT], sScratch[PPU_WIDTH * PPU_HEIGHT];
+#else
+    // No software PPU (and no environment) on the DSi: the comparisons are off.
+    uint16_t *sWhole = NULL, *sScratch = NULL;
+#endif
     int lyc = REG_DISPSTAT >> 8;
     LineWatch watch;
     uint16_t* draw = framebuffer;

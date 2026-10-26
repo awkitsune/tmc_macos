@@ -6,7 +6,7 @@ natively on the ARM9. This replaces GBARunner2 and its black borders. The proof 
 concept ends at **"boots in DSi mode, loads and relocates the ROM, reaches the title
 screen with graphics, no sound"**.
 
-Status: milestones 0 to 3 done, apart from milestone 1's check on the DSi itself
+Status: milestones 0 to 4 done, apart from milestone 1's check on the DSi itself
 (see [the table](#proof-of-concept-milestones)). The toolchain, the build and
 the test setup are in [README.md](README.md).
 
@@ -66,24 +66,26 @@ Other parts of the binary, estimated:
 
 **The ARM9 binary comes to about 1.0 MB.**
 
-Measured at milestone 3 (`make -C port/dsi figures`, `build/dsi/tmc_dsi.map`);
-milestone 2's figures in brackets:
+Measured at milestone 4 (`make -C port/dsi figures`, `build/dsi/tmc_dsi.map`);
+milestones 3 and 2 in brackets:
 
 | Part | Bytes |
 |---|---|
-| `.text` | 687,528 (681,760) |
-| `.rodata` (of which the relocation lists 50,904) | 205,352 (201,836) |
-| `.data`, `.itcm`, `.dldi`, crt0 and `.secure` | 24,160 (20,592) |
-| **ARM9 image in the `.nds`** | **917,040** (904,244) |
-| `.bss` | 336,032 (334,428) |
-| **in RAM, 0x02040000-0x02170D34** | **1,248,564** (1,237,676) |
+| `.text` | 690,832 (687,528; 681,760) |
+| `.rodata` (of which the relocation lists 50,904) | 205,812 (205,352; 201,836) |
+| `.data`, `.itcm`, `.dldi`, crt0 and `.secure` | 24,416 (24,160; 20,592) |
+| **ARM9 image in the `.nds`** | **921,060** (917,040; 904,244) |
+| `.bss` | 344,812 (336,032; 334,428) |
+| **in RAM, 0x02040000-0x02173E34** | **1,261,108** (1,248,564; 1,237,676) |
 
 - Milestone 3 added the FAT read path (fatInitDefault, `fread`), the ROM checks,
   SHA-1 (4.4 KB of ARM code in ITCM) and the kept-EWRAM list (2,854 bytes).
+  Milestone 4 added `frame.c`, `trace.c`, `hw_crc.c` and the frame records (8 KB).
 - The game must stay reachable from `main`: the link drops unreachable sections
-  (`--gc-sections`), and with `AgbMain` unreachable `.text` falls by 30 KB. So
-  milestone 3 stops after the checks on a runtime flag (`gDsiRunGame`), not by
-  leaving the game out.
+  (`--gc-sections`), and with `AgbMain` unreachable `.text` falls by 30 KB.
+- `frame.c`'s two framebuffers for the Mac's PPU comparison mode (150 KB) are
+  left out on the DSi (`PLATFORM_DSI`), which has no software PPU.
+- The heap between the binary and the ROM copy is 606 KB (0x02174850-0x0220C000).
 - Game C and `port/src` together: 841,021 bytes of code and rodata, close to the
   estimate (818,706 for the game C plus ~20 KB).
 - `.bss`: 138 KB DSi layer (VRAM shadow 96 KB, IWRAM block 32 KB, boot log 4 KB,
@@ -336,15 +338,15 @@ Hosted behaviour that milestone 2 has to provide on the DSi:
 | `port/src/asm/*.c` | as is (check for 64-bit assumptions) |
 | `port/src/interrupts.c` (IntrMain dispatch) | as is, called from a libnds VBlank/HBlank IRQ handler |
 | `port/src/eeprom.c` (8 KB EEPROM emulation, file-backed) | as is, file on `sd:/` |
-| `port/src/sound/m4a_engine.c` | the sequencer runs on the ARM9 with output thrown away in the proof of concept, so game RAM evolves exactly as on the Mac; later it drives the ARM7 |
+| `port/src/sound/m4a_engine.c`, `m4a_mixer.c`, `psg.c` | the sequencer and the integer (authentic) mixer run on the ARM9, so the engine's state evolves exactly as on the Mac; under `PLATFORM_DSI` `SoundMain` stops there and `PsgAdvance` steps the CGB channels' lengths, sweep, envelopes and NR52 with the same clock as `PsgRender`, without synthesising (milestone 4: 54 ms of soft-float mixing a frame became 3.3 ms of frame work). Later the ARM7 plays the sound |
 | `port/src/headless.c` input script (`TMC_INPUT` syntax) and frame-hash output | parser moved to a shared file, read from `sd:/tmc/input.txt`; hashes into a RAM ring buffer |
 | `port/src/ppu.c` (software PPU) | not used at run time; host-side reference for the presenter's translation |
-| `port/src/frame.c` (per-line timing) | the logic of when HBlank DMA and IRQs run matches the hardware; real IRQs are used instead |
+| `port/src/frame.c` (per-line timing) | **as is** (milestone 4): at each DS VBlank `HwRunFrame` plays out the GBA frame into the shadows as on the Mac, per line VCOUNT and HBlank interrupts and HBlank DMA, then VBlank DMA and interrupt. The PPU calls are empty on the DSi. Its line capture (`gHwLineCapture`) gives the presenter each line's display registers for an HBlank table (milestone 5) |
 | datagen, `romdata.c`, `state.c` (save states), `heap.c` type map, `src/apple`/`macos`/`ios` | not used |
 
 ## ROM loading and relocation at boot
 
-As built at milestone 3 (`port/dsi/src/rom.c`, `sha1.c`, `crc32.c`):
+As built at milestone 3 (`port/dsi/src/rom.c`, `sha1.c`; the CRC is `port/src/hw_crc.c` since milestone 4):
 
 1. **Find the ROM.** `sd:/tmc/baserom.gba` (the DSi SD slot), then
    `fat:/tmc/baserom.gba` (DLDI: flashcards and melonDS tests). It must be
@@ -579,7 +581,7 @@ reference is the Mac headless build at the same game frame.
 | 1 | **Load address and macro split.** (a) Hello world linked at 0x02040000 boots in melonDS DSi mode and on the DSi from TWiLight Menu++ and Unlaunch. (b) `PORT_HOSTED`/`PORT_LAYOUT_64` split. Status: (a) `make -C port/dsi/hello GBA_EWRAM=1` (`port/dsi/ld/`) boots in melonDS DSi direct boot and 0x02000000-0x0203FFFF tests clean (65,536/65,536 words, cached and uncached); hardware loaders still to do. (b) **done** (see Defines). | (a) `gHelloDone`/`hello.txt` from each loader. (b) `tmc.gba: OK`; Mac objects and binaries byte-identical before/after (replaces the frame-hash and room-smoke runs); `layout_diff.py` clean |
 | 2 | **Link.** Done: `make -C port/dsi -j4` links `build/dsi/tmc_dsi.nds` (974 KB) with no undefined symbols: all game C, `port/src/{bios,interrupts,eeprom,data_glue}.c`, `port/src/asm`, the sound engine, the generated `rom_symbols.ld`/`ram_layout.ld`/`rom_relocs.s`, a stub presenter. In melonDS DSi mode it boots, logs its layout and stops before ROM loading | no undefined symbols; figures in [Measurements](#arm9-code-size) and [Build structure](#where-it-lives); 16,545 ROM symbols and 16,089 relocations generated; boot log read through GDB |
 | 3 | **ROM load and relocation.** Done: boot reads `sd:/tmc/baserom.gba` (or `fat:/`), checks SHA-1, relocates with a check of every word, logs the copy's CRC32, checks the GBA slot faults, stops ([README](README.md#the-port)) | melonDS: 16,777,216 bytes, SD read 931 ms + SHA-1 4,678 ms (DLDI read 3,758 ms); SHA-1 `b4bd50e4…`; 11,547 add-base, 3,117 symbol, 1,425 kept, 0 unexpected, as generated; copy CRC32 equals `tools/rom_crc.py`'s; a one-byte-changed ROM shows its SHA-1 and stops; a stray read of 0x08000000 aborts into the logging handler |
-| 4 | **Game runs blind.** VBlank IRQ drives game frames into the shadows, nothing on screen | per frame, CRC32 of `gHwPltt`, `gHwOam`, `gHwVram` and the display registers in `gHwIo`, into a RAM ring buffer; Mac headless writes the same CRCs (a `TMC_HW_HASH` next to `TMC_FRAME_HASH`); identical for frames 1…N, where N is the frame the Mac run shows the title screen fully faded in; plus game state values (task/state bytes) at N; frame time (timer ticks) min/avg/max |
+| 4 | **Game runs blind.** Done: the game runs from `AgbMain`, a DS VBlank drives each game frame through `frame.c` into the shadows, nothing on screen. No input yet (all keys up). The first 1,024 frames record `HwShadowCrc` (`port/src/hw_crc.c`: display registers, palette, VRAM, OAM) and the task/state/substate/fade (`HeadlessGetState`) in `gDsiFrames`; the Mac headless runner writes the same with `TMC_HW_HASH` | melonDS: frames 0-1023 equal the Mac's on every frame, CRC and task (233 distinct CRCs; the title screen is fully faded in from frame 336; frame 1023 is task 0 state 1, CRC `3d91f6b1`), `port/dsi/scripts/compare_frames.py`. Frame time: game 14 µs min / 219 avg / 13,400 max, frame work 3.1 / 3.3 / 3.7 ms, shadow CRC 9.8 ms; 1,025 DS VBlanks for 1,024 game frames. The Mac's audio and hashes are byte-identical after the shared-file changes |
 | 5 | **Picture.** Presenter: banks A/B, DISPCNT/BG translation, OAM, palette, HBlank table, centring | GDB reads back DS palette RAM, OAM and banks A/B at frame N; their CRCs equal a host tool's translation of the Mac shadows; the per-frame presenter time stays inside VBlank |
 | 6 | **On the DSi.** Same build from TWiLight Menu++ and Unlaunch | `sd:/tmc/boot.txt` with SHA-1, load time, the frame-N CRCs (must equal melonDS's) and frame-time stats; **the user confirms the title screen visually** |
 

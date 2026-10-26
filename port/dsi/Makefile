@@ -54,6 +54,7 @@ DSI_FLAGS := $(COMMON_FLAGS) -Wall -I$(BLOCKSDS)/libs/libnds/include -I$(ROOT)/p
 
 GAME_SRCS := $(filter-out src/eeprom.c,$(shell cd $(ROOT) && find src -name '*.c' | sort))
 PORT_SRCS := port/src/bios.c port/src/interrupts.c port/src/eeprom.c port/src/data_glue.c \
+	port/src/frame.c port/src/hw_crc.c port/src/trace.c \
 	$(sort $(wildcard $(ROOT)/port/src/asm/*.c)) \
 	port/src/sound/m4a_engine.c port/src/sound/m4a_mixer.c port/src/sound/psg.c
 PORT_SRCS := $(patsubst $(ROOT)/%,%,$(PORT_SRCS))
@@ -112,10 +113,18 @@ $(ELF): $(OBJS) $(GEN)/rom_relocs.o $(GEN)/gen.stamp
 	@echo "  LD      $(notdir $@)"
 	@$(CC) -o $@ $(OBJS) $(GEN)/rom_relocs.o $(GEN_LD) $(LDFLAGS) -Wl,--start-group -lnds9 -lc -Wl,--end-group
 
-$(ROM): $(ELF)
+# The menu icon is the Mac app's (16 colours, colour 0 transparent).
+ICON_PNG := $(ROOT)/port/src/macos/icon/icon_32.png
+ICON := $(GEN)/icon.bmp
+
+$(ICON): $(ICON_PNG) tools/icon_bmp.py
+	@mkdir -p $(@D)
+	@$(PYTHON) -I tools/icon_bmp.py $< $@
+
+$(ROM): $(ELF) $(ICON)
 	@echo "  NDSTOOL $(notdir $@)"
 	@$(BLOCKSDS)/tools/ndstool/ndstool -c $@ -7 $(ARM7ELF) -9 $(ELF) \
-		-b $(BLOCKSDS)/sys/icon.gif "$(GAME_FULL_TITLE)" > /dev/null
+		-b $(ICON) "$(GAME_FULL_TITLE)" > /dev/null
 
 # Section sizes of the binary and the parts that make it up.
 figures: $(ELF)

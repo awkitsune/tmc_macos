@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "port/hw.h"
+
 #include "dsi.h"
 
 char gDsiLog[DSI_LOG_SIZE];
@@ -16,8 +18,6 @@ static size_t sLogLength;
 // Set when main() stops: the log is complete (read through GDB).
 volatile int gDsiLogDone;
 
-// 0 stops after the ROM checks (milestone 3); set it through GDB to go on.
-volatile int gDsiRunGame;
 
 static void LogV(const char* format, va_list args) {
     char line[256];
@@ -92,7 +92,7 @@ int main(void) {
         Halt();
     }
     cpuStartTiming(0);
-    crc = DsiCrc32(0, __rom_copy, __rom_copy_end - __rom_copy);
+    crc = HwCrc32(0, __rom_copy, __rom_copy_end - __rom_copy);
     DsiLog("copy CRC32 %08lx (%lu ms)\n", (unsigned long)crc, (unsigned long)timerTicks2msec(cpuEndTiming()));
     DsiProtectGbaSlot();
 #ifdef DSI_TEST_STRAY_READ
@@ -100,11 +100,5 @@ int main(void) {
     DsiLog("read %08lx, no fault\n", (unsigned long)*(volatile uint32_t*)0x08000000);
 #endif
 
-    // Milestone 4 runs the game by default. A runtime flag, so the whole game
-    // stays in the link.
-    if (!gDsiRunGame) {
-        DsiLog("stopping before the game\n");
-        Halt();
-    }
     DsiRunGame();
 }

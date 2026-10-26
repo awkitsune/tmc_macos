@@ -28,7 +28,6 @@ struct SoundInfo* gHwSoundInfoPtr;
 uint16_t gHwIntrCheck;
 void* gHwIntrVector;
 
-uint8_t (*gHwLineCapture)[HW_LINE_REGS];
 
 // ---- DMA ----------------------------------------------------------------------
 // The same semantics as the Mac's port/src/hw.c: immediate transfers run now,
