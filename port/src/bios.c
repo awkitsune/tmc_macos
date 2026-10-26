@@ -66,6 +66,12 @@ void RegisterRamReset(u32 flags) {
         memset(gHwIo, 0, sizeof(gHwIo));
         memcpy(gHwIo + 0x130, &keys, 2);
     }
+    if (flags & 0x40) {
+        // The sound registers and wave RAM (0x060-0x0A7) are cleared, except
+        // SOUNDBIAS, which gets its default 0200h (bias level 100h).
+        memset(gHwIo + 0x60, 0, 0x48);
+        gHwIo[0x89] = 0x02;
+    }
     // EWRAM/IWRAM (0x01/0x02) are ordinary globals natively; only boot and soft
     // reset ask for them, and both start from zeroed (or deliberately kept) state.
 }

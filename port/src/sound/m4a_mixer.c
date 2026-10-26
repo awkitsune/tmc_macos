@@ -11,8 +11,9 @@
  *  - HQ: floating point at the output rate, cubic interpolation, per-frame
  *    volume ramps, and the same reverb as a delay line of the same length.
  *
- * The CGB channels are then synthesised from the sound registers (psg.c), the
- * DC is removed as by the GBA's output coupling capacitor (the 8-bit mixer's
+ * DirectSound A goes to the outputs SOUNDCNT_H selects. The CGB channels are
+ * then synthesised from the sound registers and the sum is clipped as by the
+ * DAC (psg.c), the DC is removed as by the GBA's output coupling capacitor (the 8-bit mixer's
  * rounding and the unipolar CGB levels both carry an offset), and the stereo
  * frame is handed to the sink.
  */
@@ -23,6 +24,7 @@
 #include "global.h"
 #include "gba/m4a.h"
 #include "gba/m4a_internal.h"
+#include "port/hw.h"
 #include "port/sound.h"
 #include "port/state.h"
 #include "sound_internal.h"
@@ -460,8 +462,18 @@ void SoundMain(void) {
         rate = sHqRate;
     }
 
-    for (s32 i = 0; i < samples; i++) {
-        sStereo[2 * i] = sStereo[2 * i + 1] = sMono[i];
+    {
+        // DirectSound A, the only FIFO m4a feeds: 50% or 100% (SOUNDCNT_H bit
+        // 2), output right and left by bits 8 and 9, all of it off with the
+        // master enable (SOUNDCNT_X bit 7).
+        u16 cnt = gHwIo[REG_OFFSET_SOUNDCNT_H] | (gHwIo[REG_OFFSET_SOUNDCNT_H + 1] << 8);
+        float scale = (gHwIo[REG_OFFSET_SOUNDCNT_X] & 0x80) ? ((cnt & 4) ? 1.0f : 0.5f) : 0;
+        float right = (cnt & 0x100) ? scale : 0;
+        float left = (cnt & 0x200) ? scale : 0;
+        for (s32 i = 0; i < samples; i++) {
+            sStereo[2 * i] = sMono[i] * left;
+            sStereo[2 * i + 1] = sMono[i] * right;
+        }
     }
     PsgRender(sStereo, samples, rate);
     {
