@@ -436,14 +436,27 @@ void sub_080871D0(GreatFairyEntity* this) {
 
 void sub_080871F8(GreatFairyEntity* this) {
     Entity* temp = super->child;
+#ifdef PLATFORM_NATIVE
+    // Nothing sets this child, so it is NULL. The GBA reads BIOS opcode halfwords
+    // through it (0xe55e after an interrupt returns; every candidate is a large
+    // negative s16): a point far up-left that is never reached.
+    s16 targetX = (temp != NULL) ? temp->x.HALF.HI : (s16)0xe55e;
+    s16 targetY = (temp != NULL) ? temp->y.HALF.HI : (s16)0xe55e;
+#else
+#define targetX temp->x.HALF.HI
+#define targetY temp->y.HALF.HI
+#endif
 
-    if ((temp->x.HALF.HI == super->x.HALF.HI) && (temp->y.HALF.HI - 32 == super->y.HALF.HI)) {
+    if ((targetX == super->x.HALF.HI) && (targetY - 32 == super->y.HALF.HI)) {
         super->action = 2;
     } else {
-        super->direction =
-            CalculateDirectionTo(super->x.HALF.HI, super->y.HALF.HI, temp->x.HALF.HI, temp->y.HALF.HI - 32);
+        super->direction = CalculateDirectionTo(super->x.HALF.HI, super->y.HALF.HI, targetX, targetY - 32);
         LinearMoveUpdate(super);
     }
+#ifndef PLATFORM_NATIVE
+#undef targetX
+#undef targetY
+#endif
 }
 
 void sub_08087240(GreatFairyEntity* this) {
