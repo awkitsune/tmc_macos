@@ -42,7 +42,7 @@ def clang_args(root: Path, assets_dir: Path, version: str = "USA") -> list:
     return [
         "-target", "arm64-apple-macos13", "-std=gnu11", "-w",
         "-isysroot", sdk, "-resource-dir", resource_dir,
-        "-DPLATFORM_NATIVE=1", "-DNON_MATCHING=1", f"-D{version}", "-DENGLISH", "-DREVISION=0",
+        "-DPLATFORM_NATIVE=1", "-DPORT_HOSTED=1", "-DPORT_LAYOUT_64=1", "-DNON_MATCHING=1", f"-D{version}", "-DENGLISH", "-DREVISION=0",
         f"-I{root}/include", f"-I{assets_dir}", f"-I{root}/port/include",
     ]
 

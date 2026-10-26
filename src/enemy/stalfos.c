@@ -232,7 +232,7 @@ void Stalfos_Action6(StalfosEntity* this) {
     } else {
         u16 tmp = super->z.HALF.HI += 4;
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         if (-1 < (s16)tmp) {
 #else
         if (-1 < (tmp * 0x10000)) {

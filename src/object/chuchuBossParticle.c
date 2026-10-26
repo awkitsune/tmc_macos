@@ -33,7 +33,7 @@ void ChuchuBossParticle_Action1(Entity* this) {
         this->spriteSettings.draw ^= 1;
     }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if ((s8)this->timer >= 0) {
 #else
     if ((int)(this->timer * 0x1000000) >= 0) {

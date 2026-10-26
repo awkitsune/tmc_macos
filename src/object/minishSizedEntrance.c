@@ -10,7 +10,7 @@
 #include "room.h"
 #include "player.h"
 #include "vram.h"
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include "manager/minishSizedEntranceManager.h"
 #endif
 
@@ -45,7 +45,7 @@ void MinishSizedEntrance_Action1(Entity* this) {
         0x200,
     };
     if (this->type == 1) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         // parent is the MinishSizedEntranceManager. The GBA reads its field_0x20 through Entity.zVelocity, both at
         // 0x20; natively the layouts differ, so use the field's own name.
         MinishSizedEntranceManager* parent = (MinishSizedEntranceManager*)this->parent;

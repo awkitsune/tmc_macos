@@ -39,7 +39,7 @@ static_assert(sizeof(Helper) == 0x10);
 
 typedef struct _ChuchuBossEntity {
     Entity base;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     u32 unk_68Slot; // the Enemy child pointer, which natively is at the end of the slot
 #else
     struct _ChuchuBossEntity* unk_68;
@@ -60,12 +60,12 @@ typedef struct _ChuchuBossEntity {
     u8 unk_81;
     union SplitHWord unk_82;
     Helper* unk_84;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     u8 nativePad[offsetof(Enemy, child) - offsetof(Enemy, nativeScriptContext) - sizeof(void*)];
     struct _ChuchuBossEntity* unk_68; // Enemy.child
 #endif
 } ChuchuBossEntity;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 static_assert(offsetof(ChuchuBossEntity, unk_6d) == offsetof(Enemy, enemyFlags));
 static_assert(offsetof(ChuchuBossEntity, unk_84) == offsetof(Enemy, nativeScriptContext));
 static_assert(offsetof(ChuchuBossEntity, unk_68) == offsetof(Enemy, child));
@@ -74,7 +74,7 @@ static_assert(offsetof(ChuchuBossEntity, unk_68) == offsetof(Enemy, child));
 // Some code uses unk_84..0x87 as raw storage (bytes at 0x84 and 0x85, a u16 at
 // 0x86) rather than as the Helper pointer. Natively the struct layout differs, so
 // address those bytes through the field instead of by offset.
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 #define CHUCHU_RAW(T, e, off) (*(T*)((u8*)&((ChuchuBossEntity*)(e))->unk_84 + ((off) - 0x84)))
 #else
 #define CHUCHU_RAW(T, e, off) (*(T*)((intptr_t)(e) + (off)))
@@ -360,7 +360,7 @@ void ChuchuBoss_OnTick(ChuchuBossEntity* this) {
 }
 
 void sub_08025DD8(ChuchuBossEntity* this) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     Entity* parts[3];
 #endif
     super->action = 1;
@@ -381,7 +381,7 @@ void sub_08025DD8(ChuchuBossEntity* this) {
         switch (super->type & 3) {
             Hitbox* hitbox;
             case 0:
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 // The three body parts are linked and later used as a set without checks; the GBA reads BIOS
                 // through a missing one. Create them up front (same order, nothing else creates entities in
                 // between) and, if the entity list is full, drop them and retry next frame.
@@ -402,7 +402,7 @@ void sub_08025DD8(ChuchuBossEntity* this) {
                 super->type2 = super->type;
                 this->unk_84 = zMalloc(sizeof(Helper));
                 if (!this->unk_84 || !AllocMutableHitbox(super)) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                     DeleteEntity(parts[0]);
                     DeleteEntity(parts[1]);
                     DeleteEntity(parts[2]);
@@ -427,7 +427,7 @@ void sub_08025DD8(ChuchuBossEntity* this) {
                 this->unk_84->unk_03 = 0;
                 this->unk_84->unk_04 = 0;
                 this->unk_84->unk_0e = super->x.HALF.HI;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 this->unk_68 = (ChuchuBossEntity*)parts[0];
 #else
                 this->unk_68 = (ChuchuBossEntity*)CreateEnemy(CHUCHU_BOSS, super->type | 3);
@@ -441,7 +441,7 @@ void sub_08025DD8(ChuchuBossEntity* this) {
                     MEMORY_BARRIER;
                     this->unk_68->unk_68 = this;
                 }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 super->parent = parts[1];
 #else
                 super->parent = CreateEnemy(CHUCHU_BOSS, super->type | 2);
@@ -456,7 +456,7 @@ void sub_08025DD8(ChuchuBossEntity* this) {
                     this->unk_68->base.child = super->parent;
                     ((ChuchuBossEntity*)super->parent)->unk_68 = this;
                 }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 super->child = parts[2];
 #else
                 super->child = CreateEnemy(CHUCHU_BOSS, super->type | 1);
@@ -1715,7 +1715,7 @@ void sub_080279AC(ChuchuBossEntity* this, Entity* param_2, s32 param_3) {
     param_2->spriteOffsetY = param_2->y.HALF.HI - (super->y.HALF.HI + temp);
     param_2->x.HALF.HI = super->x.HALF_U.HI;
     param_2->y.HALF.HI = super->y.HALF.HI + temp;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // A part can be without a hitbox here; the GBA's stores then go to the BIOS at address 0 and are lost.
     if (param_2->hitbox == NULL) {
         return;

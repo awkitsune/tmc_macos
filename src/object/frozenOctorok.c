@@ -114,7 +114,7 @@ void FrozenOctorok_Init(FrozenOctorokEntity* this) {
                 if (obj2 != NULL) {
                     obj2->heap = this->heap;
                 }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 // The parts are used as a set without checks (child, parent, heap->mouthObject/legObjects);
                 // the GBA reads BIOS through a missing one. If the entity list was full, drop the set and retry.
                 if (obj1 == NULL || obj2 == NULL || this->heap->legObjects[0] == NULL ||

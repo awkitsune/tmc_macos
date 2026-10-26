@@ -205,7 +205,7 @@ void Subtask_PortalCutscene_1(void) {
         tmp = gRoomControls.scroll_y + 0x50 - gUnk_02018EB0.unk_14->y.HALF.HI - gUnk_02018EB0.unk_14->z.HALF.HI;
         if (tmp != 0) {
             tmp = gRoomControls.scroll_y = gRoomControls.scroll_y - tmp;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             if ((s16)tmp < 0) {
 #else
             if (tmp * 0x10000 < 0) {
@@ -270,7 +270,7 @@ bool32 sub_0804AD18(void) {
         default:
             return FALSE;
     }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     return TRUE; // GBA returns the nonzero CheckGlobalFlag result left in r0
 #endif
 }

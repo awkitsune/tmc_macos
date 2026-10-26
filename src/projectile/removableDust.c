@@ -18,14 +18,14 @@
 
 typedef struct {
     /*0x00*/ Entity base;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     /*0x68*/ u32 unk_68Slot; // natively the pointer follows the generic fields
 #else
     /*0x68*/ EntityData* unk_68;
 #endif
     /*0x6c*/ u8 unused[26];
     /*0x86*/ u16 unk_86; // room data
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     void* nativeScriptContext; // GenericEntity's
     EntityData* unk_68;
 #endif
@@ -153,7 +153,7 @@ void sub_080AA544(RemovableDustEntity* this) {
 
 void sub_080AA654(RemovableDustEntity* this, u32 param) {
     EntityData* entityData;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // The native EntityData is 24 bytes and would overrun the slot field it was built over.
     EntityData localData = { 0 };
     entityData = &localData;

@@ -235,7 +235,7 @@ void LavaPlatform_Type1Action7(LavaPlatformEntity* this) {
 
 void LavaPlatform_SpawnPlatforms(LavaPlatformEntity* this) {
     LavaPlatformEntry* entry = (LavaPlatformEntry*)GetCurrentRoomProperty(super->type2);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (entry == NULL)
         return;
 #endif

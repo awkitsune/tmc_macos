@@ -4,7 +4,7 @@
 #include "npc.h"
 #include "flags.h"
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include "area.h"
 #define gUnk_020342F8 gArea.filler6 // a linker alias on GBA
 #else

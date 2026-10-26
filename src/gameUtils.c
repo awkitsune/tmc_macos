@@ -248,7 +248,7 @@ bool32 AreaHasKeys(void) {
 
 bool32 HasDungeonSmallKey(void) {
     u32 tmp;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     tmp = 0;
 #endif
 
@@ -259,7 +259,7 @@ bool32 HasDungeonSmallKey(void) {
 
 bool32 HasDungeonBigKey(void) {
     u32 tmp;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     tmp = 0;
 #endif
 

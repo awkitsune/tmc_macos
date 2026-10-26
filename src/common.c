@@ -1,4 +1,4 @@
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define ZMALLOC_DEFINITION // zMalloc itself, not the call-site wrapper (common.h)
 #endif
 #include "common.h"
@@ -24,7 +24,7 @@
 
 extern u8 gUnk_03003DE0;
 extern u8 gzHeap[0x1000];
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define gUnk_02035542 (gzHeap + 2) // a linker alias on GBA
 #else
 extern u8 gUnk_02035542[];
@@ -114,7 +114,7 @@ u32 EncodeBCD(u32 value) {
         return 0x99999999;
     }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // On GBA Div leaves the remainder in r1, which the code below reads; natively
     // r1 is just an uninitialized variable.
     {
@@ -147,7 +147,7 @@ u32 WriteBit(void* src, u32 bit) {
     u32 orig;
 
     // note that the following line relies on undefined behaviour; b is not initialised
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     b = (uintptr_t)src + bit / 8;
 #else
     b += ((uintptr_t)src + bit / 8) - b;
@@ -168,7 +168,7 @@ u32 ClearBit(void* src, u32 bit) {
     u32 orig;
 
     // note that the following line relies on undefined behaviour; b is not initialised
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     b = (uintptr_t)src + bit / 8;
 #else
     b += ((uintptr_t)src + bit / 8) - b;
@@ -298,7 +298,7 @@ void LoadGfxGroup(u32 group) {
     u32 dmaCtrl;
     int gfxOffset;
     const u8* src;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     uintptr_t dest;
 #else
     u32 dest;
@@ -335,7 +335,7 @@ void LoadGfxGroup(u32 group) {
         if (loadGfx) {
             gfxOffset = gfxItem->unk0.raw & 0xFFFFFF;
             src = &gGlobalGfxAndPalettes[gfxOffset];
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             dest = (uintptr_t)GBA_PTR(gfxItem->dest); // a GBA address in the data
 #else
             dest = gfxItem->dest;
@@ -487,7 +487,7 @@ void zFree(void* ptr) {
     s32 numEntries;
     u16* lastEntryPtr;
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // 64-bit distance: a far-away pointer must not wrap into the heap
     if ((uintptr_t)ptr - (uintptr_t)gzHeap >= 0x1000) {
         return;
@@ -500,7 +500,7 @@ void zFree(void* ptr) {
 
         for (i = 0; i < numEntries; entryPtr += 2, i++) {
             if (*entryPtr == uVar1) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 lastEntryPtr = &((u16*)gzHeap)[numEntries * 2 - 1];
 #else
                 lastEntryPtr = &((u16*)(gzHeap - 2))[numEntries * 2];
@@ -909,7 +909,7 @@ void sub_0801E290(u32 param_1, u32 param_2, u32 count) {
     u32 uVar7;
     u32 index;
     u32 x;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // param_2 is the circle's centre line, "negative" above the screen; as a u32 a 64-bit pointer adds it
     // unwrapped (8 GB out). Only lines 0..159 are written, as on the GBA.
     forwardAccess = &gUnk_02017AA0[gUnk_03003DE4[0]].filler[(s32)param_2 * 2];

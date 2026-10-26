@@ -164,11 +164,11 @@ need to stay on the SD card.
 
 ### Defines
 
-- Game files: `PLATFORM_DSI=1 NON_MATCHING=1 USA ENGLISH REVISION=0`.
+- Game files: `PLATFORM_DSI=1 PORT_HOSTED=1 NON_MATCHING=1 USA ENGLISH REVISION=0`.
 - Game file flags: `-mthumb -mcpu=arm946e-s+nofp -O2 -fwrapv -fno-short-enums -ffunction-sections`.
 - A few hot files can be compiled `-marm` or placed in ITCM once profiled.
 
-`PLATFORM_NATIVE` currently means three things at once:
+`PLATFORM_NATIVE` used to mean three things at once:
 
 1. hardware is a host-side buffer (`REG_BASE` → `gHwIo`, VRAM/palette/OAM, `DmaSet` →
    `HwDmaSet`, `GBA_PTR` → `HwGbaPtr`, `SystemCall`, the BIOS-reserved IWRAM words);
@@ -182,20 +182,54 @@ The DSi wants 1 and 2 but not 3. Compiled with `PLATFORM_NATIVE` for the ARM9,
 the 64-bit static asserts fail in 393 files: "player entity must fill one entity
 slot", for example.
 
-There are 235 `PLATFORM_NATIVE` sites in 106 files. The plan:
+**Done (milestone 1b).** The 235 `PLATFORM_NATIVE` sites in `src/` and
+`include/` (106 files) are now:
 
-- Add `PORT_HOSTED`, set by both `PLATFORM_NATIVE` and `PLATFORM_DSI`, in one
-  header included by `global.h`.
-- Move kinds 1 and 2 to it. Leave kind 3 under `PLATFORM_NATIVE`, renamed or
-  commented as `PORT_LAYOUT_64`.
-- Triage the sites with a script plus reading. `port/scripts/entity_layout_audit.py`
-  and the static asserts check the result. Most kind-2 sites are already written
-  with `(s32)` casts or `sizeof(void*)` and behave the same on 32-bit.
-- This touches shared headers, so it has to keep:
-  - `tmc.gba: OK`;
-  - the Mac headless frame hashes unchanged (`TMC_FRAME_HASH` over a fixed run,
-    before and after);
-  - the room smoke test unchanged.
+- 198 test `PORT_HOSTED` (kinds 1 and 2);
+- 37 test `PORT_LAYOUT_64` (kind 3, in 17 files):
+  - the entity-slot structs (`GenericEntity`, `PlayerEntity`, `Enemy`,
+    `SpritePriority`), `ENTITY_SCRIPT_CONTEXT`, the manager `Temp`/`gUnk_02033290`
+    and `EraseAllEntities` sizes;
+  - the subtype overlays in `chuchuBoss`, `chuchu`, `vaatiArm`, `businessScrub`,
+    `railtrack`, `removableDust` and `lilypadLarge`, and the code that reaches
+    their moved fields (`childSlot`, `sleepBubble`);
+  - `RegisterRoomEntity`'s `EntityData` copy;
+  - the disabled `static_assert` in `global.h`, so the GBA size asserts are active
+    on the DSi and pass.
+
+`port/CMakeLists.txt` defines all three for every target that sees game headers
+(`TMC_GAME_DEFINITIONS`), datagen's `ctypes_db.py` passes the same, and
+`include/gba/types.h` rejects inconsistent combinations.
+
+How it was checked:
+
+- **GBA:** `tmc.gba: OK`.
+- **Mac:** a full rebuild (656 C files and datagen) gives **all 963 objects and
+  the `tmc`, `TMC.app` and `tmc-songs` binaries byte-identical** to before the
+  split. That is a stronger check than the planned frame-hash and room-smoke runs,
+  so those weren't needed.
+- **DSi layout:** all 621 game files compile for the ARM9 as the DSi build
+  (`-DPLATFORM_DSI=1 -DPORT_HOSTED=1`). `port/dsi/tools/layout_diff.py` compares
+  their DWARF with the same files built with the plain GBA layout, per object and
+  declaration line: 9,624 type and 6,358 global definitions.
+  - One differs, and is fine: `struct_0812816C` in `figurineMenu.c` splits an
+    8-byte filler into a pointer and a `u32` at the same offsets.
+  - Types seen only in one build are header types that extra code paths pull in;
+    their layouts are checked in the objects that have them in both.
+
+Hosted behaviour that milestone 2 has to provide on the DSi:
+
+- **`M4A_PTR`/`M4aGbaPtr`** already treat song data as GBA addresses, which is
+  what the unrelocated song pointers need. It must pass through addresses that are
+  already relocated (voicegroups).
+- **`gNativeSaveHeader`** (`save.h`) and the linker aliases the hosted code
+  replaces with field expressions (`gUnk_02035542`, `gUnk_03000420`, ...) still
+  resolve by the GBA RAM layout.
+- **RAM zeroing:** `main.c` relies on zero-initialised globals when hosted. The
+  DSi's NOLOAD EWRAM/IWRAM blocks must be cleared at boot.
+- **Writes to "ROM"** (`spearMoblin`, `playerItemGustJar`, `kinstoneMenu`) are
+  skipped when hosted. That matters because the DSi's ROM copy is writable.
+- Read-only access checks such as `TMC_ROM_WRITES` are Mac-only.
 
 ### ABI notes
 
@@ -436,7 +470,7 @@ reference is the Mac headless build at the same game frame.
 | # | Milestone | Verified by |
 |---|---|---|
 | 0 | **Done**: toolchain, DSi hello world (16,128 KB malloc-able, SD and DLDI), measurements, melonDS automation | README figures |
-| 1 | **Load address and macro split.** (a) status: `make -C port/dsi/hello GBA_EWRAM=1` (`port/dsi/ld/`) boots in melonDS DSi direct boot, and 0x02000000-0x0203FFFF tests clean (65,536/65,536 words, cached and uncached); TWiLight Menu++ and Unlaunch on hardware still to do. (a) Hello world linked at 0x02040000 boots in melonDS DSi mode and on the DSi from TWiLight Menu++ and Unlaunch. (b) `PORT_HOSTED`/`PORT_LAYOUT_64` split. | (a) `gHelloDone`/`hello.txt` from each loader. (b) `tmc.gba: OK`; Mac `TMC_FRAME_HASH` for 3,000 frames identical before/after; room smoke 576/576 |
+| 1 | **Load address and macro split.** (a) Hello world linked at 0x02040000 boots in melonDS DSi mode and on the DSi from TWiLight Menu++ and Unlaunch. (b) `PORT_HOSTED`/`PORT_LAYOUT_64` split. Status: (a) `make -C port/dsi/hello GBA_EWRAM=1` (`port/dsi/ld/`) boots in melonDS DSi direct boot and 0x02000000-0x0203FFFF tests clean (65,536/65,536 words, cached and uncached); hardware loaders still to do. (b) **done** (see Defines). | (a) `gHelloDone`/`hello.txt` from each loader. (b) `tmc.gba: OK`; Mac objects and binaries byte-identical before/after (replaces the frame-hash and room-smoke runs); `layout_diff.py` clean |
 | 2 | **Link.** `tmc_dsi.nds` links: all game C, `port/src/{bios,interrupts,eeprom}.c`, `port/src/asm`, generated `rom_symbols.ld`/`ram_layout.ld`/`rom_relocs.s`, stub presenter | no undefined symbols; link-map figures recorded (.text, .rodata, .bss, NOLOAD blocks) against this plan's estimates; 16,356 ROM symbols and 15,849 relocations generated |
 | 3 | **ROM load and relocation.** Boot reads `tmc/baserom.gba`, checks SHA-1, relocates, stops | boot log: bytes read, load ms, SHA-1 = `b4bd50e4…`, counts per relocation kind = generator's counts; CRC32 of the relocated copy equals the CRC a host tool computes from the same ROM, base address and list (run locally, nothing shipped); a wrong-ROM run shows the mismatch |
 | 4 | **Game runs blind.** VBlank IRQ drives game frames into the shadows, nothing on screen | per frame, CRC32 of `gHwPltt`, `gHwOam`, `gHwVram` and the display registers in `gHwIo`, into a RAM ring buffer; Mac headless writes the same CRCs (a `TMC_HW_HASH` next to `TMC_FRAME_HASH`); identical for frames 1…N, where N is the frame the Mac run shows the title screen fully faded in; plus game state values (task/state bytes) at N; frame time (timer ticks) min/avg/max |

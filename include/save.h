@@ -17,7 +17,7 @@ typedef struct {
     u8 invalid;
     u8 initialized;
 } SaveHeader;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 extern SaveHeader gNativeSaveHeader; // EWRAM 0x02000000 on GBA
 #define gSaveHeader (&gNativeSaveHeader)
 #else

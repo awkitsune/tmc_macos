@@ -332,7 +332,7 @@ u32 sub_080837B0(LockedDoorEntity* this) {
             ChangeObjPalette(super, 1);
         }
     }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     return LoadFixedGFX(super, tmp); // GBA returns it through r0
 #else
     LoadFixedGFX(super, tmp);

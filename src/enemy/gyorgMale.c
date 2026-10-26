@@ -996,13 +996,13 @@ void sub_08047D24(GyorgMaleEntity* this) {
     this->unk_7e += 8;
     if (this->unk_7e > 0x800) {
         if (super->type == 0) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             ((GyorgHeap*)super->myHeap)->male1 = NULL;
 #else
             ((u32*)super->myHeap)[2] = 0;
 #endif
         } else {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             ((GyorgHeap*)super->myHeap)->male2 = NULL;
 #else
             ((u32*)super->myHeap)[3] = 0;

@@ -664,7 +664,7 @@ bool32 sub_0801A370(MapLayer* mapLayer, u32 position) {
         case SPECIAL_TILE_44 ... SPECIAL_TILE_47:
             return TRUE;
     }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // A tile in the top two rows checks before the array, as on the GBA, not 4 GB on
     if (topLayer->collisionData[(s32)pos - 0x80] == 0x46) {
 #else
@@ -799,7 +799,7 @@ u32 sub_0801A570(Entity* this, u32 param_2) {
             if ((index1 - 0x369) > 1) {
                 position = 0xffff;
             } else {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 collisionData = layer->collisionData + ((s32)position - 0x40);
 #else
                 collisionData = layer->collisionData - 0x40 + position;
@@ -905,7 +905,7 @@ u32 sub_0801A570(Entity* this, u32 param_2) {
             if (!(index1 == 0x369) && !(index1 == 0x36c))
                 position = 0xffff;
             else {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 collisionData = layer->collisionData + ((s32)position - 1);
 #else
                 collisionData = layer->collisionData - 1 + position;

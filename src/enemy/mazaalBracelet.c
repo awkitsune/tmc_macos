@@ -476,7 +476,7 @@ void sub_0803A740(MazaalBraceletEntity* this) {
 
     height = super->z.HALF.HI + 4;
     super->z.HALF.HI += 4;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (-1 < (s16)height) {
 #else
     if (-1 < height * 0x10000) {
@@ -760,7 +760,7 @@ void sub_0803ACC0(MazaalBraceletEntity* this) {
             break;
         case 2:
             uVar2 = super->z.HALF.HI += 4;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             if (-1 < (s16)uVar2) {
 #else
             if (-1 < (uVar2 * 0x10000)) {
@@ -780,7 +780,7 @@ void sub_0803ACC0(MazaalBraceletEntity* this) {
             break;
         case 4:
             uVar2 = super->z.HALF.HI -= 2;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             if ((s16)uVar2 < -0x28) {
 #else
             if (uVar2 * 0x10000 >> 0x10 < -0x28) {
@@ -790,7 +790,7 @@ void sub_0803ACC0(MazaalBraceletEntity* this) {
             break;
         case 5:
             uVar2 = super->z.HALF.HI += 4;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             if (-1 < (s16)uVar2) {
 #else
             if (-1 < (uVar2 * 0x10000)) {

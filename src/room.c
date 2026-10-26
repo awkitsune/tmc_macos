@@ -101,7 +101,7 @@ Entity* LoadRoomEntity(const EntityData* dat) {
 void RegisterRoomEntity(Entity* ent, const EntityData* dat) {
     u32 list;
     u32 kind;
-#ifndef PLATFORM_NATIVE
+#ifndef PORT_LAYOUT_64
     void* offset;
 #endif
 
@@ -116,7 +116,7 @@ void RegisterRoomEntity(Entity* ent, const EntityData* dat) {
             AppendEntityToList(ent, list);
         }
     }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // The GBA copies the 16-byte EntityData over an entity's 0x78..0x87 or a
     // manager's 0x30..0x3f, where subtypes read it as data, and spritePtr
     // (paramC) at 0x84 / 0x3c also as a pointer. Natively the fields after the

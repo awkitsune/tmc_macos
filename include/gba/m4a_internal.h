@@ -159,7 +159,7 @@ typedef struct SoundInfo {
 // Song data holds GBA addresses natively (see SongHeader); M4A_PTR turns one into
 // a native pointer. Tracks are cleared up to their command pointer, which is
 // what the GBA engine's 64-byte clear covers.
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include <stddef.h>
 #include <string.h>
 void* M4aGbaPtr(u32 address);

@@ -98,7 +98,7 @@ void zMallocInit(void);
  * @return Pointer to allocated memory.
  */
 void* zMalloc(u32 size);
-#if defined(PLATFORM_NATIVE) && !defined(ZMALLOC_DEFINITION)
+#if defined(PORT_HOSTED) && !defined(ZMALLOC_DEFINITION)
 // Natively each block remembers where it was allocated, so save states know the
 // type it holds and so its pointers (port/src/heap.c).
 void* PortZMalloc(u32 size, const char* file, u32 line);

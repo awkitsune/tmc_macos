@@ -154,7 +154,7 @@ typedef struct {
 // stay where subtypes declaring data at 0x84/0x86 have them (right after 0x82), and
 // the pointer gets its own 8 aligned bytes after them, where subtypes declaring a
 // pointer at 0x84 have it (see ENTITY_SCRIPT_CONTEXT).
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 #define NATIVE_SCRIPT_CONTEXT void* nativeScriptContext;
 #else
 #define NATIVE_SCRIPT_CONTEXT
@@ -274,7 +274,7 @@ typedef struct {
 typedef struct {
     /*0x00*/ Entity base;
     GENERIC_ENTITY_FIELDS
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // Entity slots are GenericEntity-sized, but subtypes with pointer fields grow
     // natively (up to 192 bytes); keep every slot large enough for any of them.
     u8 nativeSlack[256 - 184];

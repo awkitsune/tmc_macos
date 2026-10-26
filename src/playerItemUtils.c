@@ -98,7 +98,7 @@ u32 sub_080A7CFC(u32 a1) {
         } while (t->tilePos != 0);
     }
     InitTileMessage(msg, hint);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     return 0;
 #endif
 }

@@ -337,7 +337,7 @@ void sub_080A1D8C(GyorgBossObjectEntity* this, s32 unk1) {
     }
 }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // The female's first update creates the mouth and the tail, and the tail's segments come later still; until then
 // the GBA's stores through the missing parts below go to the BIOS (or through BIOS words) and are lost. The heap
 // is NULL while GyorgBossObject_SetupStart waits for free entity slots.
@@ -365,7 +365,7 @@ static void GyorgSetPartsFlag(GyorgHeap* heap, bool32 set) {
 
 void sub_080A1DCC(GyorgBossObjectEntity* this) {
     GenericEntity* tmp;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (super->myHeap == NULL) {
         return;
     }

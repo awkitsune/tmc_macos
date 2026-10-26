@@ -79,7 +79,7 @@ void sub_080650CC(StockwellEntity* this) {
     u32 bVar2;
     u32 confirmMsgId;
     u32 itemPrice;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     itemPrice = 0;
 #endif
 

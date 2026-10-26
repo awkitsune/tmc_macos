@@ -72,7 +72,7 @@ void UpdateScroll(void) {
     };
 
     gRoomControls.scroll_flags &= 0xfb;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (gRoomControls.scrollAction < ARRAY_COUNT(gUnk_0811E768) && gUnk_0811E768[gRoomControls.scrollAction] != NULL) {
         gUnk_0811E768[gRoomControls.scrollAction](&gRoomControls);
     }

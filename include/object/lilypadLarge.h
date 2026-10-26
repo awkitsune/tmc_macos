@@ -16,7 +16,7 @@ typedef struct {
     u16 unk_82;
     u8 unk_84;
     u8 unk_85;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // The GBA code remembers the position in base.child/parent, which are pointers natively.
     s32 prevX;
     s32 prevY;

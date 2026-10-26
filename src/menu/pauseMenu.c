@@ -58,7 +58,7 @@ void Subtask_PauseMenu(void) {
     }
 }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define gUnk_02034492 gPauseMenuOptions.unk2 // a linker alias on GBA
 #else
 extern u8 gUnk_02034492[];

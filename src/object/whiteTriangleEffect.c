@@ -146,7 +146,7 @@ void sub_0808C858(WhiteTriangleEffectEntity* this) {
 
 void sub_0808C8B8(WhiteTriangleEffectEntity* this) {
     s32 tmp = this->unk_68 -= this->unk_6a;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if ((s16)tmp < 0) {
 #else
     if (tmp * 0x10000 < 0) {

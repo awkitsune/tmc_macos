@@ -107,7 +107,7 @@ static void InitOverlays(void) {
     RegisterRamReset(RESET_ALL & ~RESET_EWRAM);
     *(vu16*)BG_PLTT = 0x7FFF;
     REG_WAITCNT = WAITCNT_PREFETCH_ENABLE | WAITCNT_WS0_S_1 | WAITCNT_WS0_N_3;
-#ifndef PLATFORM_NATIVE
+#ifndef PORT_HOSTED
     // Natively RAM is ordinary zero-initialized globals and the IWRAM routines are
     // plain functions, so there is nothing to clear or copy.
     size = 0x3FFD0;

@@ -252,7 +252,7 @@ void ZeldaFollowAction(NPC5Entity* this) {
             if (EntityWithinDistance(super, HEAP->playerJumpedX, HEAP->playerJumpedY, kPoiDistance)) {
                 HEAP->flags &= ~FLAG_GOTO_JUMPED;
                 super->action = ZELDA_STATE_WALK_PRE_JUMP;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 r5 = &gPlayerEntity.base;
 #endif
                 super->direction = r5->direction;
@@ -261,7 +261,7 @@ void ZeldaFollowAction(NPC5Entity* this) {
             } else {
                 // walk to jump location
                 super->speed = kNavigateSpeed;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 r5 = &gPlayerEntity.base;
 #endif
                 ZeldaCalcWalkAnim(this, r5->x.HALF.HI, r5->y.HALF.HI, 0xc);
@@ -269,7 +269,7 @@ void ZeldaFollowAction(NPC5Entity* this) {
             }
         } else {
             // navigate to jump location (bugged)
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             r5 = &gPlayerEntity.base;
 #endif
             ZeldaInitNavigate(this, r5->x.HALF.HI, r5->y.HALF.HI);
@@ -624,7 +624,7 @@ void ZeldaDoLostAnim(NPC5Entity* this) {
     };
     u32 uVar2;
     u32 bVar4;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     bVar4 = 0;
 #endif
 

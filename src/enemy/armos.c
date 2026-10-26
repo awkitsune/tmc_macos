@@ -428,7 +428,7 @@ bool32 sub_0803086C(ArmosEntity* this) {
             centerX = super->x.HALF_U.HI - gRoomControls.origin_x;
             centerY = super->y.HALF_U.HI - gRoomControls.origin_y;
             // TODO for some reason the 0x3f of COORD_TO_TILE(super) needs to be forced to r2 here.
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             tilePos = COORD_TO_TILE(super);
 #else
             tilePos = ((((((super)->x.HALF.HI) - gRoomControls.origin_x) >> 4) & (r2 = 0x3f)) |

@@ -808,7 +808,7 @@ void sub_08034B38(MazaalHeadEntity* this) {
                 target->direction = super->timer + 0x58;
             }
             ptr = &gUnk_080CED84[target->type * 2];
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             // The order of argument evaluation is unspecified; the GBA code loads ptr[0] then ptr[1].
             PositionRelative(super, target, Q_16_16(ptr[0]), Q_16_16(ptr[1]));
 #else

@@ -20,7 +20,7 @@
 
 typedef struct {
     /*0x00*/ Entity base;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     /*0x68*/ u32 unk_68Slot; // the Enemy child pointer, which natively is at the end of the slot
 #else
     /*0x68*/ Entity* unk_68;
@@ -33,12 +33,12 @@ typedef struct {
     /*0x7d*/ u8 unk_7d;
     /*0x7e*/ u8 unk_7e;
     /*0x7f*/ u8 unk_7f;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     u8 nativePad[offsetof(Enemy, child) - offsetof(Enemy, field_0x80)];
     Entity* unk_68; // Enemy.child
 #endif
 } VaatiArmEntity;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 static_assert(offsetof(VaatiArmEntity, unused1[1]) == offsetof(Enemy, enemyFlags));
 static_assert(offsetof(VaatiArmEntity, unk_78) == offsetof(Enemy, field_0x78));
 static_assert(offsetof(VaatiArmEntity, unk_68) == offsetof(Enemy, child));
@@ -994,7 +994,7 @@ static void sub_08043440(VaatiArmEntity* this) {
     i = 0;
     iVar4 = 0;
     zero = 0;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     offset = offsetof(VaatiArm_HeapStruct, s1); // 0x18 on GBA
 #else
     offset = 0x18;
@@ -1408,7 +1408,7 @@ static void sub_08043C40(VaatiArmEntity* this, VaatiArm_HeapStruct1* heapStruct)
             puVar6 = gUnk_080D13E3;
         } else {
             if (heapStruct->unk04.HALF.HI < 0x78) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 puVar6 = &gUnk_080D13E3[3]; // the arrays are not contiguous natively
 #else
                 puVar6 = &gUnk_080D13E0[6];
@@ -1418,7 +1418,7 @@ static void sub_08043C40(VaatiArmEntity* this, VaatiArm_HeapStruct1* heapStruct)
             }
         }
     }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     for (i = 0, offset = offsetof(VaatiArm_HeapStruct, s1[1]); i < 3; offset += 0x10, i++) {
 #else
     for (i = 0, offset = 0x28; i < 3; offset += 0x10, i++) {
@@ -1522,7 +1522,7 @@ static void sub_08043DB0(VaatiArmEntity* this) {
                 gRoomTransition.field_0x44 = gRoomControls.origin_x + 0x110;
                 gRoomTransition.field_0x46 = gRoomControls.origin_y + 0x60;
             }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             pEVar4 = *(Entity**)((VaatiArm_HeapStruct*)pEVar2->myHeap)->s1;
 #else
             pEVar4 = (Entity*)(*(int*)((VaatiArm_HeapStruct*)pEVar2->myHeap)->s1);

@@ -329,7 +329,7 @@ void UpdateRailMovement(Entity* this, u16** param_2, u16* param_3) {
     u16* ptr = *param_2;
     if (ptr != NULL) {
         if (*ptr == 0xfe) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             // (u32)n * -3 wraps to a 32-bit offset, which a 64-bit pointer adds unwrapped.
             ptr = ptr - (s32)ptr[1] * 3;
 #else

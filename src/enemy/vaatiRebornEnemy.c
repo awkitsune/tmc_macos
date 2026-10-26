@@ -143,14 +143,14 @@ void VaatiRebornEnemyType0Action0(VaatiRebornEnemyEntity* this) {
         // 13 creations are started below 0x42 live entities, so the last ones can fail (MAX_ENTITIES 72).
         // The GBA writes to BIOS through a NULL result and the write is ignored; natively skip it.
         entity = CreateEnemy(VAATI_REBORN_ENEMY, 1);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         if (entity != NULL)
 #endif
             entity->parent = super;
         super->child = entity;
         for (i = 0; i < 6; i++) {
             entity = CreateEnemy(VAATI_BALL, 0);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             if (entity == NULL) {
                 continue;
             }
@@ -160,7 +160,7 @@ void VaatiRebornEnemyType0Action0(VaatiRebornEnemyEntity* this) {
         }
         for (i = 0; i < 4; i++) {
             entity = CreateEnemy(VAATI_REBORN_ENEMY, 3);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             if (entity == NULL) {
                 continue;
             }
@@ -170,7 +170,7 @@ void VaatiRebornEnemyType0Action0(VaatiRebornEnemyEntity* this) {
         }
         for (i = 0; i < 2; i++) {
             entity = CreateEnemy(VAATI_BALL, 1);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             if (entity == NULL) {
                 continue;
             }
@@ -188,7 +188,7 @@ void VaatiRebornEnemyType0Action1(VaatiRebornEnemyEntity* this) {
     if (super->timer != 0) {
         if (--super->timer == 0) {
             if ((this->unk_74 & 0x70) == 0) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 // The type-1 child may have failed to spawn; the GBA reads BIOS there. Treat it as idle.
                 if (super->child == NULL || super->child->timer == 0) {
 #else
@@ -253,7 +253,7 @@ void VaatiRebornEnemyType0Action1(VaatiRebornEnemyEntity* this) {
                     break;
             }
         }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         // The type-1 child may have failed to spawn; the GBA reads BIOS there. Treat it as idle.
         if (super->child == NULL || super->child->timer == 0) {
 #else
@@ -555,7 +555,7 @@ void VaatiRebornEnemyType1Action0(VaatiRebornEnemyEntity* this) {
     super->spriteOffsetY = -1;
     PositionRelative(super->parent, super, 0, Q_16_16(1.0));
     enemy = CreateEnemy(VAATI_REBORN_ENEMY, 2);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // The entity list may be full; the GBA writes to BIOS and the write is ignored.
     if (enemy != NULL) {
         enemy->parent = super;

@@ -28,7 +28,7 @@
 
 #define CpuFastCopy(src, dest, size) CpuFastSet(src, dest, ((size) / (32 / 8) & 0x1FFFFF))
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define DmaSet(dmaNum, src, dest, control) \
     { HwDmaSet(dmaNum, (const void*)(src), (void*)(dest), (u32)(control)); }
 #else
@@ -75,7 +75,7 @@
 #define DmaCopy16(dmaNum, src, dest, size) DMA_COPY(dmaNum, src, dest, size, 16)
 #define DmaCopy32(dmaNum, src, dest, size) DMA_COPY(dmaNum, src, dest, size, 32)
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define DmaStop(dmaNum) \
     { HwDmaStop(dmaNum); }
 #else
@@ -177,7 +177,7 @@
 #define DmaClear16Defvars(dmaNum, dest, size) DmaClearDefvars(dmaNum, dest, size, 16)
 #define DmaClear32Defvars(dmaNum, dest, size) DmaClearDefvars(dmaNum, dest, size, 32)
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // Immediate host DMA has always finished by the time DmaSet returns.
 #define DmaWait(DmaNo) \
     {}

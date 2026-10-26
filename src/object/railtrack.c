@@ -15,7 +15,7 @@
 typedef struct {
     /*0x00*/ Entity base;
     /*0x68*/ u8 unused1[8];
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     /*0x70*/ u32 unk_70Slot; // natively the pointer follows the generic fields
 #else
     /*0x70*/ u16* unk_70;
@@ -27,7 +27,7 @@ typedef struct {
     /*0x7c*/ union SplitHWord unk_7c;
     /*0x7e*/ u8 unused2[8];
     /*0x86*/ u16 flag; // room data
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     void* nativeScriptContext; // GenericEntity's
     u16* unk_70;
 #endif

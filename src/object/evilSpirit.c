@@ -136,7 +136,7 @@ void EvilSpirit_Action1(EvilSpiritEntity* this) {
         return;
     }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if ((s8)(super->direction + 0x40) >= 0) {
 #else
     if ((super->direction + 0x40) * 0x1000000 >= 0) {

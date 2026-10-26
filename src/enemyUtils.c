@@ -145,7 +145,7 @@ void sub_0804A720(Entity* parent) {
     }
 
     pbVar3 = &gUnk_080D3D94[super->id];
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     ptr = (GenericEntityData*)&this->childSlot;
 #else
     ptr = (GenericEntityData*)&this->child;

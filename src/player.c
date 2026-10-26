@@ -3462,7 +3462,7 @@ void SurfaceAction_14(PlayerEntity* this) {
 void SurfaceAction_CloneTile(PlayerEntity* this) {
     if (gPlayerState.chargeState.action == 4) {
         u32 item, n, i;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         n = 0;
 #endif
         if (ItemIsSword(gSave.stats.equipped[SLOT_A])) {
@@ -3953,7 +3953,7 @@ void sub_08074F44(PlayerEntity* this) {
     } fixme;
 
     this->unk_68.BYTES.byte0++;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     if (gPlayerEntity.sleepBubble)
         DeleteEntity(gPlayerEntity.sleepBubble);
 #else
@@ -4096,7 +4096,7 @@ void sub_080751E8(u32 a1, u32 a2, void* script) {
 
     MemClear(&gPlayerScriptExecutionContext, sizeof(ScriptExecutionContext));
     gPlayerScriptExecutionContext.scriptInstructionPointer = script;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     ENTITY_SCRIPT_CONTEXT(&gPlayerEntity.base) = &gPlayerScriptExecutionContext;
 #else
     ((fixme*)&gPlayerEntity.base)->ctx = &gPlayerScriptExecutionContext;
@@ -4119,7 +4119,7 @@ void sub_080751E8(u32 a1, u32 a2, void* script) {
         StartCutscene(e, script);
     }
     e2 = CreateSpeechBubbleSleep(&gPlayerEntity.base, -14, -28);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     gPlayerEntity.sleepBubble = e2;
 #else
     *(Entity**)&gPlayerEntity.unk_6c = e2;

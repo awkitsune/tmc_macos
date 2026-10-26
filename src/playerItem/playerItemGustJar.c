@@ -41,7 +41,7 @@ void PlayerItemGustJar_Init(Entity* this) {
     this->action = 1;
     this->subtimer = 15;
     this->hitbox = &gUnk_08132B28;
-#ifndef PLATFORM_NATIVE
+#ifndef PORT_HOSTED
     // gUnk_08132B28 is in ROM, so on hardware these writes are ignored. Natively it is read-only memory.
     this->hitbox->unk2[2] = 3;
     this->hitbox->unk2[1] = 3;

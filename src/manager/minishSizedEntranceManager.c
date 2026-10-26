@@ -29,7 +29,7 @@ void MinishSizedEntranceManager_Main(MinishSizedEntranceManager* this) {
         this->field_0x20 = 0;
     }
     spawnData = (MinishEntranceSpawnData*)GetCurrentRoomProperty(super->type);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (spawnData == NULL)
         return;
 #endif

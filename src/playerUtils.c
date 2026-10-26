@@ -132,7 +132,7 @@ extern const u8 gUnk_0811BFE0[];
 extern const u8 gUnk_08007DF4[];
 extern const u8 gUnk_080084BC[];
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // On GBA a linker alias for gPossibleInteraction.candidates.
 #define gInteractableObjects gPossibleInteraction.candidates
 #else
@@ -569,7 +569,7 @@ void DeleteItemBehavior(ItemBehavior* this, u32 index) {
 
     if (index == 0) {
         if (gPlayerState.item != NULL) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             gPlayerState.item->updatePriority = 6; // GBA byte offset 0x11
 #else
             ((Unk_bitfield*)gPlayerState.item)[0x11].b0 = 6;
@@ -1021,7 +1021,7 @@ void DetermineRButtonInteraction(void) {
                 rAction = gHUD.rActionInteractTile;
             } else {
                 interaction = sub_080784E4();
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 // With no candidate the entity is NULL; the GBA reads a BIOS opcode byte
                 // there, which is never INTERACTION_NONE.
                 if (interaction->entity != NULL && interaction->entity->interactType == INTERACTION_NONE) {
@@ -1613,7 +1613,7 @@ void sub_08078CD0(PlayerEntity* this) {
     const s8* ptr;
 
     entity = this->pulledJarEntity;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // Releasing the gust jar clears pulledJarEntity before PlayerItemGustBig's last call here. On hardware the
     // writes below land in BIOS and are ignored; only the NULL sub-sprite slot sticks (the draw code skips it).
     if (entity == NULL) {
@@ -2612,7 +2612,7 @@ u32 sub_0807A180(Entity* param_1, Entity* param_2, u32 param_3, u32 param_4) {
 
 void UpdateFloorType(void) {
     gPlayerState.floor_type = GetSurfaceCalcType(&gPlayerEntity.base, 0, 0);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (gPlayerState.floor_type >= ARRAY_COUNT(gSurfaceActions) || gSurfaceActions[gPlayerState.floor_type] == NULL) {
         return;
     }
@@ -3795,7 +3795,7 @@ u32 sub_0807BDB8(Entity* this, u32 param_2) {
 u32 sub_0807BEEC(u32 param_1, u32 param_2, u32 param_3) {
     u32 index;
     RoomResInfo* ptr;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if ((*((u8*)&gArea + offsetof(Area, filler3) - 1) & 1) != 0) { // the bitfield byte before filler3
 #else
     if ((gArea.filler3[-1] & 1) != 0) {
@@ -4044,7 +4044,7 @@ void sub_0807C4F8(void) {
         do {
             ptr2 += 1;
             // TODO why does this not match with ptr2->dest?
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             if ((u16*)ptr2->dest == gMapDataBottomSpecial || (u16*)ptr2->dest == (u16*)&gMapDataTopSpecial) {
 #else
             if (((u16*)((u32*)ptr2)[1] == gMapDataBottomSpecial) ||
@@ -4158,7 +4158,7 @@ void sub_0807C69C(u8* data, u32 width, u32 height) {
 
     for (index = 0; index < height; index++) {
         for (innerIndex = 0; innerIndex < width; innerIndex++) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             // -innerIndex is a u32, which a 64-bit pointer adds unwrapped (4 GB past the map).
             ptr1[-(s32)innerIndex] = ptr2[-(s32)innerIndex];
 #else
@@ -4200,7 +4200,7 @@ void InitializeCamera() {
     roomControls = &gRoomControls;
     target = gRoomControls.camera_target;
     if (target != NULL) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         if ((s16)target->x.HALF_U.HI < 0) { // bit 15 flags an absolute position
 #else
         if ((target->x.HALF_U.HI * 0x10000) < 0) {
@@ -4210,7 +4210,7 @@ void InitializeCamera() {
             target->x.HALF.HI = tmp1;
         }
         targetX = target->x.HALF.HI;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         if ((s16)target->y.HALF_U.HI < 0) { // bit 15 flags an absolute position
 #else
         if ((target->y.HALF_U.HI * 0x10000) < 0) {

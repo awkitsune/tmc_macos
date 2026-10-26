@@ -10,7 +10,7 @@ extern void* gMPlayJumpTable[36];
 
 extern CgbChannel gCgbChans[4];
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // Values of the linker.ld symbols below; a native binary cannot place symbols at them.
 #define NUM_MUSIC_PLAYERS 0x20
 #define MAX_LINES 0
@@ -93,7 +93,7 @@ void ply_xiecl(MusicPlayerInfo*, MusicPlayerTrack*);
 void ply_xleng(MusicPlayerInfo*, MusicPlayerTrack*);
 void ply_xswee(MusicPlayerInfo*, MusicPlayerTrack*);
 
-#ifndef PLATFORM_NATIVE
+#ifndef PORT_HOSTED
 u8 SoundMainRAM_Buffer[0x380];
 #endif
 extern SoundInfo gSoundInfo;
@@ -209,7 +209,7 @@ void MPlayFadeOut(MusicPlayerInfo* mplayInfo, u16 speed) {
 void m4aSoundInit(void) {
     s32 i;
 
-#ifndef PLATFORM_NATIVE // the mixer is ordinary C natively, not code copied to IWRAM
+#ifndef PORT_HOSTED // the mixer is ordinary C natively, not code copied to IWRAM
     CpuCopy32((void*)((s32)SoundMainRAM & ~1), SoundMainRAM_Buffer, sizeof(SoundMainRAM_Buffer));
 #endif
 
@@ -415,7 +415,7 @@ void MPlayExtender(CgbChannel* cgbChans) {
 }
 
 void MusicPlayerJumpTableCopy(void) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     SystemCall(0x2A);
 #else
     asm("swi 0x2A");
@@ -435,7 +435,7 @@ void Clear64byte(void* addr) {
 void SoundInit(SoundInfo* soundInfo) {
     soundInfo->ident = 0;
 
-#ifndef PLATFORM_NATIVE // natively the mixed buffer is handed to the port, not DMAed to FIFO A
+#ifndef PORT_HOSTED // natively the mixed buffer is handed to the port, not DMAed to FIFO A
     if (REG_DMA1CNT & (DMA_REPEAT << 16))
         REG_DMA1CNT = ((DMA_ENABLE | DMA_START_NOW | DMA_32BIT | DMA_SRC_INC | DMA_DEST_FIXED) << 16) | 4;
 
@@ -446,7 +446,7 @@ void SoundInit(SoundInfo* soundInfo) {
         SOUND_A_FIFO_RESET | SOUND_A_TIMER_0 | SOUND_A_LEFT_OUTPUT | SOUND_A_RIGHT_OUTPUT | SOUND_ALL_MIX_FULL;
     REG_SOUNDBIAS_H = (REG_SOUNDBIAS_H & 0x3F) | 0x40;
 
-#ifndef PLATFORM_NATIVE
+#ifndef PORT_HOSTED
     REG_DMA1SAD = (s32)soundInfo->pcmBuffer;
     REG_DMA1DAD = (s32)&REG_FIFO_A;
 #endif
@@ -583,7 +583,7 @@ void m4aSoundVSyncOff(void) {
     if (soundInfo->ident >= ID_NUMBER && soundInfo->ident <= ID_NUMBER + 1) {
         soundInfo->ident += 10;
 
-#ifndef PLATFORM_NATIVE
+#ifndef PORT_HOSTED
         REG_TM0CNT_H = 0;
 
         if (REG_DMA1CNT & (DMA_REPEAT << 16))
@@ -605,14 +605,14 @@ void m4aSoundVSyncOn(void) {
     if (ident == ID_NUMBER)
         return;
 
-#ifndef PLATFORM_NATIVE
+#ifndef PORT_HOSTED
     REG_DMA1CNT_H = DMA_ENABLE | DMA_START_SPECIAL | DMA_32BIT | DMA_REPEAT;
 #endif
 
     soundInfo->pcmDmaCounter = 0;
     soundInfo->ident = ident - 10;
 
-#ifndef PLATFORM_NATIVE // natively there is no DMA timer to line up with VBlank
+#ifndef PORT_HOSTED // natively there is no DMA timer to line up with VBlank
     while (REG_VCOUNT_8 == 0x9f) {}
     while (REG_VCOUNT_8 != 0x9f) {}
 
@@ -631,7 +631,7 @@ void m4aSoundVSync(void) {
     if ((s8)soundInfo->pcmDmaCounter > 0)
         return;
     soundInfo->pcmDmaCounter = soundInfo->pcmDmaPeriod;
-#ifndef PLATFORM_NATIVE
+#ifndef PORT_HOSTED
     if (REG_DMA1CNT & (DMA_REPEAT << 16)) {
         REG_DMA1CNT = ((DMA_ENABLE | DMA_START_NOW | DMA_32BIT | DMA_SRC_INC | DMA_DEST_FIXED) << 16) | 4;
     }
@@ -656,7 +656,7 @@ void MPlayOpen(MusicPlayerInfo* mplayInfo, MusicPlayerTrack* tracks, u8 trackCou
 
     soundInfo->ident++;
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     memset(mplayInfo, 0, sizeof(*mplayInfo));
 #else
     Clear64byte(mplayInfo);
@@ -1172,7 +1172,7 @@ void CgbSound(void) {
         if (channels->modify & CGB_CHANNEL_MO_PIT) {
             if (ch < 4 && (channels->type & TONEDATA_TYPE_FIX)) {
                 int dac_pwm_rate = REG_SOUNDBIAS_H;
-#ifndef PLATFORM_NATIVE
+#ifndef PORT_HOSTED
                 asm("" ::: "r0");
 #endif
                 if (dac_pwm_rate < 0x40) // if PWM rate = 32768 Hz

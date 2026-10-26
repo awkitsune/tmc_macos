@@ -71,7 +71,7 @@ void RupeeLike_OnCollision(RupeeLikeEntity* this) {
         if (super->action == 4) {
             sub_080296D8(this);
         }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         if (super->contactedEntity->kind == 1) {
 #else
         if (*(u8*)(*(u32*)&super->contactedEntity + 8) == 1) {

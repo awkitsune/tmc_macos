@@ -1,5 +1,5 @@
 #include "manager.h"
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include <stdio.h>
 #endif
 
@@ -66,7 +66,7 @@ void (*const gMiscManagerunctions[])() = {
 };
 
 void ManagerUpdate(Entity* this) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // The GBA calls whatever is at the slot; natively id 0 is NULL and ids past the table are wild.
     if (this->id >= ARRAY_COUNT(gMiscManagerunctions) || gMiscManagerunctions[this->id] == NULL) {
         fprintf(stderr, "ManagerUpdate: manager id %u has no handler\n", this->id);

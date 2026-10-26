@@ -76,7 +76,7 @@ void sub_080A2E40(void) {
     gScreen.controls.alphaBlend = 0xb04;
     {
         // TODO write to 0x2000004
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         gSaveHeader->saveFileId = 0;
 #else
         u32 addr = (0x80 << 0x12);
@@ -96,7 +96,7 @@ void sub_080A2F8C(void) {
                 gMain.substate = GAMEMAIN_CHANGEROOM;
                 {
                     // TODO write to 0x2000005
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                     gSaveHeader->msg_speed = 1;
                     gSaveHeader->brightness = 1;
 #else

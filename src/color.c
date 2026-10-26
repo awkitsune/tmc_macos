@@ -7,7 +7,7 @@
 #include "gfx.h"
 #include "fade.h"
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define gUnk_02001A3C gPaletteList[15] // a linker alias on GBA
 #else
 extern Palette gUnk_02001A3C;

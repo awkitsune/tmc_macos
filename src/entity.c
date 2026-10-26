@@ -14,7 +14,7 @@
 typedef struct Temp {
     void* prev;
     void* next;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // Manager subtypes with pointer fields grow natively (up to 120 bytes).
     u8 _0[0x80 - 2 * sizeof(void*)];
 #else
@@ -24,7 +24,7 @@ typedef struct Temp {
 #include "tiles.h"
 
 extern u8 gUpdateVisibleTiles;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 extern Temp gUnk_02033290[32];
 #else
 extern Manager gUnk_02033290;
@@ -257,7 +257,7 @@ void UpdateManagers(void) {
 void EraseAllEntities(void) {
     DeleteAllEntities();
     MemClear(&gPriorityHandler, sizeof(PriorityHandler));
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // gPlayerEntity, gAuxPlayerEntities and gEntities: 80 contiguous slots.
     MemClear(&gPlayerEntity.base, sizeof(GenericEntity) * 80);
     MemClear(&gUnk_02033290, sizeof(gUnk_02033290));
@@ -283,7 +283,7 @@ Entity* GetEmptyEntity() {
     LinkedList* listPtr;
     LinkedList* endListPtr;
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     {
         // Debug switch TMC_ENTITY_LIMIT (port/include/port/platform.h): simulate a full entity list.
         extern int PlatformEntityLimit(void);

@@ -17,7 +17,7 @@ typedef struct {
     /*0x79*/ u8 unk_79;
     /*0x7a*/ u16 unk_7a;
     /*0x7c*/ union SplitWord unk_7c;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // A scripted player keeps its script context where ENTITY_SCRIPT_CONTEXT
     // puts it (GenericEntity.nativeScriptContext). On GBA that pointer
     // overwrites unk_84, so natively unk_84 shares that slot and unk_80 comes
@@ -34,7 +34,7 @@ typedef struct {
     /*0x84*/ union SplitWord unk_84;
 #endif
 } PlayerEntity;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 _Static_assert(sizeof(PlayerEntity) == sizeof(GenericEntity), "player entity must fill one entity slot");
 _Static_assert(offsetof(PlayerEntity, unk_84) == offsetof(GenericEntity, nativeScriptContext),
                "a player script context must land on unk_84, as on GBA");

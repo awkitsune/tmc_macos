@@ -29,7 +29,7 @@ void ElementsBackground_Init(Entity* this) {
     this->spritePriority.b0 = 7;
     this->z.WORD = 0;
     this->spriteRendering.alphaBlend = 1;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     sub_080A04E8(this);
 #else
     sub_080A04E8();
@@ -37,7 +37,7 @@ void ElementsBackground_Init(Entity* this) {
 }
 
 void ElementsBackground_Action1(Entity* this) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     sub_080A04E8(this);
 #else
     sub_080A04E8();

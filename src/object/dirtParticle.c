@@ -31,7 +31,7 @@ void DirtParticle(DirtParticleEntity* this) {
         NULL,
         DirtParticle_Action3,
     };
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (super->action < ARRAY_COUNT(DirtParticle_Actions) && DirtParticle_Actions[super->action] != NULL) {
         DirtParticle_Actions[super->action](this);
     }

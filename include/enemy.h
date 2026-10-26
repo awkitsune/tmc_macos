@@ -14,7 +14,7 @@
 
 typedef struct {
     Entity base;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // Natively the child pointer moves to the end of the entity slot, so the
     // fields below keep the offsets GenericEntity, room data and the enemy
     // subtypes (which declare data here) give them.
@@ -37,7 +37,7 @@ typedef struct {
     /*0x82*/ union SplitHWord field_0x82;
     /*0x84*/ union SplitHWord cutsceneBeh;
     /*0x86*/ union SplitHWord field_0x86;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     void* nativeScriptContext; // GenericEntity's
     // Enemy subtypes use up to 0xc0 bytes of the 0x100-byte slot.
     u8 nativeSubtypeData[0xc0 - 0xb8];
@@ -45,7 +45,7 @@ typedef struct {
     Entity* child;
 #endif
 } Enemy;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 _Static_assert(sizeof(Enemy) == sizeof(GenericEntity), "Enemy.child sits at the end of the entity slot");
 #endif
 

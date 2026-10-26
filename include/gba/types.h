@@ -26,7 +26,7 @@ typedef double f64;
 
 // An integer field that holds a pointer in GBA data. Pointer-sized natively so
 // the address survives; plain u32 on GBA so generated code does not change.
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 typedef uintptr_t PtrU32;
 #else
 typedef u32 PtrU32;
@@ -260,5 +260,19 @@ struct RCnt {
 
 #define ST_R_IN 0  // Select input
 #define ST_R_OUT 1 // Select output
+
+// Port builds. PORT_HOSTED: hardware is reached through port/hw.h, plus fixes for
+// what only agbcc's code got right. PORT_LAYOUT_64: the macOS/iOS port's 64-bit
+// data layout. PLATFORM_NATIVE (port/CMakeLists.txt) has both; PLATFORM_DSI
+// (port/dsi) only PORT_HOSTED, as it keeps the GBA layout. The GBA build has none.
+#if defined(PLATFORM_NATIVE) && !(defined(PORT_HOSTED) && defined(PORT_LAYOUT_64))
+#error "PLATFORM_NATIVE builds define PORT_HOSTED and PORT_LAYOUT_64"
+#endif
+#if defined(PLATFORM_DSI) && (!defined(PORT_HOSTED) || defined(PORT_LAYOUT_64))
+#error "PLATFORM_DSI builds define PORT_HOSTED but not PORT_LAYOUT_64"
+#endif
+#if defined(PORT_LAYOUT_64) && !defined(PORT_HOSTED)
+#error "PORT_LAYOUT_64 needs PORT_HOSTED"
+#endif
 
 #endif // TYPES_H

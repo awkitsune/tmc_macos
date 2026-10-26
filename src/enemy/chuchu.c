@@ -13,7 +13,7 @@
 
 typedef struct {
     /*0x00*/ Entity base;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     /*0x68*/ u32 unk_68Slot; // the Enemy child pointer, which natively is elsewhere
 #else
     /*0x68*/ Entity* unk_68;
@@ -27,7 +27,7 @@ typedef struct {
     /*0x83*/ u8 unk_83;
 } ChuchuEntity;
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 #define CHUCHU_CHILD(this) (((Enemy*)(this))->child)
 #else
 #define CHUCHU_CHILD(this) ((this)->unk_68)
@@ -91,7 +91,7 @@ void Chuchu(ChuchuEntity* this) {
     }
     this->unk_81 = index;
     Chuchu_Functions[GetNextFunction(super)](this);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // The child may not exist yet; the GBA reads BIOS bytes (never 0x1c) there.
     if (CHUCHU_CHILD(this) != NULL && CHUCHU_CHILD(this)->type == 0x1c) {
 #else

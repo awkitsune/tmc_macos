@@ -11,7 +11,7 @@
 #include "entity.h"
 #include "physics.h"
 #include "asm.h"
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include "manager/angryStatueManager.h"
 #endif
 
@@ -84,7 +84,7 @@ bool32 sub_080AB5F4(Entity* this) {
 }
 
 bool32 sub_080AB634(Entity* this) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // parent is the AngryStatueManager; its statue list is at 0x20 on the GBA, where Entity has zVelocity,
     // but natively the two layouts differ, so read the list by its own name.
     Entity** entities = ((AngryStatueManager*)this->parent)->field_0x20;

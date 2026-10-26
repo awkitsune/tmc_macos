@@ -133,7 +133,7 @@ static u32 AdvanceIntroSequence(u32 transition) {
     gMain.state = GAMETASK_MAIN;
     MemClear(&gIntroState, sizeof(gIntroState));
     SetFade(FADE_IN_OUT | FADE_BLACK_WHITE | FADE_INSTANT, 8);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     return 0;
 #endif
 }

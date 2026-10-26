@@ -22,7 +22,7 @@ void DarkNutSwordSlash_OnTick(Entity*);
 void DarkNutSwordSlash(Entity* this) {
     if (this->action == 0) {
         this->action = 1;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         // The Dark Nut can be gone (parent cleared) before the slash's first update; the GBA reads its type from
         // the BIOS here and deletes the slash below.
         if (this->parent == NULL) {

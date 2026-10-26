@@ -102,7 +102,7 @@ u32 sub_08059F9C(SteamOverlayManager* this) {
         default:
             return 0;
     }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     return 0;
 #endif
 }

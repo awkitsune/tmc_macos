@@ -13,7 +13,7 @@
 #include "ui.h"
 #include "room.h"
 #include "player.h"
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include "manager/goronMerchantShopManager.h"
 #endif
 
@@ -114,7 +114,7 @@ void ItemForSale_Action2(ItemForSaleEntity* this) {
         sub_080819B4(this);
     } else {
         ptr = sub_080784E4();
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         if (((((InteractableObject*)ptr)->entity == NULL) ||
 #else
         if (((*(int*)(ptr + 8) == 0) ||
@@ -135,7 +135,7 @@ void sub_080819B4(ItemForSaleEntity* this) {
 
     if (gRoomVars.shopItemType == 0) {
         if (super->parent != NULL) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             // parent is the GoronMerchantShopManager. The GBA marks the item sold in its itemActive (0x20) through
             // a struct with a byte array at 0x20; natively the manager's fields start later, so use their own name.
             ((GoronMerchantShopManager*)super->parent)->itemActive[super->subtimer] = 0xff;

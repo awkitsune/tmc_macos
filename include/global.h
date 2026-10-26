@@ -35,7 +35,7 @@
 #define asm_comment(x) asm volatile("@ -- " x " -- ")
 #define asm_unified(x) asm(".syntax unified\n" x "\n.syntax divided")
 
-#if (defined(__APPLE__) || defined(__CYGWIN__)) && !defined(PLATFORM_NATIVE)
+#if (defined(__APPLE__) || defined(__CYGWIN__)) && !defined(PORT_HOSTED)
 // Get the IDE to stfu
 
 // We define it this way to fool preproc.
@@ -71,7 +71,7 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) >= (b) ? (a) : (b))
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 // Size asserts pin down the 32-bit GBA layout, which 64-bit pointers change by design.
 #define static_assert(cond)
 #else

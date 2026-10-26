@@ -12,7 +12,7 @@
 #include "room.h"
 #include "sound.h"
 #include "tiles.h"
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include "manager/angryStatueManager.h"
 #endif
 
@@ -76,7 +76,7 @@ void AngryStatue_Action3(Entity* this) {
         this->timer = 15;
         InitializeAnimation(this, this->type);
     } else {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         // parent is the AngryStatueManager. The GBA sets the hit bit in its field_0x36 through Entity.z.BYTES.byte2,
         // both at 0x36; natively that byte is inside the manager's statue pointers, so use the field's own name.
         ((AngryStatueManager*)this->parent)->field_0x36 |= 1 << this->type2;

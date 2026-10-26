@@ -44,7 +44,7 @@ void InitScriptForEntity(Entity*, ScriptExecutionContext*, u16*);
 void ExecuteScript(Entity* entity, ScriptExecutionContext* context);
 
 extern u32 GetNextScriptCommandHalfword(u16*);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // Word operands may be pointers, which need the full native width.
 extern uintptr_t GetNextScriptCommandWord(u16*);
 extern uintptr_t GetNextScriptCommandWordAfterCommandMetadata(u16*);
@@ -76,7 +76,7 @@ extern void UpdateCollisionLayer(struct Entity_*);
 // The script context of a scripted entity (ENT_SCRIPTED), stored over the generic
 // cutsceneBeh field. Subtypes give that spot their own names; reading it through
 // GenericEntity keeps the offset right natively, where their layouts diverge.
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 #define ENTITY_SCRIPT_CONTEXT(entity) (*(ScriptExecutionContext**)&((GenericEntity*)(entity))->nativeScriptContext)
 #else
 #define ENTITY_SCRIPT_CONTEXT(entity) (*(ScriptExecutionContext**)&((GenericEntity*)(entity))->cutsceneBeh)

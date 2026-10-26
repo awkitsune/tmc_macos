@@ -125,7 +125,7 @@ void sub_0801C2F0(u32 dest, u32 param_2) {
     FORCE_REGISTER(union SplitDWord divRem, r0);
 #endif
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     uintptr_t vramDest = dest * 0x20 + (VRAM + 0x10000);
 #define dest vramDest
 #else
@@ -287,7 +287,7 @@ void DrawRupees(void) {
  * Draw icon with text for rupees or keys
  */
 void RenderDigits(u32 iconVramIndex, u32 count, u32 isTextYellow, u32 digits) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     uintptr_t iVar2; // a VRAM address
 #else
     int iVar2;

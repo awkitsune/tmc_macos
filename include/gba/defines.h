@@ -25,7 +25,7 @@
 #define ALIGNED(n) __attribute__((aligned(n)))
 #endif
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include "port/hw.h"
 
 #define SOUND_INFO_PTR gHwSoundInfoPtr
@@ -39,7 +39,7 @@
 
 // A fixed GBA address (RAM or hardware) as a pointer. Natively the address is
 // mapped to the host buffer or variable that holds it.
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define GBA_PTR(addr) HwGbaPtr(addr)
 #else
 #define GBA_PTR(addr) ((void*)(addr))
@@ -50,7 +50,7 @@
 #define IWRAM_START 0x03000000
 #define IWRAM_END (IWRAM_START + 0x8000)
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define PLTT ((uintptr_t)gHwPltt)
 #else
 #define PLTT 0x5000000
@@ -64,7 +64,7 @@
 #define OBJ_PLTT (PLTT + 0x200)
 #define OBJ_PLTT_SIZE 0x200
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define VRAM ((uintptr_t)gHwVram)
 #else
 #define VRAM 0x6000000
@@ -90,7 +90,7 @@
 #define OBJ_VRAM1 (void*)(VRAM + 0x14000)
 #define OBJ_VRAM1_SIZE 0x4000
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define OAM ((uintptr_t)gHwOam)
 #else
 #define OAM 0x7000000

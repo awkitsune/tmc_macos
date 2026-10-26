@@ -20,7 +20,7 @@ typedef struct {
     u8 spawnedCount; /**< Count of entities spawned by this manager */
 } DelayedEntityLoadManager;
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include "area.h"
 #define gUnk_020342F8 gArea.filler6 // a linker alias on GBA
 #else
@@ -103,7 +103,7 @@ u32 sub_0805ACC0(Entity* param_1) {
 
     for (entity = gEntityLists[6].first; entity != list; entity = entity->next) {
         if ((entity->kind == 9 && entity->id == 0x16) && entity->type2 <= tmp &&
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             // entity is a DelayedEntityLoadManager; the GBA reads its spawnedCount (0x21) as the second byte of
             // Entity.zVelocity (0x20). Natively the layouts differ, so use the field's own name.
             (entity->type2 + ((DelayedEntityLoadManager*)entity)->spawnedCount) > tmp) {
@@ -113,7 +113,7 @@ u32 sub_0805ACC0(Entity* param_1) {
 
             ptr = (u16*)GetCurrentRoomProperty(entity->type);
             if (ptr != NULL) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 // The list holds NPCStructs, 16 bytes on GBA (8 u16) but bigger natively (a script pointer).
                 ptr = (u16*)((NPCStruct*)ptr + (tmp - entity->type2));
 #else

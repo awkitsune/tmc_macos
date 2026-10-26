@@ -13,6 +13,10 @@ Contents:
   as text through melonDS's GDB stub.
 - `tools/reloc_report.py`: counts the ROM-data pointers the port has to relocate
   (the figures in [PLAN.md](PLAN.md)).
+- `tools/layout_diff.py`: compares struct and global layouts (DWARF) between the
+  game built for the ARM9 with the GBA layout and as the DSi build. It
+  checks that `PORT_LAYOUT_64` covers everything 64-bit
+  ([PLAN.md](PLAN.md#defines)).
 
 ## Toolchain: BlocksDS on the Wonderful toolchain
 

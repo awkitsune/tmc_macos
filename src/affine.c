@@ -6,7 +6,7 @@
 extern u32 gFrameObjLists[];
 
 extern void ram_DrawEntities(void);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 extern void NativeClearDrawBuckets(void);
 #endif
 extern void ram_sub_080ADA04(OAMCommand*, void*);
@@ -33,7 +33,7 @@ void CopyOAM(void) {
         gOAMControls.unk[0x48].unk4 = 0;
         gOAMControls.unk[0x71].unk0 = 0;
         gOAMControls.unk[0x99].unk4 = 0;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         // On GBA these four bytes are the draw bucket counts DrawEntity fills.
         NativeClearDrawBuckets();
 #endif

@@ -181,7 +181,7 @@ void Enemy4D_Action5(Enemy4DEntity* this) {
     sub_0803E9A4(super);
     tmp = this->unk_7e - 4;
     this->unk_7e = tmp;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if ((s8)tmp < 1) {
 #else
     if ((tmp * 0x1000000) < 1) {

@@ -88,7 +88,7 @@ void LinkEmptyingBottle_Action1(LinkEmptyingBottleEntity* this) {
         NULL,
         sub_080948E8,
     };
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (super->type < ARRAY_COUNT(gUnk_08122A20) && gUnk_08122A20[super->type] != NULL) {
         gUnk_08122A20[super->type](this);
     }

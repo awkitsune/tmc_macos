@@ -640,7 +640,7 @@ void sub_0807000C(Entity* this) {
     val |= sub_0807007C(ptr, 3);
 
     if (val) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         GfxSlot* slot = &gGFXSlots.slots[this->spriteAnimation[0]];
         slot->unk_3 = this->spriteAnimation[2];
         slot->vramStatus = GFX_VRAM_3;

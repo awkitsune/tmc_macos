@@ -617,7 +617,7 @@ u32 sub_080A4418(u32 param_1, u32 param_2) {
     if (t2) {
         LZ77UnCompVram(src, dest);
     } else {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         // Writing the DMA registers directly starts no transfer natively: the port runs DMA through HwDmaSet.
         DmaSet(3, src, dest, ((DMA_ENABLE | DMA_START_NOW | DMA_32BIT | DMA_SRC_INC | DMA_DEST_INC) << 16) + 0x80);
         return ((DMA_ENABLE | DMA_START_NOW | DMA_32BIT | DMA_SRC_INC | DMA_DEST_INC) << 16) + 0x80;
@@ -628,14 +628,14 @@ u32 sub_080A4418(u32 param_1, u32 param_2) {
         return DMA3->control.word;
 #endif
     }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     return 0;
 #endif
 }
 
 void KinstoneMenu_080A4468(void) {
     gPossibleInteraction.kinstoneId = KINSTONE_NONE;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     extern const InteractableObject gNoInteraction;
     // With nothing to interact with, currentObject is the const gNoInteraction: the GBA ignores the write to ROM.
     if (gPossibleInteraction.currentObject != &gNoInteraction)
@@ -652,7 +652,7 @@ u32 KinstoneMenu_080A4494(void) {
     // TODO: Change this to union of u8* and u32
     u8* fuserTextId;
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     ret = 0;
 #endif
     psVar1 = sub_0805F2C8();

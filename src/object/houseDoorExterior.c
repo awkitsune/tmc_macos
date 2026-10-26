@@ -67,7 +67,7 @@ void HouseDoorExterior_Type0(HouseDoorExteriorEntity* this) {
     }
 
     prop = GetCurrentRoomProperty(this->unk_6c);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (prop == NULL)
         return;
 #endif

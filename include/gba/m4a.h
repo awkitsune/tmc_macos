@@ -40,7 +40,7 @@ typedef struct SongHeader {
     u8 blockCount;
     u8 priority;
     u8 reverb;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // Song data stays in its GBA form natively: these are GBA ROM addresses,
     // translated with M4A_PTR (gba/m4a_internal.h).
     u32 tone;

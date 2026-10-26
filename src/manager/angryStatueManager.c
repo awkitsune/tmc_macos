@@ -43,7 +43,7 @@ void AngryStatueManager_Init(AngryStatueManager* this) {
     }
     if (gEntCount < 0x44) {
         objectData = GetCurrentRoomProperty(super->type);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         if (objectData == NULL) {
             DeleteThisEntity();
         }

@@ -2,7 +2,7 @@
 #define PORT_HW_H
 
 /*
- * Host-side stand-ins for GBA hardware, used when building with PLATFORM_NATIVE.
+ * Stand-ins for GBA hardware, used when building with PORT_HOSTED.
  *
  * The game addresses I/O registers, palette RAM, VRAM and OAM at fixed GBA
  * addresses. Natively those regions are plain host buffers; the gba/ headers

@@ -185,7 +185,7 @@ void LilypadLarge_Action1(LilypadLargeEntity* this) {
         }
         super->contactFlags = 0;
     }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     this->prevX = super->x.WORD;
     this->prevY = super->y.WORD;
 #else
@@ -237,7 +237,7 @@ void LilypadLarge_Action1(LilypadLargeEntity* this) {
 
         sub_08085EFC(this);
         ProcessMovement4(super);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
         if (this->prevX == super->x.WORD) {
 #else
         if (super->child == (Entity*)super->x.WORD) {
@@ -251,7 +251,7 @@ void LilypadLarge_Action1(LilypadLargeEntity* this) {
             this->unk_85 = 0;
         }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
         if (this->prevY == super->y.WORD) {
 #else
         if (super->parent == (Entity*)super->y.WORD) {

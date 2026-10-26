@@ -53,7 +53,7 @@ const KeyButtonLayout gUnk_0812813C = {
     },
 };
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define gUnk_020344A0 (*(u8(*)[8]) & gPauseMenuOptions.unk2[0xe]) // a linker alias on GBA
 #else
 extern u8 gUnk_020344A0[8];
@@ -414,7 +414,7 @@ void sub_080A4B44(void) {
     }
 }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 extern u8 gTextGfxBuffer[];
 #endif
 
@@ -422,7 +422,7 @@ extern u8 gTextGfxBuffer[];
 typedef struct {
     u16* unk0;
     PtrU32 unk4; // VRAM address
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     void* unk8;
     u32 unkC;
 #else
@@ -434,13 +434,13 @@ typedef struct {
 } struct_0812816C;
 static_assert(sizeof(struct_0812816C) == 0x18);
 const struct_0812816C gUnk_0812816C = {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     (u16*)((u8*)gBG3Buffer + 0x100),
 #else
     (u16*)0x02001b40,
 #endif
     VRAM + 0xa000,
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     gTextGfxBuffer,
     0,
 #else
@@ -531,13 +531,13 @@ void sub_080A4BA0(u32 arg1, u32 arg2) {
 }
 
 const struct_0812816C gUnk_08128190 = {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     (u16*)((u8*)gBG1Buffer + 0x42),
 #else
     (u16*)0x02021f72,
 #endif
     VRAM + 0x4000,
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     gTextGfxBuffer,
     0,
 #else

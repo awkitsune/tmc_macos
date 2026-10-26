@@ -15,7 +15,7 @@
 
 extern Screen gUnk_03001020;
 extern u8 gPaletteBufferBackup[];
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define gUnk_03000420 ((u8*)gOAMControls.unk) // a linker alias on GBA
 #else
 extern u8 gUnk_03000420[];

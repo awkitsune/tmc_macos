@@ -156,7 +156,7 @@ void DispCtrlSet(void) {
 }
 
 // Load any resources that were requested with LoadResourceAsync
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #include "port/resources.h"
 
 void LoadResources(void) {
@@ -206,7 +206,7 @@ void LoadResources(void) {
 
 void WaitForNextFrame(void) {
     gMain.interruptFlag = 0;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     extern void PlatformLoopVBlank(void); // where save states are taken (port/include/port/platform.h)
     PlatformLoopVBlank();
 #else

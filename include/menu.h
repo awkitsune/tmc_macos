@@ -27,7 +27,7 @@ typedef struct {
     u8 rButtonX;
     u8 rButtonY;
     u8 rButtonText;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // clang drops initializers of zero-length arrays; a flexible array keeps them.
     u8 settingDict[];
 #else

@@ -96,7 +96,7 @@ void LightRayManager_Action1(LightRayManager* this) {
     s32 x;
     s32 y;
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (prop == NULL)
         return;
 #endif

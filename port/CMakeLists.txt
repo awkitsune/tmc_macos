@@ -27,7 +27,9 @@ endif()
 project(tmc_native VERSION 1.0 LANGUAGES C OBJC ASM)
 
 # Native (macOS, arm64 and/or x86_64) build of the decompiled game code. The GBA build in the
-# repository root is unaffected; everything here is opt-in via PLATFORM_NATIVE.
+# repository root is unaffected; everything here is opt-in via PLATFORM_NATIVE, which
+# comes with PORT_HOSTED (hardware through port/hw.h, modern-compiler fixes) and
+# PORT_LAYOUT_64 (the 64-bit data layout); see include/gba/types.h.
 #
 #   cmake -S port -B build/native
 #   cmake --build build/native -j
@@ -37,6 +39,8 @@ project(tmc_native VERSION 1.0 LANGUAGES C OBJC ASM)
 set(TMC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(TMC_GAME_VERSION USA CACHE STRING "Game version whose extracted assets to use")
 set(TMC_ASSETS_BUILD_DIR ${TMC_ROOT}/build/${TMC_GAME_VERSION} CACHE PATH "Directory holding assets/*.h from asset extraction")
+# Definitions for everything compiled against the game's headers.
+set(TMC_GAME_DEFINITIONS PLATFORM_NATIVE=1 PORT_HOSTED=1 PORT_LAYOUT_64=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
 
 if(NOT EXISTS ${TMC_ASSETS_BUILD_DIR}/assets/gfx_offsets.h)
     message(FATAL_ERROR "Extracted assets not found in ${TMC_ASSETS_BUILD_DIR}. Run asset extraction first (see README.md).")
@@ -78,13 +82,7 @@ target_include_directories(tmc_game PRIVATE
     ${TMC_ASSETS_BUILD_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_compile_definitions(tmc_game PRIVATE
-    PLATFORM_NATIVE=1
-    NON_MATCHING=1
-    ${TMC_GAME_VERSION}
-    ENGLISH
-    REVISION=0
-)
+target_compile_definitions(tmc_game PRIVATE ${TMC_GAME_DEFINITIONS})
 target_compile_options(tmc_game PRIVATE
     # Writable globals into the save state segment (port/include/port/state.h).
     -include ${CMAKE_CURRENT_SOURCE_DIR}/include/port/state_segment.h
@@ -256,7 +254,7 @@ string(REPLACE ";" "\n" TMC_STATE_SOURCES_TEXT "${TMC_GAME_SOURCES};${TMC_STATE_
 file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/state_sources.txt CONTENT "${TMC_STATE_SOURCES_TEXT}\n")
 target_include_directories(tmc_port PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tmc_port PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR} ${TMC_DATA_DIR})
-target_compile_definitions(tmc_port PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
+target_compile_definitions(tmc_port PRIVATE ${TMC_GAME_DEFINITIONS})
 
 # The Metal renderer, sound, input, game thread and settings storage are shared
 # with the iOS app (src/apple); the AppKit shell is in src/macos.
@@ -284,7 +282,7 @@ add_custom_command(
 # roomname.c reads the game's globals, so it builds with the game's headers.
 set_source_files_properties(src/apple/roomname.c PROPERTIES
     INCLUDE_DIRECTORIES "${TMC_ROOT}/include;${TMC_ASSETS_BUILD_DIR}"
-    COMPILE_DEFINITIONS "PLATFORM_NATIVE=1;NON_MATCHING=1;${TMC_GAME_VERSION};ENGLISH;REVISION=0")
+    COMPILE_DEFINITIONS "${TMC_GAME_DEFINITIONS}")
 
 if(NOT TMC_IOS)
 
@@ -369,7 +367,7 @@ add_custom_command(
 add_executable(tmc_songs src/tools/tmc_songs.c ${TMC_SONG_NAMES} $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
 set_target_properties(tmc_songs PROPERTIES OUTPUT_NAME tmc-songs)
 target_include_directories(tmc_songs PRIVATE ${TMC_ROOT}/include ${TMC_ASSETS_BUILD_DIR} src/tools)
-target_compile_definitions(tmc_songs PRIVATE PLATFORM_NATIVE=1 NON_MATCHING=1 ${TMC_GAME_VERSION} ENGLISH REVISION=0)
+target_compile_definitions(tmc_songs PRIVATE ${TMC_GAME_DEFINITIONS})
 target_link_libraries(tmc_songs PRIVATE tmc_port z)
 
 # Scanline renderer checks (per-line HBlank DMA effects), no game code needed:

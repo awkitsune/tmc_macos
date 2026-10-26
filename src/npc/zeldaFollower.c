@@ -181,7 +181,7 @@ void sub_08068578(ZeldaFollowerEntity* this) {
     dy = FixedDiv(dy, ZELDA_FOLLOWER_HEAP_LEN);
 
     heapPtr = ZELDA_FOLLOWER_HEAP;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // SetZeldaFollowTarget (the player arriving by stairs) can run before the follower's first update has
     // allocated its heap; the GBA's stores then go to the BIOS at address 0 and are lost.
     if (heapPtr == NULL) {

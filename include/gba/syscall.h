@@ -13,7 +13,7 @@
 #define RESET_REGS 0x80
 #define RESET_ALL 0xFF
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 #define SystemCall(x) \
     { HwSystemCall(x); }
 #else
