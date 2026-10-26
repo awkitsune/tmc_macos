@@ -545,6 +545,13 @@ void TextDispEnquiry(TextRender* this) {
         default:
             break;
     }
+#ifdef PLATFORM_NATIVE
+    // After A the choices are cleared, so this is % 0. The GBA's __modsi3 returns 0 for that; arm64 gives
+    // the dividend, which "moved" the cursor to the cleared position 0 (an arrow over the first line).
+    if (gMessageChoices.choiceCount == 0) {
+        choiceIdx = 0;
+    } else
+#endif
     choiceIdx = (choiceIdx + gMessageChoices.choiceCount) % gMessageChoices.choiceCount;
     lastChoice = gMessageChoices.currentChoice;
     if (choiceIdx != lastChoice) {

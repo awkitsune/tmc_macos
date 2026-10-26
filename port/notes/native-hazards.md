@@ -478,3 +478,13 @@ natively `Font` has 8-byte pointers, so its `dest` came out as `0x0600d000_02034
 crashed writing through it as soon as the trade text box opened. Fixed under `#ifdef PLATFORM_NATIVE` with two
 `Font` initializers (the native pointers, as phonograph.c does); a check program confirmed that the same field
 values give back the original 24 bytes on GBA. Sweep for `(Font*)` / `(const Font*)` casts: none left.
+
+## Division and modulo by zero
+
+agbcc compiles `/` and `%` to libgcc's `__divsi3` / `__modsi3` (and the unsigned ones), which return 0 for a zero
+divisor (`Ldiv0`: `bl __div0; movs r0, #0`). Natively, arm64 `sdiv` gives 0 for `/` but `%` then gives the dividend.
+`TextDispEnquiry` hits it on every choice: after A it clears `gMessageChoices` and then computes
+`choiceIdx % choiceCount` with a count of 0. With the second option chosen the native result was 1, so it
+"moved" the cursor to the cleared position 0 and drew an arrow over the first letters of the text box. Fixed
+under `#ifdef PLATFORM_NATIVE` (count 0 gives 0). Found with a save state at a Business Scrub ("No, thanks").
+Other `%` by a value that can be 0 have not been swept.
