@@ -459,3 +459,13 @@ Sweep (blocks in `build/native/data/ram.s` larger than their GBA region): the ot
 native pointer growth. Inside `gMapDataBottomSpecial`'s 0x8000 GBA bytes the only other symbol is `gDungeonMap`;
 the remaining clears and copies of it (`playerUtils.c`, `fileselect.c`) use it as a tile map or the file select
 data, not for the dungeon map.
+
+## Pointers read at a GBA byte offset
+
+Gleerok's death (`sub_0802D258`) picks a body part for each explosion as `*(Entity**)((u8*)heap + 0x3c + n * 4)`:
+the GBA offset of `entities[]` and a 4-byte step. Natively the pointers are 8 bytes and start at another
+offset, so it read half of one pointer and half of the next and crashed in `CreateFx` a few seconds into the
+death animation (the second lava boss, Cave of Flames). Fixed under `#ifdef PLATFORM_NATIVE` by indexing the
+pointers (`n` is 0, 1, 4 or 5; 5 is `ent2`, right after `entities[4]`). The room smoke test could not reach it:
+it needs the boss beaten. Sweep for `*(T**)(` casts through byte pointers: `src/interrupts.c` (GBA-only branch)
+and vaatiArm (already native-specific).

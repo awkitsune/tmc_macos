@@ -300,10 +300,15 @@ void sub_0802D258(GleerokEntity* this) {
     if ((gRoomTransition.frameCount & 0xf) == 0) {
         Entity* fx;
         u32 rand = Random() & 5;
+#ifdef PLATFORM_NATIVE
+        // A pointer-sized step, not 4 bytes; index 5 is ent2, which follows entities[4].
+        fx = CreateFx((&this->unk_84->entities[0])[rand], FX_GIANT_EXPLOSION3, 0);
+#else
         u8* ptr = (u8*)this->unk_84;
         rand *= 4;
         ptr += 0x3c;
         fx = CreateFx(*(Entity**)(ptr + rand), FX_GIANT_EXPLOSION3, 0);
+#endif
         if (fx) {
             fx->spritePriority.b0 = 0;
         }
