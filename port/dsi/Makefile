@@ -48,8 +48,9 @@ GAME_FLAGS := $(COMMON_FLAGS) $(GAME_DEFINES) -std=gnu11 -fwrapv -fno-short-enum
 	-U__UINT32_TYPE__ "-D__UINT32_TYPE__=unsigned int" -U__INT32_TYPE__ -D__INT32_TYPE__=int \
 	-I$(ROOT)/include -I$(GBA_BUILD) -I$(ROOT)/port/include \
 	-Wno-builtin-declaration-mismatch -Wno-multichar
-# The DSi layer: libnds, never the game's headers.
-DSI_FLAGS := $(COMMON_FLAGS) -Wall -I$(BLOCKSDS)/libs/libnds/include -I$(ROOT)/port/include
+# The DSi layer: libnds, never the game's headers. DSI_DEFINES is for test
+# builds (-DDSI_TEST_STRAY_READ: main.c reads the GBA slot, which must fault).
+DSI_FLAGS := $(COMMON_FLAGS) -Wall -I$(BLOCKSDS)/libs/libnds/include -I$(ROOT)/port/include $(DSI_DEFINES)
 
 GAME_SRCS := $(filter-out src/eeprom.c,$(shell cd $(ROOT) && find src -name '*.c' | sort))
 PORT_SRCS := port/src/bios.c port/src/interrupts.c port/src/eeprom.c port/src/data_glue.c \

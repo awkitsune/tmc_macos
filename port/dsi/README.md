@@ -11,6 +11,8 @@ Contents:
   [PLAN.md](PLAN.md#where-it-lives)).
 - `tools/gen_link.py`: generates the port's ROM symbols, RAM layout and
   relocation list from the GBA build.
+- `tools/rom_crc.py`: the relocated ROM copy's CRC32, computed on the host from
+  your ROM and the built ELF, to compare with the boot log.
 - `hello/`: a DSi-mode hello world. It reports free main RAM, lists the SD card
   root, writes and reads back `hello.txt`.
 - `scripts/melonds_run.py`: boots an `.nds` in melonDS and reads its results back
@@ -218,24 +220,49 @@ prints the section sizes. The makefile uses the repository's `.venv` Python
 (pyelftools) and Homebrew's `arm-none-eabi-ld` for the GBA relink.
 
 Nothing it writes holds ROM bytes: the generated files are offsets and symbol
-names from the GBA link. The player's ROM is read at boot (milestone 3).
+names from the GBA link. The player's ROM is read at boot from
+`sd:/tmc/baserom.gba` (the DSi SD slot) or `fat:/tmc/baserom.gba` (DLDI).
 
-Run it in melonDS and read the boot log:
+Run it in melonDS and read the boot log. melonDS reads the DSi SD slot but
+does not finish writes to it (above), so a scratch FAT image with your ROM at
+`tmc/baserom.gba` serves as the SD card (`--sd-image`) or as DLDI
+(`--dldi-image`). Keep the image out of the repository:
 
 ```bash
+mkdir -p /tmp/tmcsd/tmc && cp baserom.gba /tmp/tmcsd/tmc/
+/opt/wonderful/thirdparty/blocksds/core/tools/mkfatimg/mkfatimg /tmp/tmcsd /tmp/tmcsd.img 65536 4096
 python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
-    --seconds 12 --symbol gDsiLog --done-symbol gDsiLogDone
+    --seconds 30 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img
+.venv/bin/python -I port/dsi/tools/rom_crc.py build/dsi/tmc_dsi.elf baserom.gba
 ```
 
-At milestone 2 it logs the layout and stops before the ROM:
+At milestone 3 it loads, checks and relocates the ROM, then stops before the
+game (the CRC depends on the build, and `rom_crc.py` must print the same one):
 
 ```
 TMC DSi port
 DSi mode: yes
-binary end 0x216e2ac, ROM copy 0x220c000-0x2ff3da4
-heap 0x216e60c-0x220c000
-ROM loading comes with milestone 3
+ARM9 at 133 MHz (was 133)
+binary end 0x2170d34, ROM copy 0x220c000-0x2ff3da4
+heap 0x2171750-0x220c000
+read 16777216 bytes from sd:/tmc/baserom.gba in 5610 ms (read 931, SHA-1 4678)
+SHA-1 b4bd50e4131b027c334547b4524e2dbbd4227130
+relocated: 11547 add-base, 3117 symbol; 1425 EWRAM kept; 0 unexpected
+copy CRC32 50345e63 (1743 ms)
+GBA slot unmapped (MPU)
+stopping before the game
 ```
+
+Measured in melonDS 1.1 (its timings are not the DSi's; milestone 6 measures
+those):
+
+| Case | Result |
+|---|---|
+| ROM on the SD slot | read 931 ms, SHA-1 4,678 ms, CRC32 1,743 ms; CRC equals `rom_crc.py` |
+| ROM over DLDI (`fat:/`) | read 3,758 ms; same SHA-1, counts and CRC |
+| one byte changed | `SHA-1 0b50d0ab…`, "not the USA ROM: expected b4bd50e4…", stops |
+| no ROM | "no ROM: put your USA ROM at sd:/tmc/baserom.gba", stops |
+| test build `make -C port/dsi DSI_DEFINES=-DDSI_TEST_STRAY_READ` (touch `src/main.c` first) | reading 0x08000000 aborts; the log shows PC in `main` and r3 = 08000000 |
 
 ## ROM-data relocation figures
 

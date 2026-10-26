@@ -6,7 +6,7 @@ natively on the ARM9. This replaces GBARunner2 and its black borders. The proof 
 concept ends at **"boots in DSi mode, loads and relocates the ROM, reaches the title
 screen with graphics, no sound"**.
 
-Status: milestones 0 to 2 done, apart from milestone 1's check on the DSi itself
+Status: milestones 0 to 3 done, apart from milestone 1's check on the DSi itself
 (see [the table](#proof-of-concept-milestones)). The toolchain, the build and
 the test setup are in [README.md](README.md).
 
@@ -66,17 +66,24 @@ Other parts of the binary, estimated:
 
 **The ARM9 binary comes to about 1.0 MB.**
 
-Measured at milestone 2 (`make -C port/dsi figures`, `build/dsi/tmc_dsi.map`):
+Measured at milestone 3 (`make -C port/dsi figures`, `build/dsi/tmc_dsi.map`);
+milestone 2's figures in brackets:
 
 | Part | Bytes |
 |---|---|
-| `.text` | 681,760 |
-| `.rodata` (of which the relocation list 48,046) | 201,836 |
-| `.data`, `.itcm`, `.dldi`, crt0 and `.secure` | 20,592 |
-| **ARM9 image in the `.nds`** | **904,244** |
-| `.bss` | 334,428 |
-| **in RAM, 0x02040000-0x0216E2AC** | **1,237,676** (1,209 KB) |
+| `.text` | 687,528 (681,760) |
+| `.rodata` (of which the relocation lists 50,904) | 205,352 (201,836) |
+| `.data`, `.itcm`, `.dldi`, crt0 and `.secure` | 24,160 (20,592) |
+| **ARM9 image in the `.nds`** | **917,040** (904,244) |
+| `.bss` | 336,032 (334,428) |
+| **in RAM, 0x02040000-0x02170D34** | **1,248,564** (1,237,676) |
 
+- Milestone 3 added the FAT read path (fatInitDefault, `fread`), the ROM checks,
+  SHA-1 (4.4 KB of ARM code in ITCM) and the kept-EWRAM list (2,854 bytes).
+- The game must stay reachable from `main`: the link drops unreachable sections
+  (`--gc-sections`), and with `AgbMain` unreachable `.text` falls by 30 KB. So
+  milestone 3 stops after the checks on a runtime flag (`gDsiRunGame`), not by
+  leaving the game out.
 - Game C and `port/src` together: 841,021 bytes of code and rodata, close to the
   estimate (818,706 for the game C plus ~20 KB).
 - `.bss`: 138 KB DSi layer (VRAM shadow 96 KB, IWRAM block 32 KB, boot log 4 KB,
@@ -162,8 +169,8 @@ need to stay on the SD card.
 - **Changed at milestone 2: the build uses option A from the start.** The sound
   sequencer runs on the ARM9 from milestone 4 (its RAM state is compared with the
   Mac's), and it reads song data. Measured: the copy is at 0x0220C000-0x02FF3DA4,
-  and the heap between the binary and the copy is 630 KB
-  (0x0216E60C-0x0220C000), against the ~256 KB budgeted. `gen_link.py --rom-end`
+  and the heap between the binary and the copy is 618 KB at milestone 3
+  (0x02171750-0x0220C000), against the ~256 KB budgeted. `gen_link.py --rom-end`
   still makes an option C build.
 - If the binary grows past the estimate, option B (packing out the 0.83 MB of code
   holes) buys 0.8 MB. ROM-to-ROM fix-ups then become run-table lookups at boot.
@@ -337,35 +344,60 @@ Hosted behaviour that milestone 2 has to provide on the DSi:
 
 ## ROM loading and relocation at boot
 
-1. **Find the ROM.** The default is `sd:/tmc/baserom.gba`, with a fallback to
-   `fat:/tmc/` for DLDI and melonDS tests. A config file may name another path.
-2. **Hash it** with SHA-1 over the whole 16,777,216-byte file, streamed. It must
-   equal the USA ROM's `b4bd50e4131b027c334547b4524e2dbbd4227130`, the value
-   `port/README.md` already uses. libnds has the DSi's SHA-1 hardware
-   (`nds/sha1.h`). The bytes the game needs land straight in the copy while the
-   hash runs: one pass, and the padding is hashed and dropped. On a mismatch the
-   program shows the hash it found and stops.
+As built at milestone 3 (`port/dsi/src/rom.c`, `sha1.c`, `crc32.c`):
+
+1. **Find the ROM.** `sd:/tmc/baserom.gba` (the DSi SD slot), then
+   `fat:/tmc/baserom.gba` (DLDI: flashcards and melonDS tests). It must be
+   16,777,216 bytes. A config file naming another path can come later.
+2. **Read and hash it in one pass.** 128 KB `fread`s, unbuffered: the first
+   14,581,156 bytes land straight in the copy, the rest in a scratch buffer, and
+   every chunk goes through SHA-1. The digest must equal the USA ROM's
+   `b4bd50e4131b027c334547b4524e2dbbd4227130`, the value `port/README.md` already
+   uses. On a mismatch the log shows the digest found and the one expected, and
+   the program stops.
+   - The DSi has no SHA-1 hardware. Its BIOS has SHA-1 (`swiSHA1*`, SWI 0x24-0x27)
+     in software, and in melonDS 1.1 `swiSHA1Update` jumps to 0x02FFC00C (the
+     header area) and faults. `sha1.c` is a plain C SHA-1, ARM code in ITCM,
+     with the rounds unrolled by five.
 3. **Copy layout.** `__rom_copy` is a fixed address, 4 KB-aligned, ending below
    0x02FF4000 (`rom_symbols.ld`): 14,239 KB at 0x0220C000 (option A, see RAM
    budget). `main.c` shortens the libnds heap to end there (`reduceHeapSize`).
+   The loader puts the DSi-only `.twl` section (the ARM9i binary, 872 bytes) at
+   0x02400000, inside the copy, and crt0 moves it to its place after `.bss`
+   before `main`, so the ROM read can overwrite it.
 4. **Game code addresses ROM symbols** through `rom_symbols.ld`. Each global
    symbol defined in a data object becomes an absolute symbol at `__rom_copy` plus
    its GBA offset, so `extern const u8 gFoo[]` in the C resolves into the copy with
    no source changes. C-defined tables (`src/**` rodata) are compiled into the
    binary as usual.
-5. **Relocate.**
-   - For "add base" entries: `*(u32*)(copy + off) += (u32)__rom_copy - 0x08000000`.
-   - For symbol entries: `*(u32*)(copy + off) = value`, where the linker has already
-     put the ARM9 address in `value`. A Thumb function gets bit 0 set by the linker
-     because the reference is to an `STT_FUNC` symbol, so a function compiled `-marm`
-     later stays correct.
-   - Then flush the data cache over the copy.
-6. **Self-check.** Count the entries applied of each kind and compare with the
-   counts the generator recorded.
-7. **Catch stray ROM pointers.** Set the MPU to make 0x08000000-0x0AFFFFFF
-   inaccessible. On the DSi the GBA-slot region reads back 0xFF without faulting, so
-   without this an unrelocated pointer would fail silently. The BlocksDS exception
-   handler shows PC and address, and the port also logs them.
+5. **Relocate**, checking each word before it changes:
+   - "add base" entries: the word must be a ROM address inside the copy, then
+     `*(u32*)(copy + off) += (u32)__rom_copy - 0x08000000`;
+   - symbol entries: the word must be a ROM or IWRAM address, then
+     `*(u32*)(copy + off) = value`, where the linker has already put the ARM9
+     address in `value`. A Thumb function gets bit 0 set by the linker because
+     the reference is to an `STT_FUNC` symbol, so a function compiled `-marm`
+     later stays correct;
+   - kept entries (pointers into EWRAM, which keeps its GBA addresses): the word
+     must be in 0x02000000-0x0203FFFF; nothing is written;
+   - then the data cache is flushed over the copy.
+6. **Self-check.** The counts per kind must equal the generator's (11,547
+   add-base, 3,117 symbol, 1,425 kept) and no word may be unexpected. Then the
+   log shows the CRC32 of the whole relocated copy. `port/dsi/tools/rom_crc.py`
+   computes the same CRC on the host from the ROM and the lists in the built
+   ELF.
+7. **Stray ROM pointers fault.** On the DSi the GBA-slot region reads back 0xFF
+   without faulting, but BlocksDS's MPU setup in DSi mode leaves
+   0x08000000-0x0AFFFFFF out of every region, so an access there is already a
+   data abort. `DsiProtectGbaSlot` checks this (and switches off any region
+   that covers the slot) and installs an exception handler that logs PC, LR, SP
+   and r0-r3. Verified with a test build (`DSI_DEFINES=-DDSI_TEST_STRAY_READ`):
+   the read of 0x08000000 in `main` aborts and the log shows r3 = 0x08000000.
+
+The MPU regions found (melonDS, DSi mode): 0 I/O 0x04000000 64 MB, 1 BIOS
+0xFFFF0000 64 KB, 2 0x00000000 4 KB, 3 shared WRAM 0x03000000 8 MB, 4 ITCM
+0x01000000 32 KB, 5 0x0C000000 16 MB (main RAM, uncached mirror), 6 main RAM
+0x02000000 16 MB, 7 DTCM 0x02FF4000 16 KB.
 
 ## Fixed GBA RAM addresses (EWRAM 0x02xxxxxx, IWRAM 0x03xxxxxx)
 
@@ -546,7 +578,7 @@ reference is the Mac headless build at the same game frame.
 | 0 | **Done**: toolchain, DSi hello world (16,128 KB malloc-able, SD and DLDI), measurements, melonDS automation | README figures |
 | 1 | **Load address and macro split.** (a) Hello world linked at 0x02040000 boots in melonDS DSi mode and on the DSi from TWiLight Menu++ and Unlaunch. (b) `PORT_HOSTED`/`PORT_LAYOUT_64` split. Status: (a) `make -C port/dsi/hello GBA_EWRAM=1` (`port/dsi/ld/`) boots in melonDS DSi direct boot and 0x02000000-0x0203FFFF tests clean (65,536/65,536 words, cached and uncached); hardware loaders still to do. (b) **done** (see Defines). | (a) `gHelloDone`/`hello.txt` from each loader. (b) `tmc.gba: OK`; Mac objects and binaries byte-identical before/after (replaces the frame-hash and room-smoke runs); `layout_diff.py` clean |
 | 2 | **Link.** Done: `make -C port/dsi -j4` links `build/dsi/tmc_dsi.nds` (974 KB) with no undefined symbols: all game C, `port/src/{bios,interrupts,eeprom,data_glue}.c`, `port/src/asm`, the sound engine, the generated `rom_symbols.ld`/`ram_layout.ld`/`rom_relocs.s`, a stub presenter. In melonDS DSi mode it boots, logs its layout and stops before ROM loading | no undefined symbols; figures in [Measurements](#arm9-code-size) and [Build structure](#where-it-lives); 16,545 ROM symbols and 16,089 relocations generated; boot log read through GDB |
-| 3 | **ROM load and relocation.** Boot reads `tmc/baserom.gba`, checks SHA-1, relocates, stops | boot log: bytes read, load ms, SHA-1 = `b4bd50e4…`, counts per relocation kind = generator's counts; CRC32 of the relocated copy equals the CRC a host tool computes from the same ROM, base address and list (run locally, nothing shipped); a wrong-ROM run shows the mismatch |
+| 3 | **ROM load and relocation.** Done: boot reads `sd:/tmc/baserom.gba` (or `fat:/`), checks SHA-1, relocates with a check of every word, logs the copy's CRC32, checks the GBA slot faults, stops ([README](README.md#the-port)) | melonDS: 16,777,216 bytes, SD read 931 ms + SHA-1 4,678 ms (DLDI read 3,758 ms); SHA-1 `b4bd50e4…`; 11,547 add-base, 3,117 symbol, 1,425 kept, 0 unexpected, as generated; copy CRC32 equals `tools/rom_crc.py`'s; a one-byte-changed ROM shows its SHA-1 and stops; a stray read of 0x08000000 aborts into the logging handler |
 | 4 | **Game runs blind.** VBlank IRQ drives game frames into the shadows, nothing on screen | per frame, CRC32 of `gHwPltt`, `gHwOam`, `gHwVram` and the display registers in `gHwIo`, into a RAM ring buffer; Mac headless writes the same CRCs (a `TMC_HW_HASH` next to `TMC_FRAME_HASH`); identical for frames 1…N, where N is the frame the Mac run shows the title screen fully faded in; plus game state values (task/state bytes) at N; frame time (timer ticks) min/avg/max |
 | 5 | **Picture.** Presenter: banks A/B, DISPCNT/BG translation, OAM, palette, HBlank table, centring | GDB reads back DS palette RAM, OAM and banks A/B at frame N; their CRCs equal a host tool's translation of the Mac shadows; the per-frame presenter time stays inside VBlank |
 | 6 | **On the DSi.** Same build from TWiLight Menu++ and Unlaunch | `sd:/tmc/boot.txt` with SHA-1, load time, the frame-N CRCs (must equal melonDS's) and frame-time stats; **the user confirms the title screen visually** |

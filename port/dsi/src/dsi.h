@@ -35,8 +35,27 @@ void DsiClearGbaRam(void);
  */
 bool DsiRomLoad(void);
 
-/* Patch the pointer words in the copy (rom_relocs.s). False if a count is off. */
+/*
+ * Patch the pointer words in the copy (rom_relocs.s). False if a count is off
+ * or a word did not hold the GBA address the generator expects.
+ */
 bool DsiRomRelocate(void);
+
+/* Make the GBA slot (0x08000000-0x0AFFFFFF) fault, so stray ROM pointers show. */
+void DsiProtectGbaSlot(void);
+
+/* SHA-1 (sha1.c). */
+typedef struct {
+    uint32_t state[5];
+    uint64_t length;
+    uint8_t buffer[64];
+} DsiSha1;
+void DsiSha1Init(DsiSha1* ctx);
+void DsiSha1Update(DsiSha1* ctx, const void* data, size_t length);
+void DsiSha1Final(DsiSha1* ctx, uint8_t digest[20]);
+
+/* CRC-32 as zlib's; pass 0 to start. */
+uint32_t DsiCrc32(uint32_t crc, const void* data, size_t length);
 
 /* Run the game from AgbMain; a BIOS SoftReset comes back here. */
 _Noreturn void DsiRunGame(void);
