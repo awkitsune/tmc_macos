@@ -1,0 +1,5 @@
+# DSi build outputs (port/dsi/README.md)
+*.nds
+*.melonds.log
+*.sav
+hello/build/
