@@ -113,7 +113,12 @@ u32 sub_0805ACC0(Entity* param_1) {
 
             ptr = (u16*)GetCurrentRoomProperty(entity->type);
             if (ptr != NULL) {
+#ifdef PLATFORM_NATIVE
+                // The list holds NPCStructs, 16 bytes on GBA (8 u16) but bigger natively (a script pointer).
+                ptr = (u16*)((NPCStruct*)ptr + (tmp - entity->type2));
+#else
                 ptr += (tmp - entity->type2) * 8;
+#endif
                 return (((ptr[2] + gRoomControls.origin_x) * 0x10000) | ptr[3]) + gRoomControls.origin_y;
             }
         }

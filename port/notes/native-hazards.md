@@ -435,3 +435,13 @@ other direct use, `src/eeprom.c`, is the GBA EEPROM driver the port replaces (`p
 
 Also on the fusion screen, a ROM write: `KinstoneMenu_080A4468` clears `currentObject->kinstoneId`, and with
 nothing to interact with `currentObject` is the const `gNoInteraction`. Skipped natively for that object.
+
+## Lists of structs walked with a GBA stride
+
+`sub_0805ACC0` (DelayedEntityLoadManager) finds a townsperson's home in the room's NPC list as a `u16*` stepped
+by 8 per entry: 16 bytes, the GBA size of `NPCStruct`. Natively the struct is 24 bytes (its script pointer),
+so every townsperson after the first read its home from the middle of another entry, walked toward it (the
+room's corner, for example), left the screen, and its spawn bit was cleared, so it deleted itself a second or
+so after the player arrived or came close. Fixed under `#ifdef PLATFORM_NATIVE` by indexing the list as
+`NPCStruct*`. The other `u16*` walk of a room property (smallIceBlock `sub_0809963C`) reads one struct with no
+pointer in it.
