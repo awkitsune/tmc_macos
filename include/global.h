@@ -78,6 +78,23 @@
 #define static_assert(cond) extern char assertion[(cond) ? 1 : -1]
 #endif
 
+#ifdef PLATFORM_NATIVE
+// The ROM's __divsi3 / __modsi3 (asm/lib/libgcc.s) return 0 for a zero divisor and otherwise use the BIOS
+// Div, which gives INT_MIN / -1 = INT_MIN rem 0. Natively arm64 gives the dividend for % 0 and x86_64 traps
+// on both, so a division whose divisor can be 0 goes through these (see port/notes/native-hazards.md).
+static inline s32 GbaDiv(s32 num, s32 denom) {
+    return denom == 0 ? 0 : denom == -1 ? (s32)(0u - (u32)num) : num / denom;
+}
+static inline s32 GbaMod(s32 num, s32 denom) {
+    return denom == 0 || denom == -1 ? 0 : num % denom;
+}
+#define GBA_DIV(num, denom) GbaDiv(num, denom)
+#define GBA_MOD(num, denom) GbaMod(num, denom)
+#else
+#define GBA_DIV(num, denom) ((num) / (denom))
+#define GBA_MOD(num, denom) ((num) % (denom))
+#endif
+
 #define super (&this->base)
 
 #if NON_MATCHING

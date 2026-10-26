@@ -581,7 +581,7 @@ bool32 sub_08088160(FigurineDeviceEntity* this, s32 param_2) {
 void sub_0808826C(FigurineDeviceEntity* this) {
     s32 tmp = 100;
     tmp *= this->unk_80 - gSave.stats.figurineCount;
-    tmp /= this->unk_80;
+    tmp = GBA_DIV(tmp, this->unk_80);
     if (tmp == 0 && !CheckLocalFlag(SHOP07_COMPLETE)) {
         tmp = 1;
     }

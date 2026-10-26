@@ -496,7 +496,7 @@ u32 CreateRandomItemDrop(Entity* arg0, u32 arg1) {
             rand = Random();
             item = (rand >> 0x18);
             item &= 0xF;
-            rand = rand % summOdds;
+            rand = GBA_MOD(rand, summOdds);
             {
                 u32 r3;
                 for (r3 = 0, r1 = 0; r3 < 0x10; r3++, item = (item + 1) & 0xF) {

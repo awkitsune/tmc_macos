@@ -231,9 +231,9 @@ void GleerokParticle_Action2(GleerokParticleEntity* this) {
     }
 
     if (super->hitbox != NULL) {
-        super->hitbox->width = (u32)(0x10000 / (s32)uVar2) >> 3;
+        super->hitbox->width = (u32)GBA_DIV(0x10000, (s32)uVar2) >> 3;
         super->hitbox = super->hitbox;
-        super->hitbox->height = (u32)(0x10000 / (s32)uVar5) >> 3;
+        super->hitbox->height = (u32)GBA_DIV(0x10000, (s32)uVar5) >> 3;
         super->hitbox->offset_x = super->spriteOffsetX;
         super->hitbox->offset_y = super->spriteOffsetY;
     }

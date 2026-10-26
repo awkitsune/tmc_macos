@@ -602,8 +602,8 @@ void sub_08026110(ChuchuBossEntity* this) {
             }
         }
     }
-    super->hitbox->width = (u8)((u32)((0x10000 / this->unk_74.HALF_U.HI) * 7) >> 7);
-    super->hitbox->height = (u8)((u32)((0x10000 / this->unk_78.HALF_U.HI) * 3) >> 7);
+    super->hitbox->width = (u8)((u32)(GBA_DIV(0x10000, this->unk_74.HALF_U.HI) * 7) >> 7);
+    super->hitbox->height = (u8)((u32)(GBA_DIV(0x10000, this->unk_78.HALF_U.HI) * 3) >> 7);
     if (super->z.HALF.HI == 0) {
         sub_0800445C(super);
     }
@@ -1413,8 +1413,8 @@ void sub_080272D4(ChuchuBossEntity* this) {
             }
             break;
         case 6:
-            super->hitbox->width = (u32)((0x10000 / this->unk_78.HALF_U.HI) * 9) >> 7;
-            super->hitbox->height = (u32)((0x10000 / this->unk_74.HALF_U.HI) * 5) >> 6;
+            super->hitbox->width = (u32)(GBA_DIV(0x10000, this->unk_78.HALF_U.HI) * 9) >> 7;
+            super->hitbox->height = (u32)(GBA_DIV(0x10000, this->unk_74.HALF_U.HI) * 5) >> 6;
             if (*(char*)&this->unk_84 == 0)
                 break;
             if (super->contactFlags & CONTACT_NOW) {
@@ -1444,8 +1444,8 @@ void sub_080272D4(ChuchuBossEntity* this) {
             break;
 
         case 9:
-            super->hitbox->width = (u32)((0x10000 / this->unk_78.HALF_U.HI) * 9) >> 7;
-            super->hitbox->height = (u32)((0x10000 / this->unk_74.HALF_U.HI) * 5) >> 6;
+            super->hitbox->width = (u32)(GBA_DIV(0x10000, this->unk_78.HALF_U.HI) * 9) >> 7;
+            super->hitbox->height = (u32)(GBA_DIV(0x10000, this->unk_74.HALF_U.HI) * 5) >> 6;
             sub_0800445C(super);
             break;
         case 10:
@@ -1509,7 +1509,7 @@ void sub_0802757C(ChuchuBossEntity* this) {
                 CHUCHU_RAW(u8, this, 0x85) = 0;
                 if (super->type == 1) {
                     this->unk_7d =
-                        (((ChuchuBossEntity*)super->parent)->unk_81 << 8) / CHUCHU_RAW(u16, super->parent, 0x86) + 1;
+                        GBA_DIV(((ChuchuBossEntity*)super->parent)->unk_81 << 8, CHUCHU_RAW(u16, super->parent, 0x86)) + 1;
                 } else {
                     this->unk_7d = 1;
                 }
@@ -1522,7 +1522,7 @@ void sub_0802757C(ChuchuBossEntity* this) {
                 CHUCHU_RAW(u8, this, 0x85) = cVar2;
                 if (super->type == 1) {
                     this->unk_7d =
-                        (((ChuchuBossEntity*)super->parent)->unk_81 << 8) / CHUCHU_RAW(u16, super->parent, 0x86) + 1;
+                        GBA_DIV(((ChuchuBossEntity*)super->parent)->unk_81 << 8, CHUCHU_RAW(u16, super->parent, 0x86)) + 1;
                 } else {
                     this->unk_7d = 1;
                 }
@@ -1587,7 +1587,7 @@ void sub_080276F4(ChuchuBossEntity* this, u32 param_2, u32 param_3) {
         pEVar2->unk_82.HWORD = 0;
         pEVar5->unk_82.HWORD = 0;
         pEVar6->unk_82.HWORD = 0;
-        pEVar6->unk_7d = (pEVar2->unk_81 << 7) / (CHUCHU_RAW(u16, pEVar2, 0x86)) + 1;
+        pEVar6->unk_7d = GBA_DIV(pEVar2->unk_81 << 7, CHUCHU_RAW(u16, pEVar2, 0x86)) + 1;
     }
 }
 
@@ -1892,9 +1892,9 @@ void sub_08027C9C(ChuchuBossEntity* this, u32 param_2) {
         fxEnt = CreateFx(super, FX_GIANT_EXPLOSION3, 0);
         if (fxEnt != NULL) {
             fxEnt->x.HALF.HI = ((s8)super->spriteOffsetX - super->hitbox->width) + fxEnt->x.HALF.HI;
-            fxEnt->x.HALF.HI += ((s32)Random()) % (super->hitbox->width << 1);
+            fxEnt->x.HALF.HI += GBA_MOD((s32)Random(), super->hitbox->width << 1);
             fxEnt->y.HALF.HI += ((short)super->spriteOffsetY - super->hitbox->height);
-            fxEnt->y.HALF.HI += ((s32)Random()) % (super->hitbox->height << 1);
+            fxEnt->y.HALF.HI += GBA_MOD((s32)Random(), super->hitbox->height << 1);
             fxEnt->spritePriority.b0 = 0;
         }
     }

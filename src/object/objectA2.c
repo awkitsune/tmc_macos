@@ -122,6 +122,6 @@ void sub_0809F448(Entity* this) {
             tmp += -0x80000 + (rand & 0xFFFFF);
             break;
     }
-    this->speed = (tmp > 0 ? tmp : -tmp) / (tmp2->unk_1 << 8);
+    this->speed = GBA_DIV(tmp > 0 ? tmp : -tmp, tmp2->unk_1 << 8);
     this->direction = CalculateDirectionFromOffsets(tmp, 0) >> 3;
 }
