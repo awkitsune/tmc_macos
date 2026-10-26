@@ -670,6 +670,11 @@ void DrawDungeonFeatures(u32 floor, void* data, u32 size) {
     }
     layout = gDungeonLayouts[gArea.dungeon_idx][floor];
     MemClear(gMapDataBottomSpecial, 0x8000);
+#ifdef PLATFORM_NATIVE
+    // On GBA gDungeonMap lies inside those 0x8000 bytes (at +0x1000), so the clear above also erases the
+    // previous floor's drawing. Natively it is a separate array.
+    MemClear(gDungeonMap, sizeof(gDungeonMap));
+#endif
     while (layout->area != 0) {
         // ROOM_VISIT_MARKER has to be first TileEntity in the room.
         tileEntity = (TileEntity*)GetRoomProperty(layout->area, layout->room, 3);

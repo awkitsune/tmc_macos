@@ -445,3 +445,17 @@ room's corner, for example), left the screen, and its spawn bit was cleared, so 
 so after the player arrived or came close. Fixed under `#ifdef PLATFORM_NATIVE` by indexing the list as
 `NPCStruct*`. The other `u16*` walk of a room property (smallIceBlock `sub_0809963C`) reads one struct with no
 pointer in it.
+
+## Fixed-address variables that the GBA overlays inside a bigger one
+
+On GBA, `gDungeonMap` (0x0201AEE0) lies inside `gMapDataBottomSpecial` (0x02019EE0, 0x8000 bytes), and
+`DrawDungeonFeatures` relies on that: its `MemClear(gMapDataBottomSpecial, 0x8000)` also erases the pause menu's
+dungeon map before the floor is drawn. Natively every fixed symbol gets its own block (`ram.py`), so the clear
+missed it and each floor drew over the floors shown before. Fixed under `#ifdef PLATFORM_NATIVE` with a second
+`MemClear(gDungeonMap, ...)`. Checked with a save state on the map screen: the floor's frame checksums change and
+are the same on every visit.
+
+Sweep (blocks in `build/native/data/ram.s` larger than their GBA region): the others are larger because of
+native pointer growth. Inside `gMapDataBottomSpecial`'s 0x8000 GBA bytes the only other symbol is `gDungeonMap`;
+the remaining clears and copies of it (`playerUtils.c`, `fileselect.c`) use it as a tile map or the file select
+data, not for the dungeon map.
