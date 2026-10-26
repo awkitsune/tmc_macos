@@ -185,6 +185,14 @@ void CreateVaatiApparateManager(VaatiAppearingManager* this, u32 type) {
         gScreen.lcd.displayControl &= ~DISPCNT_BG3_ON;
         RoomExitCallback();
         //! @bug: this always variable points to ROM, not a Manager*
+#ifdef PLATFORM_NATIVE
+        // On the GBA the "manager" is the thumb code of an OnEnterRoom
+        // function. Its next field is never 0, the unlink writes land in
+        // BIOS or junk addresses (at worst 4 bytes of gTextGfxBuffer), and
+        // the clear hits ROM, so only the count decrement has an effect.
+        gManagerCount--;
+#else
         DeleteManager((Manager*)gArea.onEnter);
+#endif
     }
 }

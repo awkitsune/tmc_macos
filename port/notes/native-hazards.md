@@ -582,3 +582,12 @@ A clean `arm64;x86_64` Release build prints 77 warnings per architecture. Checke
 - The rest (`-Wswitch`, bit-field and `s8` constant truncation, unused values, extra parentheses, a const
   qualifier, an array address in a condition) are the decompiled code as it matches the ROM and behave the same
   natively.
+
+## Function pointers passed as entities
+
+`CreateVaatiApparateManager` (decomp `@bug`) passes `gArea.onEnter`, a
+thumb function address, to `DeleteManager`. On the GBA the unaligned loads
+read code bytes as `prev`/`next`; for every `*_OnEnterRoom` function the
+writes go to BIOS, open bus, or at worst 4 bytes of `gTextGfxBuffer`, and
+`MemClear` writes to ROM. Natively those are wild pointers, so the native
+build only does the `gManagerCount--` that the GBA does.
