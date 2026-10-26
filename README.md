@@ -10,7 +10,10 @@ and gamepad input, plus a headless runner for automated testing. The same game
 core, renderer and sound also build as an iPhone and iPad app (iOS 16 or later;
 see [iPhone and iPad](#iphone-and-ipad)). The GBA build in the repository root stays
 byte-matching: every port change is either under `port/` or behind
-`#ifdef PLATFORM_NATIVE`.
+`#ifdef PORT_HOSTED` (hardware through `port/hw.h`, fixes for what only agbcc's
+code got right) or `#ifdef PORT_LAYOUT_64` (this port's 64-bit data layout). The
+native build defines both, with `PLATFORM_NATIVE`; the DSi port
+([port/dsi/PLAN.md](port/dsi/PLAN.md)) only `PORT_HOSTED`.
 
 No game data is in this repository. Building needs your own ROM of The Minish Cap (USA), and the shared app asks for
 one on first launch.
@@ -823,10 +826,10 @@ writes about 500 files (240 MB authentic) in about ten seconds.
 | `port/tools/datagen/` | GBA data objects → native arm64 assembly (see below) |
 | `port/scripts/link_report.py` | Classifies unresolved symbols into the remaining worklist |
 
-Header hooks (all `PLATFORM_NATIVE`-only): `gba/defines.h` and `gba/io_reg.h`
+Header hooks (all `PORT_HOSTED`-only unless noted): `gba/defines.h` and `gba/io_reg.h`
 point `PLTT`/`VRAM`/`OAM`/`REG_BASE` at the host buffers; `gba/macro.h` routes
 `DmaSet`/`DmaStop` to the port; `gba/syscall.h` routes `SystemCall`;
-`global.h` disables GBA struct-size asserts; `gba/types.h` adds `PtrU32`, an
+`global.h` disables GBA struct-size asserts (`PORT_LAYOUT_64`); `gba/types.h` adds `PtrU32`, an
 integer field that holds a pointer (`u32` on GBA, `uintptr_t` natively);
 `gba/defines.h` adds `GBA_PTR(addr)` for fixed GBA addresses in C code, mapped
 natively to the host buffer or variable at that address.
@@ -1056,7 +1059,7 @@ frame 16000 oam: 1D mapping, 53 of 128 entries on screen (hash c36dda51d690a4a7)
 ## Sound
 
 The game's m4a engine runs natively: `src/gba/m4a.c` as it is (with
-`PLATFORM_NATIVE` fixes for 64-bit pointers, hardware setup and GBA addresses in
+`PORT_HOSTED` fixes for 64-bit pointers, hardware setup and GBA addresses in
 song headers) and `asm/lib/m4a_asm.s` rewritten in C in `port/src/sound`:
 
 | File | Contents |
