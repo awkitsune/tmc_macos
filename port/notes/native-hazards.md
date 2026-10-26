@@ -481,13 +481,80 @@ values give back the original 24 bytes on GBA. Sweep for `(Font*)` / `(const Fon
 
 ## Division and modulo by zero
 
-agbcc compiles `/` and `%` to libgcc's `__divsi3` / `__modsi3` (and the unsigned ones), which return 0 for a zero
-divisor (`Ldiv0`: `bl __div0; movs r0, #0`). Natively, arm64 `sdiv` gives 0 for `/` but `%` then gives the dividend.
+agbcc compiles signed `/` and `%` to calls to `__divsi3` / `__modsi3`. This ROM does not link agbcc's
+`tools/agbcc/lib/libgcc.a` for them but its own `asm/lib/libgcc.s` (linker.ld): `cmp r1, #0; beq` to a stub that
+returns r0 = r1 = r2 = 0, otherwise `svc #6` (BIOS Div), returning r0 (quotient) or r1 (remainder). There is no
+`__udivsi3` / `__umodsi3` in the ROM, so no unsigned non-power-of-two division exists in the GBA code. (agbcc's
+libgcc.a agrees anyway: all four of its routines branch to `Ldiv0`, `bl __div0` (`mov pc, lr`), `movs r0, #0`.)
+So on the GBA `x / 0 == 0` and `x % 0 == 0`, and through the BIOS `INT_MIN / -1 == INT_MIN`, `INT_MIN % -1 == 0`.
+Natively, arm64 `sdiv` gives 0 for `/` but `%` then gives the dividend; x86_64 (the universal build's other slice)
+traps with SIGFPE on both, and on `INT_MIN / -1`.
 `TextDispEnquiry` hits it on every choice: after A it clears `gMessageChoices` and then computes
 `choiceIdx % choiceCount` with a count of 0. With the second option chosen the native result was 1, so it
 "moved" the cursor to the cleared position 0 and drew an arrow over the first letters of the text box. Fixed
 under `#ifdef PLATFORM_NATIVE` (count 0 gives 0). Found with a save state at a Business Scrub ("No, thanks").
-Other `%` by a value that can be 0 have not been swept.
+### Sweep of every division (all of `src/` and `port/src/asm/`)
+
+**Helpers.** `include/global.h` has `GBA_DIV(num, denom)` / `GBA_MOD(num, denom)`. On the GBA build they expand to
+the plain `((num) / (denom))` / `((num) % (denom))`, which is the same tree for agbcc (`tmc.gba: OK`). Natively they
+call inline `GbaDiv` / `GbaMod`, which give the ROM's results: 0 for a zero divisor, and `INT_MIN / -1` as INT_MIN
+rem 0 (`(-7, 2)` gives -3 rem -1, as `sdiv` / the BIOS do). They are applied only at sites that can see a zero
+divisor; provably non-zero sites stay as they are. There's no global switch: no clang flag changes the result of
+`%` by 0, and `-fsanitize=integer-divide-by-zero` only reports (on x86_64 the division still runs and traps).
+Wrapping all 79 sites would edit matching source for nothing, while missing a zero site is a correctness bug; so
+the rule is: anything not provably non-zero gets the helper. Both helpers take and return s32; all 35 wrapped
+sites are int / int after promotion (checked from the AST), so the result is unchanged for every non-zero divisor.
+
+**Method.** A libclang pass over `build/native/compile_commands.json` (627 translation units: every file under
+`src/` and `port/src/asm/`, with the native flags, so `NON_MATCHING` bodies and native-only branches are what's
+seen) lists every integer `/`, `%`, `/=`, `%=` with its divisor and evaluates constant divisors. 451 sites: 372
+constant divisors (none 0), 79 non-constant. Each non-constant one was read and classified below. Runtime check: a
+build with `-fsanitize=integer-divide-by-zero` (before the fixes) ran the 24000-frame playthrough and the
+576-room smoke test. Neither reported anything (the message.c site was already fixed), so the fixes below come
+from the static reading, not from a runtime hit. The script is `divscan.py` in the session notes folder
+(`side-session-notes/<group>/div0-sweep-tools/`); run it from the repo root as
+`.venv/bin/python -I divscan.py > hits.json`.
+
+**Provably non-zero (43, unchanged):**
+- explicit guard: `CalculateDirectionFromOffsets` (port asm, `dx != 0`); `FixedDiv` (`r1 == 0` returns);
+  `sub_0807D6D8` x4 (returns if `unk_18` or `unk_1a` is 0; squares of u16 can't wrap to 0).
+- constants in locals: gleerok `x = 3`, ropeGolden `tmp = 10`, carlovObject `tmp = 3`, greatFairy x2 `temp = 11`,
+  fileselect `sub_080610B8` x2 (4/5, 2/3), kinstoneMenu `0xb21`, figurineMenu 130/136, fileselect `sub_08050940`
+  (`num_rows` 3/4), `EncodeBCD` x2 (10000000..10).
+- only reached with a positive count: fireballGuy x2, slime x2 (inside `for (i = 0; i < count; i++)`);
+  `ShuffleEzloHints` (callers pass 5 and 8, so `uVar4 + 1 >= 2`); physics `sub_0806FB38` x2 (`byte3 > byte2 >= 0`).
+- bounded expressions: minishEzlo `sub_080630A4` and player `PortalShrinkUpdate` (`(x >> 6 ^ 3) + 1` is 1..4);
+  elementsBackground (`|z| + 0x100`); gleerokProjectile and v1FireProjectile (`iVar2` clamped to >= 0x20);
+  scroll `sub_080803D0` x4 (`dd_x >= 66`, `dd_y = dd_x * 2 / 3`); gleerokParticle Action4 x2 (the scale steps one
+  away from 0 before the divide).
+- data that is all non-zero: goronMerchantShopManager `numTypes` (3, 2, 3); m4a `SampleFreqSet` x2 (table 96..704,
+  only called with a non-zero frequency); `GetRandomInt` (script args 4, 9, 9); `CreateRippleFxRandom` x2 (only
+  caller passes 4) and `CreateLargeRippleFxRandom` (only callers pass 8, 10).
+
+**Possibly zero or unknown (36: 35 now `GBA_DIV` / `GBA_MOD`, plus message.c):**
+- boss scale factors that are moved every frame: chuchuBoss `0x10000 / unk_74|78.HALF_U.HI` x6, `unk_81 << n / speed`
+  x3, `Random() % (hitbox->width|height << 1)` x2 (hitbox size is a truncated u8 of the scale); octorokBoss x3,
+  frozenOctorok x2, octorokBossObject x1 (`0x10000 / unk_74|76`); chuchuBossStartParticle x2 (parent hitbox).
+- shrinking through 0: gleerokParticle Action2 x2 (scale moves by `speed` toward and past 0), and physics
+  `sub_0806FCF4` (`0x10000 / |param_2|`; gleerokParticle passes that same scale).
+- counts that can be 0: figurineDevice `sub_0808826C` (`unk_80` counts available figurines from 0); itemUtils
+  `CreateRandomItemDrop` (`summOdds` is a sum of drop weights clamped to >= 0).
+- room or script data: wizzrobeWind x2 (`unk_6e/6f` from the room entity); minishRaftersBackground x2 and
+  staticBackground x1 (`room height/width - screen size`, 0 for a screen-sized room); postman x3 (counts from
+  `gUnk_0810A918`); objectA2 (`unk_1` from `gUnk_08124708`); script `ScriptCommand_0807ED24` x2 (`unk_12` is the
+  third arg of `_0807ED24`: 0x3c..0xb4 in the used scripts, but 0 in `data/scripts/unused/script_08016482.inc`).
+- message.c `TextDispEnquiry` keeps its own `#ifdef` (above).
+
+**BIOS Div / Mod.** The game also calls BIOS `Div` and `Mod` (SWI 6) directly; `DivArm` (SWI 7) is unused. Unlike
+`__divsi3`, these don't check for 0 first. GBATEK: "The function usually gets caught in an endless loop upon
+division by zero." Stepping through the BIOS loop for denom 0: it returns quotient 1 (or -1 for a negative num),
+remainder num and r3 1 when |num| <= 1, and spins forever otherwise. mGBA's HLE returns the same. This is reasoned
+from the algorithm and mGBA, not run on a real BIOS. `port/src/bios.c` returned 0 / 0. The one caller that can
+pass 0 is `sub_0801E31C` (iris/circle window, `src/common.c`): with a 0 radius it calls `Div(0, 0)` and stores the
+quotient in `gUnk_02018EE0[0]`, so the GBA writes 1 there. `Div` now returns `num < 0 ? -1 : 1` rem `num` for denom
+0 (the |num| > 1 hang is not emulated), `INT_MIN / -1` as INT_MIN rem 0, and `Mod` is `Div`'s remainder like the
+ROM's `svc #6; adds r0, r1, #0`. Other direct callers divide by constants or are guarded (`sub_0801E64C` slope:
+`y1 == y2` returns).
 
 ## Unused copy slots (Four Sword clones)
 

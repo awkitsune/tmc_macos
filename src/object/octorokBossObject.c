@@ -336,7 +336,7 @@ void OctorokBossObject_Action2(OctorokBossObjectEntity* this) {
 
     GetNextFrame(super);
     if (super->timer-- != 0) {
-        tmp = (0x10000 / ((OctorokBossObjectEntity*)super->parent)->unk_74);
+        tmp = (GBA_DIV(0x10000, ((OctorokBossObjectEntity*)super->parent)->unk_74));
         radius = (super->speed * tmp) >> 8;
         this->unk_78.BYTES.byte3 = -((OctorokBossObjectEntity*)super->parent)->unk_78.BYTES.byte3 + super->direction;
 

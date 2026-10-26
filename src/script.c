@@ -1362,10 +1362,10 @@ void ScriptCommand_0807ED24(Entity* entity, ScriptExecutionContext* context) {
         context->unk_12 = context->scriptInstructionPointer[3];
         tmp = context->scriptInstructionPointer[1];
         tmp2 = entity->x.HALF.HI - gRoomControls.origin_x;
-        context->x.WORD = ((tmp - tmp2) << 0x10) / context->unk_12;
+        context->x.WORD = GBA_DIV((tmp - tmp2) << 0x10, context->unk_12);
         tmp = context->scriptInstructionPointer[2];
         tmp3 = entity->y.HALF.HI - gRoomControls.origin_y;
-        context->y.WORD = ((tmp - tmp3) << 0x10) / context->unk_12;
+        context->y.WORD = GBA_DIV((tmp - tmp3) << 0x10, context->unk_12);
         entity->animationState = GetAnimationStateForDirection8(
             sub_080045B4(entity, context->scriptInstructionPointer[1] + gRoomControls.origin_x,
                          context->scriptInstructionPointer[2] + gRoomControls.origin_y));

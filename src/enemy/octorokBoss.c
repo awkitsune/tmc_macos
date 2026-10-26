@@ -591,7 +591,7 @@ void OctorokBoss_Action1(OctorokBossEntity* this) {
                 }
                 sub_08036998(this);
             }
-            radius = 0x10000 / ((OctorokBossEntity*)super->parent)->unk_76;
+            radius = GBA_DIV(0x10000, ((OctorokBossEntity*)super->parent)->unk_76);
             radius = radius << 0xd >> 0x8;
             radius = radius - 0x2000;
             if (OCTOROK_MOUTH_HEALTH(this->heap) == 1) {
@@ -616,7 +616,7 @@ void OctorokBoss_Action1(OctorokBossEntity* this) {
             SortEntityAbove(super->parent, super);
             if (this->heap->tailCount - 2 == super->type2) {
                 SortEntityAbove(super->parent, super);
-                radius = 0x10000 / ((OctorokBossEntity*)super->parent)->unk_74;
+                radius = GBA_DIV(0x10000, ((OctorokBossEntity*)super->parent)->unk_74);
                 radius = radius << 0xd >> 0x8;
                 angle = -((OctorokBossEntity*)super->parent)->angle.HALF.HI;
                 sub_08036914(super, angle, radius);
@@ -668,7 +668,7 @@ void OctorokBoss_Action1(OctorokBossEntity* this) {
                         this->unk_76 = 0x100;
                     }
                 }
-                radius = 0x10000 / ((OctorokBossEntity*)super->parent)->unk_74;
+                radius = GBA_DIV(0x10000, ((OctorokBossEntity*)super->parent)->unk_74);
                 radius = radius * (this->timer << 8) >> 8;
                 angle = -(((OctorokBossEntity*)super->parent)->angle.HALF.HI + 0x80);
                 sub_08036914(super, angle, radius);

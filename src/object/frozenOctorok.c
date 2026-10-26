@@ -213,7 +213,7 @@ void FrozenOctorok_Action1(FrozenOctorokEntity* this) {
                 }
                 sub_0809CBE4(this);
             }
-            tmp1 = 0x10000 / (((FrozenOctorokEntity*)super->parent)->unk_76);
+            tmp1 = GBA_DIV(0x10000, ((FrozenOctorokEntity*)super->parent)->unk_76);
             tmp1 = ((tmp1 << 0xd) >> 8);
             tmp1 -= 0x2000;
             if (OCTOROK_MOUTH_HEALTH(this->heap) == 1) {
@@ -239,7 +239,7 @@ void FrozenOctorok_Action1(FrozenOctorokEntity* this) {
                     this->unk_76 = 0x100;
                 }
             }
-            tmp1 = (0x10000 / ((FrozenOctorokEntity*)super->parent)->unk_74);
+            tmp1 = (GBA_DIV(0x10000, ((FrozenOctorokEntity*)super->parent)->unk_74));
             tmp1 = ((this->unk_79 << 8) * tmp1 >> 8);
             tmp2 = (u8) - (((FrozenOctorokEntity*)super->parent)->unk_7b + 0x80);
             sub_0809CB70(this, tmp2, tmp1);

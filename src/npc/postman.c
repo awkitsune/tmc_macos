@@ -365,7 +365,7 @@ void sub_0806076C(PostmanEntity* this, ScriptExecutionContext* context) {
                 pbVar10++;
                 uVar9 = pbVar10[0];
                 pbVar10++;
-                iVar4 = (s32)Random() % uVar9;
+                iVar4 = GBA_MOD((s32)Random(), uVar9);
                 this->unk_68 = pbVar10[iVar4];
                 this->unk_69 = 0;
                 return;
@@ -385,7 +385,7 @@ void sub_0806076C(PostmanEntity* this, ScriptExecutionContext* context) {
             case 0:
                 pbVar10++;
                 uVar9 = *pbVar10++;
-                local_24 = ((s32)Random()) % uVar9;
+                local_24 = GBA_MOD((s32)Random(), uVar9);
 
                 for (uVar6 = 0; uVar6 < uVar9; uVar6++) {
                     this->unk_68 = pbVar10[local_24];
@@ -395,7 +395,7 @@ void sub_0806076C(PostmanEntity* this, ScriptExecutionContext* context) {
                     super->y.HALF_U.HI = gRoomControls.origin_y + ptr->HALF.y;
                     if (CheckOnScreen(super) == 0)
                         break;
-                    local_24 = (s32)(local_24 + 1) % uVar9;
+                    local_24 = GBA_MOD((s32)(local_24 + 1), uVar9);
                 }
                 this->unk_69 = 0;
                 return;

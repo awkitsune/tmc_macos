@@ -277,9 +277,9 @@ void ChuchuBossStartParticle_Type9(ChuchuBossStartParticleEntity* this) {
         super->timer = 64;
         var0 = super->type2 != 0 ? 44 : 43;
         super->x.HALF.HI -= super->parent->hitbox->width;
-        super->x.HALF.HI += (s32)Random() % (super->parent->hitbox->width * 2);
+        super->x.HALF.HI += GBA_MOD((s32)Random(), super->parent->hitbox->width * 2);
         super->y.HALF.HI -= super->parent->hitbox->height;
-        super->y.HALF.HI += (s32)Random() % (super->parent->hitbox->height * 2);
+        super->y.HALF.HI += GBA_MOD((s32)Random(), super->parent->hitbox->height * 2);
         ChangeObjPalette(super, var0);
         InitializeAnimation(super, 4);
     }

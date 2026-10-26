@@ -457,7 +457,7 @@ void sub_0806FCF4(Entity* ent, s32 param_2, s32 param_3, s32 param_4) {
     }
 
     if (param_3) {
-        param_2 = (0x10000 / param_2);
+        param_2 = GBA_DIV(0x10000, param_2);
         param_2 = ((u32)(param_3 * param_2) >> 8);
         r2 = param_3 - param_2;
     }

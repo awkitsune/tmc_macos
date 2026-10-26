@@ -153,17 +153,27 @@ void RLUnCompVram(const void* src, void* dest) {
 // Returns the quotient in the low word and the remainder in the high word, as the
 // BIOS does in r0/r1: the game's DivAndMod calls Div through an s64-returning cast,
 // while callers using the s32 prototype only see the quotient.
+// A zero denom is not 0 here (unlike the game's __divsi3, which checks first): the BIOS loop gives
+// quotient +-1 (by the sign of num, 1 for 0) and remainder num when |num| <= 1, and never returns otherwise
+// (GBATEK: "usually gets caught in an endless loop"); that is also what mGBA's HLE returns. INT_MIN / -1
+// is INT_MIN rem 0, which x86_64 would trap on.
 s64 Div(s32 num, s32 denom) {
+    s32 quot, rem;
     if (denom == 0) {
-        return 0;
+        quot = num < 0 ? -1 : 1;
+        rem = num;
+    } else if (denom == -1) {
+        quot = (s32)(0u - (u32)num);
+        rem = 0;
+    } else {
+        quot = num / denom;
+        rem = num % denom;
     }
-    s32 quot = num / denom;
-    s32 rem = num % denom;
     return (s64)(((uint64_t)(u32)rem << 32) | (u32)quot);
 }
 
 s32 Mod(s32 num, s32 denom) {
-    return denom == 0 ? 0 : num % denom;
+    return (s32)((uint64_t)Div(num, denom) >> 32);
 }
 
 u16 Sqrt(u32 num) {
