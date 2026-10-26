@@ -424,3 +424,14 @@ list (a townsperson's `sub_0805ACC0`) crashed. Found with a watchpoint on the sl
 Fixed in the RAM layout (`port/tools/datagen/ram.py`): a fixed-address array whose element is bigger natively
 gets room for as many elements as its GBA region holds. Only `gNPCData` changed size. The room smoke test did
 not see it: its checkpoint is from before the town fills up.
+
+## DMA started by writing the registers directly
+
+The port performs DMA in `HwDmaSet` (through `DmaSet` and the `DmaCopy*` macros). Code that writes the DMA
+registers itself (`DMA3->sourceAddress = ...; DMA3->control.word = ...`) only fills `gHwIo` natively, and no
+transfer happens. kinstoneMenu `sub_080A4418` loaded uncompressed kinstone piece graphics this way, so the
+fusion screen showed whatever was in that VRAM. Fixed under `#ifdef PLATFORM_NATIVE` with `DmaSet`. The only
+other direct use, `src/eeprom.c`, is the GBA EEPROM driver the port replaces (`port/src/eeprom.c`).
+
+Also on the fusion screen, a ROM write: `KinstoneMenu_080A4468` clears `currentObject->kinstoneId`, and with
+nothing to interact with `currentObject` is the const `gNoInteraction`. Skipped natively for that object.
