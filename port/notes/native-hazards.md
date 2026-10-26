@@ -566,3 +566,19 @@ through the NULL slots. Natively the first one crashed as soon as a copy was mad
 `EntityInRectRadius` per slot) treat them as not standing, and the push tile `ACT_TILE_114` (beanstalkSubtask.c)
 reads copy 0's per-copy bits only when copy 0 exists. Swept every `gPlayerClones` use: the rest check the slot
 (`sub_0801A8D0`, ghini, enemy50, macroBook, button.c's push) or are a copy reaching its own slot (playerClone.c).
+
+## Build warnings (universal Release build)
+
+A clean `arm64;x86_64` Release build prints 77 warnings per architecture. Checked by kind:
+
+- `-Wcast-function-type-mismatch`: the two-value returns (`DivAndMod`, `GetFuserIdAndFuserTextId`) have native
+  s64/u64 implementations (`port/src/bios.c`, `port/src/asm/code_08001A7C.c`); the m4a `nullsub_544` stubs take
+  no arguments. townMinish casts five `(Entity*, ScriptExecutionContext*)` functions to the one-argument dialog
+  callback: four never read the context, but `sub_0806B004` writes `context->condition` (on GBA through its own
+  ROM address, so lost; natively through a stale register). Its dialog entries now call a native wrapper with a
+  scratch context.
+- `-Wint-to-pointer-cast`: `sub_0805F6A4`'s result is only tested for zero (text.c); kinstoneMenu passes a text
+  id (< 0x10000) where a text index or pointer is taken.
+- The rest (`-Wswitch`, bit-field and `s8` constant truncation, unused values, extra parentheses, a const
+  qualifier, an array address in a condition) are the decompiled code as it matches the ROM and behave the same
+  natively.

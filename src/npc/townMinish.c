@@ -373,18 +373,30 @@ void sub_0806AFA0(Entity* this) {
     }
 }
 
+#ifdef PLATFORM_NATIVE
+// ShowNPCDialogue calls these with the entity only. sub_0806B004 writes context->condition; on GBA r1 holds its
+// own (ROM) address, so that write is lost. Natively r1 is whatever was there: give it a scratch context instead.
+static void sub_0806B004_FromDialog(Entity* this) {
+    ScriptExecutionContext scratch = { 0 };
+    sub_0806B004(this, &scratch);
+}
+#define TOWN_MINISH_B004 sub_0806B004_FromDialog
+#else
+#define TOWN_MINISH_B004 (EntityActionPtr)sub_0806B004
+#endif
+
 void sub_0806AFBC(Entity* this, ScriptExecutionContext* context) {
     //! @bug sub_0806B004 uses context but ShowNPCDialogue doesn't pass it.
     // In fact r1 contains sub_0806B004's address.
     static const Dialog dialogs[][8] = {
-        { { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B004 } },
-          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B004 } },
-          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B004 } },
-          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B004 } },
-          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B004 } },
-          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B004 } },
-          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B004 } },
-          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B004 } } },
+        { { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = TOWN_MINISH_B004 } },
+          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = TOWN_MINISH_B004 } },
+          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = TOWN_MINISH_B004 } },
+          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = TOWN_MINISH_B004 } },
+          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = TOWN_MINISH_B004 } },
+          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = TOWN_MINISH_B004 } },
+          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = TOWN_MINISH_B004 } },
+          { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = TOWN_MINISH_B004 } } },
         { { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B064 } },
           { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B064 } },
           { 0x0, 0x0, DIALOG_CALL_FUNC, 0, { .func = (EntityActionPtr)sub_0806B064 } },
