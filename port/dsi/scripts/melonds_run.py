@@ -55,7 +55,8 @@ def main():
     parser.add_argument("--done-symbol", default="gHelloDone")
     parser.add_argument("--sd-file")
     parser.add_argument("--gdb", action="append", default=[], help="extra GDB command; its output is printed")
-    parser.add_argument("--sd-image", default=os.path.expanduser("~/dsi/support/dsisd.bin"))
+    parser.add_argument("--sd-image", default=os.path.expanduser("~/dsi/support/dsisd.bin"),
+                        help="'none' turns the DSi SD slot off")
     parser.add_argument("--dldi-image", help="also offer this FAT image as DLDI (fat:); melonDS 1.1 "
                         "hangs on DSi SD writes, DLDI writes work")
     args = parser.parse_args()
@@ -63,15 +64,17 @@ def main():
     if subprocess.run(["pgrep", "-x", "melonDS"], capture_output=True).returncode == 0:
         sys.exit("melonDS is running; quit it first (it rewrites melonDS.toml)")
 
-    image_mtime = os.path.getmtime(args.sd_image)
+    sd = args.sd_image != "none"
+    image_mtime = os.path.getmtime(args.sd_image) if sd else None
     backup = CONFIG + ".melonds_run-backup"
     shutil.copyfile(CONFIG, backup)
     try:
         text = open(CONFIG).read()
         text = set_key(text, "Emu", "ConsoleType", "1")
         text = set_key(text, "Emu", "DirectBoot", "true")
-        text = set_key(text, "DSi.SD", "Enable", "true")
-        text = set_key(text, "DSi.SD", "ImagePath", '"%s"' % args.sd_image)
+        text = set_key(text, "DSi.SD", "Enable", "true" if sd else "false")
+        if sd:
+            text = set_key(text, "DSi.SD", "ImagePath", '"%s"' % args.sd_image)
         text = set_key(text, "DLDI", "Enable", "true" if args.dldi_image else "false")
         if args.dldi_image:
             text = set_key(text, "DLDI", "ImagePath", '"%s"' % os.path.abspath(args.dldi_image))
@@ -115,7 +118,7 @@ def main():
                                 capture_output=True, text=True)
         print("--- fat:/%s (DLDI image) ---" % args.sd_file)
         print(result.stdout or result.stderr)
-    if args.sd_file:
+    if args.sd_file and sd:
         print("sd image %s" % ("modified" if os.path.getmtime(args.sd_image) != image_mtime else "NOT modified"))
         result = subprocess.run(["mtype", "-i", args.sd_image, "::/" + args.sd_file],
                                 capture_output=True, text=True)

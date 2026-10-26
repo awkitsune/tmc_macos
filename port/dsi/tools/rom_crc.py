@@ -70,7 +70,8 @@ def main():
     table = struct.unpack("<%dI" % (2 * count), read(symbols["gRomRelocSymbols"], 8 * count))
     for i in range(count):
         offset, value = table[2 * i], table[2 * i + 1]
-        unexpected += struct.unpack_from("<I", copy, offset)[0] >> 24 not in (0x08, 0x09, 0x03)
+        # ROM, IWRAM, or a raw GBA hardware address (into its shadow), as rom.c.
+        unexpected += struct.unpack_from("<I", copy, offset)[0] >> 24 not in (0x08, 0x09, 0x03, 0x04, 0x05, 0x06, 0x07)
         struct.pack_into("<I", copy, offset, value)
     kept = 0
     for offset in offsets("gRomRelocKept", "gRomRelocKeptEnd"):

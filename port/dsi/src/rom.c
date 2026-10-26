@@ -27,8 +27,10 @@ extern const uint16_t gRomRelocKept[], gRomRelocKeptEnd[];
 #define EWRAM_SIZE 0x40000u
 #define IWRAM_BASE 0x03000000u
 
-// The DSi SD slot first; DLDI (fat:) for flashcards and melonDS tests.
+// The DSi SD slot first; DLDI (fat:) for flashcards and melonDS tests. The
+// boot log goes next to the ROM.
 static const char* const sRomPaths[] = { "sd:/tmc/baserom.gba", "fat:/tmc/baserom.gba" };
+static const char* const sLogPaths[] = { "sd:/tmc/boot.txt", "fat:/tmc/boot.txt" };
 
 // The USA ROM, as port/README.md.
 static const uint8_t sUsaSha1[20] = {
@@ -47,6 +49,7 @@ static FILE* OpenRom(const char** path) {
         FILE* file = fopen(sRomPaths[i], "rb");
         if (file != NULL) {
             *path = sRomPaths[i];
+            DsiLogToFile(sLogPaths[i]);
             return file;
         }
     }
@@ -75,6 +78,7 @@ bool DsiRomLoad(void) {
     file = OpenRom(&path);
     if (file == NULL) {
         DsiLog("no ROM: put your USA ROM at sd:/tmc/baserom.gba\n");
+        DsiLogToDefaultFile();
         return false;
     }
     fseek(file, 0, SEEK_END);
@@ -133,6 +137,7 @@ bool DsiRomLoad(void) {
            (unsigned long)timerTicks2msec(total), (unsigned long)timerTicks2msec(readTicks),
            (unsigned long)timerTicks2msec(hashTicks));
     DsiLog("SHA-1 %s\n", hex);
+    DsiLogFlush();
     if (memcmp(digest, sUsaSha1, sizeof(digest)) != 0) {
         HexDigest(hex, sUsaSha1);
         DsiLog("not the USA ROM: expected %s\n", hex);
@@ -218,6 +223,7 @@ bool DsiRomRelocate(void) {
 
     DsiLog("relocated: %lu add-base, %lu symbol; %lu EWRAM kept; %lu unexpected\n", (unsigned long)adds,
            (unsigned long)symbols, (unsigned long)kept, (unsigned long)unexpected);
+    DsiLogFlush();
     if (adds != gRomRelocAddCount || kept != gRomRelocKeptCount) {
         DsiLog("expected %lu add-base and %lu EWRAM\n", (unsigned long)gRomRelocAddCount,
                (unsigned long)gRomRelocKeptCount);

@@ -11,8 +11,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Boot log: printed on the console and kept in gDsiLog (read through GDB). */
+/*
+ * Boot log: printed on the console and kept in gDsiLog (read through GDB).
+ * Once rom.c has a card, DsiLogToFile names the file (tmc/boot.txt next to the
+ * ROM) and writes it; DsiLogFlush rewrites it with all logged so far, at each
+ * stage that matters and when the port stops, so a hang leaves the log up to
+ * its last stage. DsiLogToDefaultFile is for no ROM: sd:/tmc, else fat:/tmc.
+ */
 void DsiLog(const char* format, ...) __attribute__((format(printf, 1, 2)));
+void DsiLogToFile(const char* path);
+void DsiLogToDefaultFile(void);
+void DsiLogFlush(void);
 _Noreturn void DsiFatal(const char* format, ...) __attribute__((format(printf, 1, 2)));
 #define DSI_LOG_SIZE 4096
 extern char gDsiLog[DSI_LOG_SIZE];

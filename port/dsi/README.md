@@ -226,16 +226,25 @@ Nothing it writes holds ROM bytes: the generated files are offsets and symbol
 names from the GBA link. The player's ROM is read at boot from
 `sd:/tmc/baserom.gba` (the DSi SD slot) or `fat:/tmc/baserom.gba` (DLDI).
 
-Run it in melonDS and read the boot log. melonDS reads the DSi SD slot but
-does not finish writes to it (above), so a scratch FAT image with your ROM at
-`tmc/baserom.gba` serves as the SD card (`--sd-image`) or as DLDI
-(`--dldi-image`). Keep the image out of the repository:
+The boot log goes on the console, in `gDsiLog` and in `tmc/boot.txt` next to
+the ROM (`sd:/tmc/boot.txt` on a DSi; with no ROM, the first `tmc/` there is).
+The file is rewritten whole after the ROM is found, after the SHA-1, after
+relocation, after the copy CRC, at the start of the game, at each frame-time
+report and when the port stops, so a hang leaves the log up to its last stage.
+
+Run it in melonDS and read the boot log. melonDS does not finish writes to
+the DSi SD slot (above), so with the ROM on an SD image the port stops at its
+first log write. Give melonDS the ROM over DLDI instead, with the SD slot off
+(`--sd-image none`): a scratch FAT image with your ROM at `tmc/baserom.gba`.
+`--sd-file tmc/boot.txt` prints the log file from it after the run. Keep the
+image out of the repository:
 
 ```bash
 mkdir -p /tmp/tmcsd/tmc && cp baserom.gba /tmp/tmcsd/tmc/
 /opt/wonderful/thirdparty/blocksds/core/tools/mkfatimg/mkfatimg /tmp/tmcsd /tmp/tmcsd.img 65536 4096
 python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
-    --seconds 30 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img
+    --seconds 45 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image none --dldi-image /tmp/tmcsd.img \
+    --sd-file tmc/boot.txt
 .venv/bin/python -I port/dsi/tools/rom_crc.py build/dsi/tmc_dsi.elf baserom.gba
 ```
 
@@ -253,29 +262,37 @@ again, without the checks, after 2,048 (the copy's CRC depends on the build;
 
 ```
 TMC DSi port
+started as fat:/tmc_dsi.nds
 DSi mode: yes
 ARM9 at 133 MHz (was 133)
-binary end 0x2173e34, ROM copy 0x220c000-0x2ff3da4
-heap 0x2174850-0x220c000
-read 16777216 bytes from sd:/tmc/baserom.gba in 5610 ms (read 931, SHA-1 4678)
+binary end 0x21a40d4, ROM copy 0x220c000-0x2ff3da4
+heap 0x21a4b08-0x220c000
+read 16777216 bytes from fat:/tmc/baserom.gba in 8437 ms (read 3758, SHA-1 4678)
 SHA-1 b4bd50e4131b027c334547b4524e2dbbd4227130
 relocated: 11547 add-base, 3469 symbol; 1442 EWRAM kept; 0 unexpected
-copy CRC32 96314ed8 (1307 ms)
+copy CRC32 c147b146 (1307 ms)
 GBA slot unmapped (MPU)
 running the game
-frames 0-1023 (with the checks), game time per frame (us): min 15 avg 217 max 12973
-frame work (lines, DMA, IRQs, prepare) (us): min 5535 avg 5847 max 6326
+records CRC32: frames 827985eb, pictures 621b67ef
+frames 0-1023 (with the checks), game time per frame (us): min 15 avg 225 max 13915
+frame work (lines, DMA, IRQs, prepare) (us): min 5633 avg 5961 max 6438
 present (us): min 1592 avg 1597 max 1606, ended by line 217, 0 after VBlank
-shadow CRC (us): avg 9046; picture check avg 12543 per 2 frames
-DS VBlanks 1759 (716 game frames over one)
+shadow CRC (us): avg 9046; picture check avg 12809 per 2 frames
+DS VBlanks 1793 (751 game frames over one)
 presenter so far: two-window lines 0, wrap+OBJ-window lines 0, wrapped sprites 0, bitmap lines 0
 presenter so far: per-line DISPCNT in 1024 frames, other registers in 774, up to 2 words
-frames 1024-2047 (no checks, keys), game time per frame (us): min 208 avg 211 max 219
-frame work (lines, DMA, IRQs, prepare) (us): min 5674 avg 5675 max 5699
+frames 1024-2047 (no checks, keys), game time per frame (us): min 215 avg 219 max 227
+frame work (lines, DMA, IRQs, prepare) (us): min 5791 avg 5792 max 5795
 present (us): min 1596 avg 1596 max 1605, ended by line 217, 0 after VBlank
-DS VBlanks 1025 (0 game frames over one)
+DS VBlanks 1024 (0 game frames over one)
 ...
 ```
+
+`records CRC32` is the CRC32 of `gDsiFrames` and `gDsiPictures` after the
+1,024 recorded frames: two numbers that stand for the whole comparison below,
+for a log from a DSi. They depend on the game, not the build: with no
+`tmc/input.txt`, any build that matches the Mac logs `frames 827985eb,
+pictures 621b67ef`.
 
 Compare the game's first 1,024 frames with the Mac headless build (a
 `DSI_CHECKS=1` build): the
@@ -288,7 +305,7 @@ in one channel):
 ```bash
 (cd build/native && TMC_FRAMES=1024 TMC_HW_HASH=/tmp/mac_hw.txt TMC_FRAME_HASH=/tmp/mac_pic.txt TMC_PPU_DS_EFFECTS=1 ./tmc)
 python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
-    --seconds 120 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img \
+    --seconds 120 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image none --dldi-image /tmp/tmcsd.img \
     --gdb "dump binary value /tmp/dsi_frames.bin gDsiFrames" \
     --gdb "dump binary value /tmp/dsi_pics.bin gDsiPictures"
 python3 -I port/dsi/scripts/compare_frames.py /tmp/mac_hw.txt /tmp/dsi_frames.bin \
@@ -314,7 +331,7 @@ records are dumped as memory, 8 bytes a frame and 8 a picture):
 /opt/wonderful/thirdparty/blocksds/core/tools/mkfatimg/mkfatimg /tmp/tmcsd /tmp/tmcsd.img 65536 4096
 make -C port/dsi -j4 DSI_CHECKS=1 DSI_RECORDS=13312
 python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
-    --seconds 480 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img \
+    --seconds 480 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image none --dldi-image /tmp/tmcsd.img \
     --gdb "dump binary memory /tmp/dsi_frames.bin (char*)&gDsiFrames (char*)&gDsiFrames+106496" \
     --gdb "dump binary memory /tmp/dsi_pics.bin (char*)&gDsiPictures (char*)&gDsiPictures+53248"
 python3 -I port/dsi/scripts/compare_frames.py /tmp/mac_hw.txt /tmp/dsi_frames.bin \
@@ -328,7 +345,7 @@ compare it with the Mac's screenshot:
 (cd build/native && TMC_FRAMES=251 TMC_SCREENSHOT=250 TMC_SCREENSHOT_DIR=/tmp/shots TMC_PPU_DS_EFFECTS=1 ./tmc)
 touch port/dsi/src/present.c && make -C port/dsi -j4 DSI_CHECKS=1 DSI_DEFINES=-DDSI_CAPTURE_DUMP=250
 python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
-    --seconds 120 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img \
+    --seconds 120 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image none --dldi-image /tmp/tmcsd.img \
     --gdb "dump binary memory /tmp/cap.bin (char*)gDsiCaptureDump (char*)gDsiCaptureDump+98304"
 python3 -I port/dsi/scripts/compare_picture.py /tmp/shots/frame_000250.png /tmp/cap.bin
 ```
@@ -344,11 +361,51 @@ those):
 |---|---|
 | ROM on the SD slot | read 931 ms, SHA-1 4,678 ms, CRC32 1,743 ms; CRC equals `rom_crc.py` |
 | ROM over DLDI (`fat:/`) | read 3,758 ms; same SHA-1, counts and CRC |
+| boot log over DLDI | `fat:/tmc/boot.txt` equals `gDsiLog`, default and checks builds |
+| ROM on the SD slot since the log file | stops at the first log write (melonDS SD writes hang) |
+| no ROM, DLDI with an empty `tmc/` | the "no ROM" log in `fat:/tmc/boot.txt` |
 | one byte changed | `SHA-1 0b50d0ab…`, "not the USA ROM: expected b4bd50e4…", stops |
 | no ROM | "no ROM: put your USA ROM at sd:/tmc/baserom.gba", stops |
 | test build `make -C port/dsi DSI_DEFINES=-DDSI_TEST_STRAY_READ` (touch `src/main.c` first) | reading 0x08000000 aborts; the log shows PC in `main` and r3 = 08000000 |
 | game, frames 0-1023 | equal to the Mac's (`compare_frames.py`) |
 | pictures, even frames 0-1022 | equal to the Mac's with `TMC_PPU_DS_EFFECTS=1`, border clean (`compare_frames.py --pictures`) |
+
+## On the DSi
+
+Milestone 6 runs the same `.nds` on a real DSi, started from TWiLight Menu++
+and from Unlaunch. The boot log, on the bottom screen and in
+`sd:/tmc/boot.txt`, is the only feedback; each start overwrites the file.
+
+The SD card (FAT32):
+
+| File | What |
+|---|---|
+| `sd:/tmc/baserom.gba` | your USA ROM (SHA-1 `b4bd50e4…`) |
+| `sd:/tmc_dsi.nds` | `build/dsi/tmc_dsi.nds` (any folder works) |
+| `sd:/tmc/boot.txt` | written by the port |
+
+- **TWiLight Menu++:** browse to `tmc_dsi.nds` and start it. It needs DSi mode:
+  if the bottom screen says "needs DSi mode", set the game's *Run in* setting
+  (Y on the game) to DSi mode.
+- **Unlaunch:** hold A+B while switching the DSi on, pick `tmc_dsi.nds` in
+  Unlaunch's file menu.
+
+Let it run for a minute after the title screen shows (the frame-time report
+comes 1,024 frames, about 17 s, after the game starts), play a little, switch
+off, and copy `tmc/boot.txt` off the card before the next start.
+
+It must log the same SHA-1, relocation counts and copy CRC as melonDS; the
+CRC belongs to the build (`tools/rom_crc.py` on its ELF prints it). For the
+builds in `build/dsi/hw/` (not in the repository):
+
+| | `tmc_dsi.nds` | `tmc_dsi_checks.nds` (`DSI_CHECKS=1`) |
+|---|---|---|
+| SHA-1 | `b4bd50e4131b027c334547b4524e2dbbd4227130` | same |
+| relocated | 11547 add-base, 3469 symbol; 1442 EWRAM kept; 0 unexpected | same |
+| copy CRC32 | `50fc1b78` | `c147b146` |
+| records CRC32 | — | frames `827985eb`, pictures `621b67ef` (no `tmc/input.txt`) |
+
+Measured on the DSi (PLAN.md, milestone 6): not yet.
 
 ## ROM-data relocation figures
 

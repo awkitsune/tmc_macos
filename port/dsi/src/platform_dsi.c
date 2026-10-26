@@ -77,6 +77,7 @@ static void Report(const char* what) {
            (unsigned long)p->bitmapLines);
     DsiLog("presenter so far: per-line DISPCNT in %lu frames, other registers in %lu, up to %ld words\n",
            (unsigned long)p->dispcntFrames, (unsigned long)p->regFrames, (long)p->maxDmaWords);
+    DsiLogFlush();
 }
 
 /*
@@ -162,6 +163,10 @@ void PlatformVBlank(void) {
     gPlatformFrame++;
     s->frames++;
     if (DSI_CHECKS && gPlatformFrame == DSI_FRAME_RECORDS) {
+        // The records in two numbers, to compare a DSi's log with melonDS's.
+        DsiLog("records CRC32: frames %08lx, pictures %08lx\n",
+               (unsigned long)HwCrc32(0, gDsiFrames, sizeof(gDsiFrames)),
+               (unsigned long)HwCrc32(0, gDsiPictures, sizeof(gDsiPictures)));
         Report("with the checks");
         ResetStats();
     } else if (gPlatformFrame == (DSI_CHECKS ? 2 : 1) * DSI_FRAME_RECORDS) {
@@ -186,6 +191,7 @@ _Noreturn void DsiRunGame(void) {
         DsiInputLoad();
     }
     DsiLog("running the game\n");
+    DsiLogFlush();
     HwSetKeys(0); // KEYINPUT is active low: all zero would be every key held
     setjmp(sResetPoint);
     AgbMain();
