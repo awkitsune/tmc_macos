@@ -6,8 +6,9 @@ natively on the ARM9. This replaces GBARunner2 and its black borders. The proof 
 concept ends at **"boots in DSi mode, loads and relocates the ROM, reaches the title
 screen with graphics, no sound"**.
 
-Status: plan only, awaiting approval. The toolchain and test setup are in
-[README.md](README.md).
+Status: milestones 0 to 2 done, apart from milestone 1's check on the DSi itself
+(see [the table](#proof-of-concept-milestones)). The toolchain, the build and
+the test setup are in [README.md](README.md).
 
 ## Approach in one paragraph
 
@@ -64,6 +65,25 @@ Other parts of the binary, estimated:
 - the DSi port layer: ~40 KB.
 
 **The ARM9 binary comes to about 1.0 MB.**
+
+Measured at milestone 2 (`make -C port/dsi figures`, `build/dsi/tmc_dsi.map`):
+
+| Part | Bytes |
+|---|---|
+| `.text` | 681,760 |
+| `.rodata` (of which the relocation list 48,046) | 201,836 |
+| `.data`, `.itcm`, `.dldi`, crt0 and `.secure` | 20,592 |
+| **ARM9 image in the `.nds`** | **904,244** |
+| `.bss` | 334,428 |
+| **in RAM, 0x02040000-0x0216E2AC** | **1,237,676** (1,209 KB) |
+
+- Game C and `port/src` together: 841,021 bytes of code and rodata, close to the
+  estimate (818,706 for the game C plus ~20 KB).
+- `.bss`: 138 KB DSi layer (VRAM shadow 96 KB, IWRAM block 32 KB, boot log 4 KB,
+  palette, OAM and I/O 3 KB) and 191 KB game and port. 176 KB of the latter are
+  the Mac mixer's output buffers (`sHqRing`, `sStereo`, `sMono` in
+  `port/src/sound/m4a_mixer.c`), unused on the DSi; they go when the ARM7 takes
+  over sound.
 
 ### Relocation list
 
@@ -139,6 +159,12 @@ need to stay on the SD card.
   ROM-to-ROM fix-up is a constant add.
 - The full game uses option A, which keeps the same simple add and has 0.4 MB to
   spare.
+- **Changed at milestone 2: the build uses option A from the start.** The sound
+  sequencer runs on the ARM9 from milestone 4 (its RAM state is compared with the
+  Mac's), and it reads song data. Measured: the copy is at 0x0220C000-0x02FF3DA4,
+  and the heap between the binary and the copy is 630 KB
+  (0x0216E60C-0x0220C000), against the ~256 KB budgeted. `gen_link.py --rom-end`
+  still makes an option C build.
 - If the binary grows past the estimate, option B (packing out the 0.83 MB of code
   holes) buys 0.8 MB. ROM-to-ROM fix-ups then become run-table lookups at boot.
 
@@ -146,26 +172,73 @@ need to stay on the SD card.
 
 ### Where it lives
 
-- `port/dsi/Makefile`: its own makefile, using BlocksDS's flags and specs (`ds_arm9.specs`) and its
-  default ARM7 core. Outputs go to `build/dsi/` (`tmc_dsi.elf`, `tmc_dsi.nds`).
-  Like the Mac build, it needs the GBA build first (`make -j4`).
-- `port/dsi/src/`: DSi-only code: `main.c`, the ROM loader and relocation, the
-  presenter (shadows to the 2D engine), interrupts, input, the save file and the
-  boot log.
-- `port/dsi/tools/gen_link.py`: generates three files into `build/dsi/gen/` from
-  `build/USA/tmc.elf`, `tmc.map` and the `-q` relink:
-  - `rom_symbols.ld`: `Sym = __rom_copy + 0x00123456;` for the 16,356 global
-    symbols in data objects;
-  - `ram_layout.ld`: EWRAM and IWRAM, from the preprocessed `linker.ld` with new
-    origins;
-  - `rom_relocs.s`: the relocation list.
+As built at milestone 2:
+
+- `port/dsi/Makefile`: its own makefile with BlocksDS's compiler, libnds, its
+  default ARM7 core (`arm7_maxmod.elf`) and the specs in `port/dsi/ld/` (linked at
+  0x02040000). Outputs go to `build/dsi/` (`tmc_dsi.elf`, `tmc_dsi.nds`,
+  `tmc_dsi.map`). Like the Mac build, it needs the GBA build first (`make -j4`).
+- `port/dsi/src/`: the DSi layer, which includes libnds and never the game's
+  headers. `dsi.h` is its interface; `main.c` (boot log, heap below the copy),
+  `rom.c` (loading, which is a stub until milestone 3, and relocation),
+  `hw_dsi.c` (`port/hw.h`: shadows, IWRAM block, DMA, address mapping,
+  `M4aGbaPtr`), `platform_dsi.c` (`PlatformVBlank`, soft reset, the presenter
+  stub).
+- `port/dsi/tools/gen_link.py`: generates into `build/dsi/gen/`, from the `-q`
+  relink of the GBA build, `tmc.map`, `linker.ld` and the list of symbols the DSi
+  objects define (those win over the ROM copy's):
+  - `rom_symbols.ld`: `PROVIDE(Sym = __rom_copy + 0x123456);` for the 16,545
+    global symbols in data objects and in the two data tables inside
+    `asm/src/code_08001A7C.s` (the regions datagen also treats as data);
+  - `ram_layout.ld`: the 89 EWRAM symbols at their GBA addresses (plus
+    `gNativeSaveHeader` at 0x02000000), the 94 IWRAM ones in `gDsiIwram` (the
+    `ram_*` routines are C functions), and checks that the binary is above EWRAM
+    and below the copy;
+  - `rom_relocs.s`: the relocation list with its counts;
+  - `gen_report.txt`: the figures below.
 - The game C: `src/**/*.c` minus `src/eeprom.c`, the same set as the Mac
-  `tmc_game` target, plus `port/src/asm/*.c`.
+  `tmc_game` target, plus from the Mac port `port/src/{bios,interrupts,eeprom,data_glue}.c`,
+  `port/src/asm/*.c` and the sound engine (`m4a_engine.c`, `m4a_mixer.c`,
+  `psg.c`). `m4a_addr.c` (datagen's sound map) is replaced by `M4aGbaPtr` in
+  `hw_dsi.c`.
+
+Relocation figures from the generator (milestone 2):
+
+| Pointer words in data | Count | At boot |
+|---|---|---|
+| to ROM data | 11,547 | add (copy base − 0x08000000), 23,102 bytes of deltas |
+| to game functions | 3,111 | symbol entry: the linker writes the ARM9 address, Thumb bit set (all 3,111 checked in the ELF) |
+| to C rodata and port data | 6 | symbol entry |
+| to EWRAM | 1,425 | none: same address |
+| **total** | **16,089** | 3,117 symbol entries, 24,936 bytes |
+
+That is the 15,849 of the measurements plus 240 in the two asm data tables. Nine
+targets the measurements counted as C rodata are byte-aligned data symbols
+(`gSpriteAnimations_*`) at odd addresses, so they are ROM data. 899 of the words
+are not word-aligned (data is 2-aligned), and `rom.c` patches them byte-wise.
+
+Shared files the DSi build needed, all no-ops for the Mac (its objects and
+binaries are byte-identical) and the GBA (`tmc.gba: OK`):
+
+- `include/common.h`: `zMalloc`'s save-state wrapper only on the Mac;
+- `port/include/port/state.h`: `STATE_EXCLUDE` is empty on the DSi (the Mac's is
+  a Mach-O section);
+- `port/src/asm/script.c`: script pointer operands are plain addresses (no
+  datagen tag);
+- `port/src/asm/code_08001A7C.c`: the `GetFuserId` symbol uses the platform's
+  label prefix (`_` only on Mach-O);
+- `port/src/data_glue.c`: `gNativeSaveHeader` comes from the linker on the DSi.
 
 ### Defines
 
 - Game files: `PLATFORM_DSI=1 PORT_HOSTED=1 NON_MATCHING=1 USA ENGLISH REVISION=0`.
-- Game file flags: `-mthumb -mcpu=arm946e-s+nofp -O2 -fwrapv -fno-short-enums -ffunction-sections`.
+- Game file flags: `-mthumb -mcpu=arm946e-s+nofp -O2 -std=gnu11 -fwrapv -fno-short-enums
+  -fno-strict-aliasing -fno-aggressive-loop-optimizations -fno-delete-null-pointer-checks
+  -ffunction-sections`, and `u32`/`s32` as `int` (ABI notes). GCC 16 defaults to
+  C23, where `void f()` takes no arguments, so the Mac's gnu11 is needed. The
+  other three keep GCC from assuming what agbcc never did: GCC warned that it
+  would cut 7 loops short in `gleerok.c`, `figurineMenu.c` and `pauseMenu.c`,
+  which index past an array into the next field.
 - A few hot files can be compiled `-marm` or placed in ITCM once profiled.
 
 `PLATFORM_NATIVE` used to mean three things at once:
@@ -272,8 +345,9 @@ Hosted behaviour that milestone 2 has to provide on the DSi:
    (`nds/sha1.h`). The bytes the game needs land straight in the copy while the
    hash runs: one pass, and the padding is hashed and dropped. On a mismatch the
    program shows the hash it found and stops.
-3. **Copy layout.** `__rom_copy` is a NOLOAD section near the top of main RAM:
-   10,227 KB in the proof of concept, 14,239 KB for the full game.
+3. **Copy layout.** `__rom_copy` is a fixed address, 4 KB-aligned, ending below
+   0x02FF4000 (`rom_symbols.ld`): 14,239 KB at 0x0220C000 (option A, see RAM
+   budget). `main.c` shortens the libnds heap to end there (`reduceHeapSize`).
 4. **Game code addresses ROM symbols** through `rom_symbols.ld`. Each global
    symbol defined in a data object becomes an absolute symbol at `__rom_copy` plus
    its GBA offset, so `extern const u8 gFoo[]` in the C resolves into the copy with
@@ -471,7 +545,7 @@ reference is the Mac headless build at the same game frame.
 |---|---|---|
 | 0 | **Done**: toolchain, DSi hello world (16,128 KB malloc-able, SD and DLDI), measurements, melonDS automation | README figures |
 | 1 | **Load address and macro split.** (a) Hello world linked at 0x02040000 boots in melonDS DSi mode and on the DSi from TWiLight Menu++ and Unlaunch. (b) `PORT_HOSTED`/`PORT_LAYOUT_64` split. Status: (a) `make -C port/dsi/hello GBA_EWRAM=1` (`port/dsi/ld/`) boots in melonDS DSi direct boot and 0x02000000-0x0203FFFF tests clean (65,536/65,536 words, cached and uncached); hardware loaders still to do. (b) **done** (see Defines). | (a) `gHelloDone`/`hello.txt` from each loader. (b) `tmc.gba: OK`; Mac objects and binaries byte-identical before/after (replaces the frame-hash and room-smoke runs); `layout_diff.py` clean |
-| 2 | **Link.** `tmc_dsi.nds` links: all game C, `port/src/{bios,interrupts,eeprom}.c`, `port/src/asm`, generated `rom_symbols.ld`/`ram_layout.ld`/`rom_relocs.s`, stub presenter | no undefined symbols; link-map figures recorded (.text, .rodata, .bss, NOLOAD blocks) against this plan's estimates; 16,356 ROM symbols and 15,849 relocations generated |
+| 2 | **Link.** Done: `make -C port/dsi -j4` links `build/dsi/tmc_dsi.nds` (974 KB) with no undefined symbols: all game C, `port/src/{bios,interrupts,eeprom,data_glue}.c`, `port/src/asm`, the sound engine, the generated `rom_symbols.ld`/`ram_layout.ld`/`rom_relocs.s`, a stub presenter. In melonDS DSi mode it boots, logs its layout and stops before ROM loading | no undefined symbols; figures in [Measurements](#arm9-code-size) and [Build structure](#where-it-lives); 16,545 ROM symbols and 16,089 relocations generated; boot log read through GDB |
 | 3 | **ROM load and relocation.** Boot reads `tmc/baserom.gba`, checks SHA-1, relocates, stops | boot log: bytes read, load ms, SHA-1 = `b4bd50e4…`, counts per relocation kind = generator's counts; CRC32 of the relocated copy equals the CRC a host tool computes from the same ROM, base address and list (run locally, nothing shipped); a wrong-ROM run shows the mismatch |
 | 4 | **Game runs blind.** VBlank IRQ drives game frames into the shadows, nothing on screen | per frame, CRC32 of `gHwPltt`, `gHwOam`, `gHwVram` and the display registers in `gHwIo`, into a RAM ring buffer; Mac headless writes the same CRCs (a `TMC_HW_HASH` next to `TMC_FRAME_HASH`); identical for frames 1…N, where N is the frame the Mac run shows the title screen fully faded in; plus game state values (task/state bytes) at N; frame time (timer ticks) min/avg/max |
 | 5 | **Picture.** Presenter: banks A/B, DISPCNT/BG translation, OAM, palette, HBlank table, centring | GDB reads back DS palette RAM, OAM and banks A/B at frame N; their CRCs equal a host tool's translation of the Mac shadows; the per-frame presenter time stays inside VBlank |

@@ -20,8 +20,11 @@ extern const u8 gUnk_08002342[]; // NPCs
 
 // Returns the fuser id in the low word and the fuser name text id in the high
 // word (r0/r1 on GBA): GetFuserIdAndFuserTextId calls this through a u64 cast,
-// while the u32 prototype sees only the id. Hence the separate C name.
-u64 GetFuserIdPair(Entity* entity) __asm__("_GetFuserId");
+// while the u32 prototype sees only the id. Hence the separate C name, with the
+// symbol named as the platform's C compiler would ("_GetFuserId" on Mach-O).
+#define SYMBOL_STRING_(x) #x
+#define SYMBOL_STRING(x) SYMBOL_STRING_(x)
+u64 GetFuserIdPair(Entity* entity) __asm__(SYMBOL_STRING(__USER_LABEL_PREFIX__) "GetFuserId");
 u64 GetFuserIdPair(Entity* entity) {
     static const u32 sMatchMasks[] = { 0xFFFFFF, 0xFFFF00, 0xFF00FF, 0xFF0000 };
     const u8* e;

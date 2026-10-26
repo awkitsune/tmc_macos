@@ -28,8 +28,13 @@
 #include <stdint.h>
 
 /* Port globals that are configuration, not game state (sound sink, quality):
-   kept out of the segment so loading a state leaves them alone. */
+   kept out of the segment so loading a state leaves them alone. The DSi build
+   has no save states, so nothing to keep out. */
+#ifdef PLATFORM_DSI
+#define STATE_EXCLUDE
+#else
 #define STATE_EXCLUDE __attribute__((section("__DATA,__data")))
+#endif
 
 /* File extension, without the dot. */
 #define STATE_EXTENSION "tmcs"

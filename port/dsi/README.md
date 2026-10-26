@@ -7,6 +7,10 @@ the player's own ROM is read from the SD card at run time.
 
 Contents:
 
+- `Makefile`, `src/`, `ld/`: the port itself (below, and
+  [PLAN.md](PLAN.md#where-it-lives)).
+- `tools/gen_link.py`: generates the port's ROM symbols, RAM layout and
+  relocation list from the GBA build.
 - `hello/`: a DSi-mode hello world. It reports free main RAM, lists the SD card
   root, writes and reads back `hello.txt`.
 - `scripts/melonds_run.py`: boots an `.nds` in melonDS and reads its results back
@@ -198,6 +202,40 @@ What can't:
 - melonDS 1.1 doesn't print no$gba-style debug messages to stdout.
 - DSi SD writes hang (above).
 - Visual checks are done on the real DSi.
+
+## The port
+
+```bash
+PATH=$PWD/.venv/bin:$PATH make -j4
+make -C port/dsi -j4
+```
+
+The first line is the GBA build, which the port needs (as the Mac build does);
+`tmc.gba: OK` means it matches. The second builds `build/dsi/tmc_dsi.nds`, with
+`tmc_dsi.elf`, the link map `tmc_dsi.map` and the generated files in
+`build/dsi/gen/` (figures in `gen_report.txt`). `make -C port/dsi figures`
+prints the section sizes. The makefile uses the repository's `.venv` Python
+(pyelftools) and Homebrew's `arm-none-eabi-ld` for the GBA relink.
+
+Nothing it writes holds ROM bytes: the generated files are offsets and symbol
+names from the GBA link. The player's ROM is read at boot (milestone 3).
+
+Run it in melonDS and read the boot log:
+
+```bash
+python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
+    --seconds 12 --symbol gDsiLog --done-symbol gDsiLogDone
+```
+
+At milestone 2 it logs the layout and stops before the ROM:
+
+```
+TMC DSi port
+DSi mode: yes
+binary end 0x216e2ac, ROM copy 0x220c000-0x2ff3da4
+heap 0x216e60c-0x220c000
+ROM loading comes with milestone 3
+```
 
 ## ROM-data relocation figures
 

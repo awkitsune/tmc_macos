@@ -98,9 +98,9 @@ void zMallocInit(void);
  * @return Pointer to allocated memory.
  */
 void* zMalloc(u32 size);
-#if defined(PORT_HOSTED) && !defined(ZMALLOC_DEFINITION)
+#if defined(PORT_HOSTED) && !defined(PLATFORM_DSI) && !defined(ZMALLOC_DEFINITION)
 // Natively each block remembers where it was allocated, so save states know the
-// type it holds and so its pointers (port/src/heap.c).
+// type it holds and so its pointers (port/src/heap.c). The DSi has no save states.
 void* PortZMalloc(u32 size, const char* file, u32 line);
 #define zMalloc(size) PortZMalloc(size, __FILE_NAME__, __LINE__)
 #endif
