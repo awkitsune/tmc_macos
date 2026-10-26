@@ -8,7 +8,15 @@
 
 static uint32_t sTable[256];
 
-uint32_t HwCrc32(uint32_t crc, const void* data, size_t length) {
+#ifdef PLATFORM_DSI
+// ARM code in ITCM: the DSi's per-frame CRCs (shadows and picture) run in a
+// fraction of the time Thumb code from main RAM takes.
+#define CRC_CODE __attribute__((section(".itcm.text.HwCrc32"), target("arm"), noinline))
+#else
+#define CRC_CODE
+#endif
+
+CRC_CODE uint32_t HwCrc32(uint32_t crc, const void* data, size_t length) {
     const uint8_t* p = data;
 
     if (sTable[1] == 0) {

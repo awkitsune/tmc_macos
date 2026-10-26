@@ -340,8 +340,8 @@ Hosted behaviour that milestone 2 has to provide on the DSi:
 | `port/src/eeprom.c` (8 KB EEPROM emulation, file-backed) | as is, file on `sd:/` |
 | `port/src/sound/m4a_engine.c`, `m4a_mixer.c`, `psg.c` | the sequencer and the integer (authentic) mixer run on the ARM9, so the engine's state evolves exactly as on the Mac; under `PLATFORM_DSI` `SoundMain` stops there and `PsgAdvance` steps the CGB channels' lengths, sweep, envelopes and NR52 with the same clock as `PsgRender`, without synthesising (milestone 4: 54 ms of soft-float mixing a frame became 3.3 ms of frame work). Later the ARM7 plays the sound |
 | `port/src/headless.c` input script (`TMC_INPUT` syntax) and frame-hash output | parser moved to a shared file, read from `sd:/tmc/input.txt`; hashes into a RAM ring buffer |
-| `port/src/ppu.c` (software PPU) | not used at run time; host-side reference for the presenter's translation |
-| `port/src/frame.c` (per-line timing) | **as is** (milestone 4): at each DS VBlank `HwRunFrame` plays out the GBA frame into the shadows as on the Mac, per line VCOUNT and HBlank interrupts and HBlank DMA, then VBlank DMA and interrupt. The PPU calls are empty on the DSi. Its line capture (`gHwLineCapture`) gives the presenter each line's display registers for an HBlank table (milestone 5) |
+| `port/src/ppu.c` (software PPU) | not used at run time; the Mac's picture is the reference for the DS's (milestone 5). `TMC_PPU_DS_EFFECTS=1` makes it blend and fade with the DS's rounding |
+| `port/src/frame.c` (per-line timing) | **as is**: `HwRunFrame` is `HwRunLines` then `HwRunVBlank`. On the DSi the game's lines run before the DS VBlank and record each line's display registers (`gHwLineCapture`); the presenter runs in the VBlank, then `HwRunVBlank` (milestone 5). The PPU hooks on the DSi follow the affine reference points for the presenter (`port/dsi/src/present.c`) |
 | datagen, `romdata.c`, `state.c` (save states), `heap.c` type map, `src/apple`/`macos`/`ios` | not used |
 
 ## ROM loading and relocation at boot
@@ -471,31 +471,40 @@ optimisation once hashes match.
   as on the GBA, and the DISPCNT char/screen base offsets stay 0.
 - Bank B (128 KB) as `VRAM_B_MAIN_SPRITE` at 0x06400000: GBA OBJ VRAM 0x06010000-0x06017FFF,
   tile *n* at +32*n*. DS 1D OBJ mapping with a 32-byte boundary has the same
-  numbering. Modes 0-2 only: TMC uses mode 0 and mode 1 (title screen,
-  rolling-barrel manager).
-- Each VBlank: `DC_FlushRange` the shadow, then DMA 64 KB and 32 KB. About 24 K
-  words, well inside the DS VBlank of 71 lines (~4.5 ms). Later, dirty ranges from
-  `HwDmaSet`, LZ77 and CpuSet destinations cut this down.
+  numbering.
+- Each VBlank: `DC_FlushAll`, then DMA palette (1 KB), OAM (1 KB) and VRAM (64 KB
+  and 32 KB). Measured at milestone 5 in melonDS: the whole present takes 1.6 ms
+  and ends by line 217, inside the VBlank (lines 192-262). Later, dirty ranges
+  from `HwDmaSet`, LZ77 and CpuSet destinations cut this down, or the game writes
+  VRAM and palette directly (the layouts are the same).
 - Banks C and D stay free (bottom screen and extended view later); banks E-I are
   unused.
 
 **Display registers**: translated from `gHwIo` once per frame.
 
-- DISPCNT: BG mode bits 0-2, forced blank bit 7 and layer/window enables bits 8-15
-  are the same. GBA bit 6 (OBJ 1D) becomes DS bit 4 with boundary bits 20-21 = 0.
-  Display mode bits 16-17 = 1.
+- DISPCNT: forced blank bit 7 and layer/window enables bits 8-15 are the same.
+  GBA bit 6 (OBJ 1D) becomes DS bit 4 with boundary bits 20-21 = 0. Display mode
+  bits 16-17 = 1.
+- BG modes differ: DS mode 1 has BG3 affine, GBA mode 1 has BG2. GBA mode 1
+  (BG0-1 text, BG2 affine) becomes DS mode 2 with BG3 off; GBA mode 2 is DS mode
+  2. The bitmap modes 3-5 are not translated (the game has none; counted).
 - BGxCNT, WININ/WINOUT, MOSAIC, BLDCNT/BLDALPHA/BLDY: same offsets on engine A;
   copied with DS-only bits cleared.
 - Scroll, affine reference points and window rectangles get the screen offset (see
   Screen).
 
-**Interrupts**:
+**Interrupts**: the game's interrupts are played out by `frame.c` on the
+shadows, as on the Mac (milestone 4), not taken from the DS. The frame, in the
+game's `VBlankIntrWait`:
 
-- A libnds `irqSet(IRQ_VBLANK)` handler does the presenter step, then calls the
-  game's dispatch (`port/src/interrupts.c` → `gIntrTable`), as `IntrMain` does on
-  the GBA. The main loop's `VBlankIntrWait` becomes `swiWaitForVBlank`.
-- HBlank and VCount IRQs map to DS `IRQ_HBLANK`/`IRQ_VCOUNT`, with VCOUNT adjusted
-  for the 16-line offset. The DS has 263 lines per frame, 0-191 visible.
+1. `HwRunLines`: the game's 160 lines, their HBlank/VCount handlers and HBlank DMA.
+2. `DsiPresentPrepare`: the DS rows and tables for that frame.
+3. `swiWaitForVBlank`, then `DsiPresent`.
+4. `HwRunVBlank`: the game's VBlank DMA and handler.
+
+The DS VBlank IRQ only re-arms the shown frame's line 0 and HBlank DMA
+(`DsiPresentVBlank`): when a game frame takes two DS frames the picture is shown
+twice, and DMA in repeat mode would otherwise run past its table.
 
 **DMA**:
 
@@ -503,11 +512,15 @@ optimisation once hashes match.
   shadows (cache-friendly, no coherency issue).
 - VBlank transfers are latched and run at VBlank.
 - **HBlank DMA** (per-line effects: scroll waves, window iris for transitions) is
-  rebuilt each VBlank into a 192-entry table. Lines 0-15 and 176-191 get border
-  values; lines 16-175 get the game's 160 values, translated (+8 for WINxH, the
-  scroll offset for BGxHOFS).
-- That table is played by a real DS DMA in HBlank start mode (DMAxCNT bits 27-29 = 2;
-  the GBA's are bits 28-29), so the order of the source walk stays the same.
+  rebuilt each frame from the line capture: one row of DS registers per DS line.
+  Lines 0-15 and 176-191 are border rows; lines 16-175 are the game's 160 lines,
+  translated (scroll, affine reference points, windows).
+- Only what changes between lines is played: DS DMA 1 writes DISPCNT, DMA 2 the
+  range of register words that change (up to 2 words in the first 2,048 frames),
+  both in HBlank start mode with repeat and destination reload. The tables are
+  double-buffered.
+- Affine reference points: the DS steps them only on lines where the BG is drawn,
+  so when an affine BG is on its reference words are in every row.
 
 **Timers**:
 
@@ -554,20 +567,21 @@ optimisation once hashes match.
 ## Screen: 256x192, centred
 
 - The 240x160 picture sits at (8, 16).
-- The presenter subtracts 8/16 from BGxHOFS/VOFS. For affine BGs it adjusts the
-  reference point: X −= 8·PA + 16·PB, Y −= 8·PC + 16·PD. It adds 8/16 to OAM
-  positions, wrapping x at 512 and y at 256.
-- A sprite whose GBA y and height make it invisible on the GBA is moved off the DS
-  screen (y = 192) rather than shown in the bottom border.
-- The border uses WIN0 = (8,16)-(248,176):
-  - When the game's windows are off, WININ shows the game's layers and effects and
-    WINOUT shows nothing (backdrop colour, palette 0).
-  - When the game uses its own windows, they are shifted, clamped to the box, and
-    the border lines (0-15, 176-191) get DISPCNT with all layers off through the
-    HBlank table.
-  - The 8-pixel side columns may then show WINOUT content: a known gap for the
-    proof of concept. A full fix needs a spare layer (the 3D BG0 is taken by the
-    game's BG0) or display capture, and goes with the extended-view work.
+- The presenter subtracts 8/16 from BGxHOFS/VOFS. For affine BGs each line's row
+  gets the game's reference point for that line (followed as `ppu.c` does) minus
+  8·PA (X) or 8·PC (Y). It adds 8/16 to OAM positions, wrapping x at 512 and y
+  at 256.
+- Sprites the GBA does not draw (mode 3, shape 3, the disable bit) are hidden.
+  Sprites that wrap at y 256 differently on the two screens are counted (none so
+  far).
+- The border (as built, milestone 5; it holds in melonDS):
+  - Border lines (0-15, 176-191) have every layer and window off.
+  - Picture lines have a wrapped WIN0 (x 248..7) that shows no layers over the
+    side columns. The game's window moves to WIN1. Both show the backdrop, with
+    the game's colour effect.
+  - Two game windows on one line leave no window for the side columns (counted;
+    none so far). The DS's windows rule out a wrapped game window together with
+    the OBJ window (also counted, none).
 
 ## Proof-of-concept milestones
 
@@ -582,7 +596,7 @@ reference is the Mac headless build at the same game frame.
 | 2 | **Link.** Done: `make -C port/dsi -j4` links `build/dsi/tmc_dsi.nds` (974 KB) with no undefined symbols: all game C, `port/src/{bios,interrupts,eeprom,data_glue}.c`, `port/src/asm`, the sound engine, the generated `rom_symbols.ld`/`ram_layout.ld`/`rom_relocs.s`, a stub presenter. In melonDS DSi mode it boots, logs its layout and stops before ROM loading | no undefined symbols; figures in [Measurements](#arm9-code-size) and [Build structure](#where-it-lives); 16,545 ROM symbols and 16,089 relocations generated; boot log read through GDB |
 | 3 | **ROM load and relocation.** Done: boot reads `sd:/tmc/baserom.gba` (or `fat:/`), checks SHA-1, relocates with a check of every word, logs the copy's CRC32, checks the GBA slot faults, stops ([README](README.md#the-port)) | melonDS: 16,777,216 bytes, SD read 931 ms + SHA-1 4,678 ms (DLDI read 3,758 ms); SHA-1 `b4bd50e4…`; 11,547 add-base, 3,117 symbol, 1,425 kept, 0 unexpected, as generated; copy CRC32 equals `tools/rom_crc.py`'s; a one-byte-changed ROM shows its SHA-1 and stops; a stray read of 0x08000000 aborts into the logging handler |
 | 4 | **Game runs blind.** Done: the game runs from `AgbMain`, a DS VBlank drives each game frame through `frame.c` into the shadows, nothing on screen. No input yet (all keys up). The first 1,024 frames record `HwShadowCrc` (`port/src/hw_crc.c`: display registers, palette, VRAM, OAM) and the task/state/substate/fade (`HeadlessGetState`) in `gDsiFrames`; the Mac headless runner writes the same with `TMC_HW_HASH` | melonDS: frames 0-1023 equal the Mac's on every frame, CRC and task (233 distinct CRCs; the title screen is fully faded in from frame 336; frame 1023 is task 0 state 1, CRC `3d91f6b1`), `port/dsi/scripts/compare_frames.py`. Frame time: game 14 µs min / 219 avg / 13,400 max, frame work 3.1 / 3.3 / 3.7 ms, shadow CRC 9.8 ms; 1,025 DS VBlanks for 1,024 game frames. The Mac's audio and hashes are byte-identical after the shared-file changes |
-| 5 | **Picture.** Presenter: banks A/B, DISPCNT/BG translation, OAM, palette, HBlank table, centring | GDB reads back DS palette RAM, OAM and banks A/B at frame N; their CRCs equal a host tool's translation of the Mac shadows; the per-frame presenter time stays inside VBlank |
+| 5 | **Picture.** Done: the presenter (`port/dsi/src/present.c`) shows the shadows on the top screen: banks A/B, DISPCNT/BG translation, OAM, palette, per-line HBlank DMA, centring with a border. The check is stronger than planned: the DS's own display capture (bank D) of every even frame 0-1022, against the Mac's picture of that frame | melonDS: the 512 captured 240x160 pictures equal the Mac's (`TMC_FRAME_HASH` with `TMC_PPU_DS_EFFECTS=1`; with GBA rounding 400 differ by one step in one channel), the border is clean on all of them; every 64th frame is shown three times and still matches; frames 0-1023 still equal the Mac's shadows. Present 1.6 ms, ended by line 217, 0 after VBlank. Frames 1024-2047 (no checks): game 0.21 ms, frame work 5.7 ms, 1,025 VBlanks; frames 0-1023 run at about half speed because of the checks (shadow CRC 9.0 ms, picture check 12.5 ms per 2 frames) |
 | 6 | **On the DSi.** Same build from TWiLight Menu++ and Unlaunch | `sd:/tmc/boot.txt` with SHA-1, load time, the frame-N CRCs (must equal melonDS's) and frame-time stats; **the user confirms the title screen visually** |
 
 Milestone 6 is the proof of concept: it boots in DSi mode, loads and relocates the

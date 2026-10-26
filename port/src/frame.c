@@ -166,7 +166,7 @@ static void CompareFrames(const uint16_t* scanline, const uint16_t* whole) {
     }
 }
 
-void HwRunFrame(uint16_t* framebuffer) {
+void HwRunLines(uint16_t* framebuffer) {
 #ifndef PLATFORM_DSI
     static uint16_t sWhole[PPU_WIDTH * PPU_HEIGHT], sScratch[PPU_WIDTH * PPU_HEIGHT];
 #else
@@ -236,6 +236,10 @@ void HwRunFrame(uint16_t* framebuffer) {
     if (sDebug.compare) {
         CompareFrames(draw, sWhole);
     }
+}
+
+void HwRunVBlank(void) {
+    int lyc;
 
     REG_VCOUNT = PPU_HEIGHT;
     REG_DISPSTAT = (REG_DISPSTAT & ~DISPSTAT_VCOUNT) | DISPSTAT_VBLANK;
@@ -252,4 +256,9 @@ void HwRunFrame(uint16_t* framebuffer) {
     }
     REG_DISPSTAT &= ~(DISPSTAT_VBLANK | DISPSTAT_VCOUNT);
     REG_VCOUNT = 0;
+}
+
+void HwRunFrame(uint16_t* framebuffer) {
+    HwRunLines(framebuffer);
+    HwRunVBlank();
 }

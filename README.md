@@ -607,6 +607,7 @@ Environment variables control the headless runner:
 | `TMC_LINE_STATS=1` | For every frame whose display registers change between lines, print `register/lines changed` |
 | `TMC_PPU_COMPARE=1` | Draw every frame both line by line and as a whole, and print the frames and lines where they differ |
 | `TMC_PPU_LEGACY=1` | Draw each frame as a whole before any mid-frame change (the renderer before scanline timing) |
+| `TMC_PPU_DS_EFFECTS=1` | Blend and fade with the DS's rounding (6-bit channels), for comparing pictures with the DSi port's display capture |
 | `TMC_WAV=path` | Record the run's sound to a WAV file (15768 Hz, or 48 kHz with `TMC_SOUND_QUALITY=hq`) |
 | `TMC_ROM=path` | Distributable build: extract the game data from this ROM if needed. Development build: check the built-in data against it |
 | `TMC_CACHE_DIR=dir` | Where the extracted game data lives (default `~/Library/Application Support/tmc_macos`) |

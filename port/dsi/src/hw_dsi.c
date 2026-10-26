@@ -12,6 +12,7 @@
 
 #include "port/hw.h"
 #include "port/platform.h"
+#include "port/ppu.h"
 #include "port/sound.h"
 
 #include "dsi.h"
@@ -108,6 +109,10 @@ static int RunTimed(uint16_t start) {
             count = i == 3 ? 0x10000 : 0x4000;
         }
         RunTransfer(ch->src, ch->dest, (ch->control & 0xFFFF0000u) | (count & 0xFFFF));
+        if (ch->dest >= gHwIo && ch->dest < gHwIo + HW_IO_SIZE) {
+            // As the Mac's: the presenter tracks the affine reference points.
+            PpuIoWritten(ch->dest - gHwIo, count * ((cnt & CNT_32BIT) ? 4 : 2));
+        }
         ch->src += Step(cnt, CNT_SRC_MASK, CNT_SRC_DEC, CNT_SRC_FIXED) * (int)count;
         if ((cnt & CNT_DEST_MASK) == CNT_DEST_RELOAD) {
             ch->dest = ch->destStart;

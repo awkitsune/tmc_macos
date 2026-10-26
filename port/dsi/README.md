@@ -239,9 +239,13 @@ python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_d
 .venv/bin/python -I port/dsi/tools/rom_crc.py build/dsi/tmc_dsi.elf baserom.gba
 ```
 
-At milestone 4 it loads, checks and relocates the ROM, then runs the game
-with nothing on screen. After 1,024 frames it logs the frame times (the copy's
-CRC depends on the build; `rom_crc.py` must print the same one):
+At milestone 5 it loads, checks and relocates the ROM, then runs the game
+on the top screen, centred with a black border. There is no input or sound
+yet. The first 1,024 frames run at about half speed: each one records the
+shadows' CRC and every even one captures the screen to check it (below). It
+logs the frame times after 1,024 frames and again, without the checks, after
+2,048 (the copy's CRC depends on the build; `rom_crc.py` must print the same
+one):
 
 ```
 TMC DSi port
@@ -252,27 +256,56 @@ heap 0x2174850-0x220c000
 read 16777216 bytes from sd:/tmc/baserom.gba in 5610 ms (read 931, SHA-1 4678)
 SHA-1 b4bd50e4131b027c334547b4524e2dbbd4227130
 relocated: 11547 add-base, 3117 symbol; 1425 EWRAM kept; 0 unexpected
-copy CRC32 1f90d077 (1525 ms)
+copy CRC32 96314ed8 (1307 ms)
 GBA slot unmapped (MPU)
 running the game
-frames 1-1024, game time per frame (us): min 14 avg 219 max 13400
-frame work (lines, DMA, IRQs) (us): min 3071 avg 3279 max 3693
-shadow CRC (us): avg 9774; DS VBlanks 1025 (1 game frames over one)
+frames 0-1023 (with the checks), game time per frame (us): min 15 avg 217 max 12973
+frame work (lines, DMA, IRQs, prepare) (us): min 5535 avg 5847 max 6326
+present (us): min 1592 avg 1597 max 1606, ended by line 217, 0 after VBlank
+shadow CRC (us): avg 9046; picture check avg 12543 per 2 frames
+DS VBlanks 1759 (716 game frames over one)
+presenter so far: two-window lines 0, wrap+OBJ-window lines 0, wrapped sprites 0, bitmap lines 0
+presenter so far: per-line DISPCNT in 1024 frames, other registers in 774, up to 2 words
+frames 1024-2047 (no checks), game time per frame (us): min 208 avg 211 max 219
+frame work (lines, DMA, IRQs, prepare) (us): min 5674 avg 5675 max 5699
+present (us): min 1596 avg 1596 max 1605, ended by line 217, 0 after VBlank
+DS VBlanks 1025 (0 game frames over one)
+...
 ```
 
-Compare the game's first 1,024 frames with the Mac headless build (the
-shadows' CRC and the game task, per frame):
+Compare the game's first 1,024 frames with the Mac headless build: the
+shadows' CRC and the game task on every frame, and the DS's display capture
+of every even frame with the Mac's picture. The DS rounds blends and fades
+on 6-bit channels, so the Mac draws with the same rounding
+(`TMC_PPU_DS_EFFECTS=1`; with the GBA's, pictures differ by at most one step
+in one channel):
 
 ```bash
-(cd build/native && TMC_FRAMES=1024 TMC_HW_HASH=/tmp/mac_hw.txt ./tmc)
+(cd build/native && TMC_FRAMES=1024 TMC_HW_HASH=/tmp/mac_hw.txt TMC_FRAME_HASH=/tmp/mac_pic.txt TMC_PPU_DS_EFFECTS=1 ./tmc)
 python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
-    --seconds 45 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img \
-    --gdb "dump binary value /tmp/dsi_frames.bin gDsiFrames"
-python3 -I port/dsi/scripts/compare_frames.py /tmp/mac_hw.txt /tmp/dsi_frames.bin
+    --seconds 120 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img \
+    --gdb "dump binary value /tmp/dsi_frames.bin gDsiFrames" \
+    --gdb "dump binary value /tmp/dsi_pics.bin gDsiPictures"
+python3 -I port/dsi/scripts/compare_frames.py /tmp/mac_hw.txt /tmp/dsi_frames.bin \
+    --pictures /tmp/mac_pic.txt /tmp/dsi_pics.bin
 ```
 
 which prints `frames 0-1023 match: CRC and task on every frame (233 distinct
-CRCs)`.
+CRCs)` and `pictures of the even frames 0-1022 match (512), border clean on
+every one`. Every 64th frame is shown for three DS frames before its capture,
+which checks the picture stays right when the game is slower than the screen.
+
+To find where one picture differs, dump that frame's whole capture and
+compare it with the Mac's screenshot:
+
+```bash
+(cd build/native && TMC_FRAMES=251 TMC_SCREENSHOT=250 TMC_SCREENSHOT_DIR=/tmp/shots TMC_PPU_DS_EFFECTS=1 ./tmc)
+touch port/dsi/src/present.c && make -C port/dsi -j4 DSI_DEFINES=-DDSI_CAPTURE_DUMP=250
+python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
+    --seconds 120 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img \
+    --gdb "dump binary memory /tmp/cap.bin (char*)gDsiCaptureDump (char*)gDsiCaptureDump+98304"
+python3 -I port/dsi/scripts/compare_picture.py /tmp/shots/frame_000250.png /tmp/cap.bin
+```
 
 The menu icon is the Mac app's (`port/src/macos/icon/icon_32.png`), converted
 by `tools/icon_bmp.py`; `icon_bmp.py --check` compares the icon in a built
@@ -289,6 +322,7 @@ those):
 | no ROM | "no ROM: put your USA ROM at sd:/tmc/baserom.gba", stops |
 | test build `make -C port/dsi DSI_DEFINES=-DDSI_TEST_STRAY_READ` (touch `src/main.c` first) | reading 0x08000000 aborts; the log shows PC in `main` and r3 = 08000000 |
 | game, frames 0-1023 | equal to the Mac's (`compare_frames.py`) |
+| pictures, even frames 0-1022 | equal to the Mac's with `TMC_PPU_DS_EFFECTS=1`, border clean (`compare_frames.py --pictures`) |
 
 ## ROM-data relocation figures
 

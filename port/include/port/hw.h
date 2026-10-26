@@ -88,6 +88,12 @@ void HwSystemCall(int number);
  */
 void HwSetKeys(uint16_t held);
 void HwRunFrame(uint16_t* framebuffer);
+/*
+ * HwRunFrame's two halves: the visible lines, then VBlank (DMA and interrupt).
+ * The DSi shows the lines' result in the DS VBlank between the two.
+ */
+void HwRunLines(uint16_t* framebuffer);
+void HwRunVBlank(void);
 
 /*
  * Debugging (port/gfxdebug.h): while not NULL, HwRunFrame copies the display

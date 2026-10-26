@@ -278,7 +278,36 @@ static void RenderObjs(int line, int oneDimensional, int mosaicH, ObjLine* out) 
 
 // ---- composition ----------------------------------------------------------------
 
+// TMC_PPU_DS_EFFECTS=1: colour effects as the DS's 2D engine computes them, on
+// 6-bit channels with rounding (melonDS's GPU2D), so the DSi port's display
+// capture can be compared bit for bit (port/dsi/PLAN.md, milestone 5).
+static int sDsEffects;
+
+static uint16_t DsBlend(uint16_t a, uint16_t b, int eva, int evb) {
+    uint16_t out = 0;
+
+    for (int shift = 0; shift < 15; shift += 5) {
+        int c = (((a >> shift) & 0x1F) * 2 * eva + ((b >> shift) & 0x1F) * 2 * evb + 8) >> 4;
+        out |= ((c > 63 ? 63 : c) >> 1) << shift;
+    }
+    return out;
+}
+
+static uint16_t DsBrightness(uint16_t color, int evy, int up) {
+    uint16_t out = 0;
+
+    for (int shift = 0; shift < 15; shift += 5) {
+        int c = ((color >> shift) & 0x1F) * 2;
+        c += up ? ((63 - c) * evy + 8) >> 4 : -((c * evy + 7) >> 4);
+        out |= (c >> 1) << shift;
+    }
+    return out;
+}
+
 static uint16_t Blend(uint16_t a, uint16_t b, int eva, int evb) {
+    if (sDsEffects) {
+        return DsBlend(a, b, eva, evb);
+    }
     int r = ((a & 0x1F) * eva + (b & 0x1F) * evb) >> 4;
     int g = (((a >> 5) & 0x1F) * eva + ((b >> 5) & 0x1F) * evb) >> 4;
     int bl = (((a >> 10) & 0x1F) * eva + ((b >> 10) & 0x1F) * evb) >> 4;
@@ -286,6 +315,9 @@ static uint16_t Blend(uint16_t a, uint16_t b, int eva, int evb) {
 }
 
 static uint16_t Brightness(uint16_t c, int evy, int up) {
+    if (sDsEffects) {
+        return DsBrightness(c, evy, up);
+    }
     int ch[3] = { c & 0x1F, (c >> 5) & 0x1F, (c >> 10) & 0x1F };
     for (int i = 0; i < 3; i++) {
         ch[i] += up ? ((31 - ch[i]) * evy) >> 4 : -((ch[i] * evy) >> 4);
@@ -305,6 +337,12 @@ unsigned PpuLayerMask(void) {
 }
 
 void PpuBeginFrame(void) {
+    static int sReady;
+
+    if (!sReady) {
+        sReady = 1;
+        sDsEffects = getenv("TMC_PPU_DS_EFFECTS") != NULL;
+    }
     for (int i = 0; i < 2; i++) {
         sRefX[i] = Reg28(0x28 + i * 0x10);
         sRefY[i] = Reg28(0x2C + i * 0x10);

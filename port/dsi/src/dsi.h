@@ -16,7 +16,7 @@ void DsiLog(const char* format, ...) __attribute__((format(printf, 1, 2)));
 _Noreturn void DsiFatal(const char* format, ...) __attribute__((format(printf, 1, 2)));
 #define DSI_LOG_SIZE 4096
 extern char gDsiLog[DSI_LOG_SIZE];
-/* Set once the log is complete (milestone 4: after DSI_FRAME_RECORDS frames). */
+/* Set once the log is complete (after 2 * DSI_FRAME_RECORDS frames). */
 extern volatile int gDsiLogDone;
 
 /* The GBA IWRAM (32 KB): the game's IWRAM globals live here (ram_layout.ld). */
@@ -72,16 +72,59 @@ typedef struct {
 } DsiFrameRecord;
 extern DsiFrameRecord gDsiFrames[DSI_FRAME_RECORDS];
 
-/* Frame times in timer ticks (33.514 MHz), logged after DSI_FRAME_RECORDS frames. */
+/*
+ * Frame times in timer ticks (33.514 MHz), logged for frames 0-1023 (with the
+ * checks above) and 1024-2047 (without).
+ */
 typedef struct {
-    uint32_t frames, vblanks, late; // late: game frames that took over one DS VBlank
+    uint32_t first, frames;          // the window: frames first .. first + frames - 1
+    uint32_t vblanks, late;          // DS VBlanks at its start; game frames that took over one
     uint32_t gameMin, gameMax;      // the game's own work between frames
-    uint32_t workMin, workMax;      // frame.c: lines, DMA, interrupt handlers
-    uint64_t gameSum, workSum, crcSum;
+    uint32_t workMin, workMax;      // frame.c: lines, DMA, interrupt handlers; the presenter's prepare
+    uint32_t presentMin, presentMax; // DsiPresent, in the DS VBlank
+    uint32_t presentLate;           // presents that ended after the VBlank
+    uint32_t lastLine;              // the latest DS line a present ended on (192-262)
+    uint64_t gameSum, workSum, crcSum, presentSum, pictureSum;
 } DsiFrameStats;
 extern DsiFrameStats gDsiFrameStats;
 
-/* The presenter: game shadows to the DS display, once per frame at VBlank. */
+/*
+ * The presenter (present.c): the game's shadows on the top screen. Init once;
+ * per frame, Prepare after the frame's lines (HwRunLines) and Present in the
+ * DS VBlank, before the frame's VBlank half (HwRunVBlank). PresentVBlank runs
+ * in the VBlank interrupt of every DS frame, presented or not.
+ */
+void DsiPresentInit(void);
+void DsiPresentPrepare(void);
 void DsiPresent(void);
+/* From the VBlank interrupt: re-arm the shown frame's per-line registers. */
+void DsiPresentVBlank(void);
+
+/* What the presenter could not show as the Mac does, and what it used. */
+typedef struct {
+    uint32_t twoWindowLines; // both game windows on one line: no side columns
+    uint32_t wrapLines;      // a wrapped game window with the OBJ window on
+    uint32_t wrappedSprites; // 128-line sprites the DS wraps differently
+    uint32_t bitmapLines;    // GBA bitmap modes (not shown)
+    uint32_t dispcntFrames;  // frames whose DISPCNT changes between DS lines
+    uint32_t regFrames;      // frames with other registers changing between lines
+    int32_t maxDmaWords;     // most register words written per HBlank
+} DsiPresentCounts;
+extern DsiPresentCounts gDsiPresentCounts;
+
+/*
+ * The picture check: display capture of a presented frame into bank D, then
+ * its 240x160 picture's CRC (as the Mac's TMC_FRAME_HASH) and the number of
+ * border pixels unlike the top-left one. Even frames of the first
+ * DSI_FRAME_RECORDS (a capture takes the next DS frame) go to gDsiPictures;
+ * with -DDSI_CAPTURE_DUMP=n, frame n's whole capture is kept in gDsiCaptureDump.
+ */
+typedef struct {
+    uint32_t crc, border;
+} DsiPicture;
+#define DSI_PICTURES (DSI_FRAME_RECORDS / 2)
+extern DsiPicture gDsiPictures[DSI_PICTURES];
+void DsiCaptureStart(void);
+bool DsiCaptureResult(uint32_t frame, DsiPicture* picture);
 
 #endif // DSI_H
