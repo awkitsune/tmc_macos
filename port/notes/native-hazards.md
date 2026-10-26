@@ -412,3 +412,15 @@ count against the definition's parameter count). Fixed under `#ifdef PLATFORM_NA
 - vaati `CreateRepeatedSoundManager(super)` / `DeleteRepeatedSoundManager(super)`: the script context, which
   they read (`context->intVariable`).
 - room.c `sub_080186EC()` takes a parameter it never reads: left alone.
+
+## Arrays indexed past their declared count, with elements that grow natively
+
+`gNPCData` is declared `NPCStruct[50]`, but the game indexes it far past 50 into the rest of its GBA region
+(4096 bytes: 256 entries of 16). `NPCStruct` holds a script pointer, so natively an entry is 24 bytes, and
+the block, sized to the GBA region's bytes, held only 170. Hyrule Town after the Deepwood Shrine
+(DelayedEntityLoadManager filling townspeople at `type2 + gArea.filler[1]`) wrote past it into the manager
+slots (`gUnk_02033290`): the first slot's links became `NULL` / `0x03ff0000` and the next walk of the manager
+list (a townsperson's `sub_0805ACC0`) crashed. Found with a watchpoint on the slot from the player's state.
+Fixed in the RAM layout (`port/tools/datagen/ram.py`): a fixed-address array whose element is bigger natively
+gets room for as many elements as its GBA region holds. Only `gNPCData` changed size. The room smoke test did
+not see it: its checkpoint is from before the town fills up.

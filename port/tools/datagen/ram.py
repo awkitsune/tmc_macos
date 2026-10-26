@@ -3,7 +3,8 @@
 Symbols at the same address share one block (they overlay each other on GBA).
 A block is as large as the biggest native type declared for it, and at least as
 large as its GBA region (up to the next fixed symbol), since decomp code often
-indexes past a variable's declared type into the rest of its region. Symbols with
+indexes past a variable's declared type into the rest of its region; an array
+whose elements grow natively gets room for as many as the GBA region holds. Symbols with
 no C declaration get twice their region, enough if it holds only pointers.
 
 Symbols that alias a field of a struct variable on GBA (hints.txt `=name
@@ -51,9 +52,16 @@ def emit_ram(linker_script: Path, linked: dict, types: TypeDB, aliases: dict, ou
         declared = [types.decls.get(name) for name in names]
         if all(t is None for t in declared):
             size *= 2  # no C type: allow for every word being a widened pointer
+        region = size
         for t in declared:
             if t is not None and not (t[0] == "array" and t[2] is None) and t[0] not in ("func", "void"):
                 size = max(size, types.layout(t, "native").size)
+            if t is not None and t[0] == "array":
+                # Indexed past its declared count into the region (gNPCData[50] fills 317 entries
+                # on GBA): room for as many elements as the region holds there, at their native size.
+                gba, native = types.layout(t[1], "gba").size, types.layout(t[1], "native").size
+                if gba and native > gba:
+                    size = max(size, -(-region // gba) * native)
         lines.append("\t.p2align 4")
         for name in names:
             lines += [f"\t.globl _{name}", f"_{name}:"]
