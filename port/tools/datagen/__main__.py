@@ -80,6 +80,8 @@ def main() -> int:
     ap.add_argument("--gba-build", type=Path, default=Path("build/USA"))
     ap.add_argument("--out", type=Path, default=Path("build/native/data"))
     ap.add_argument("--check", action="store_true", help="classify and report without writing output")
+    ap.add_argument("--raw-pointers", type=Path,
+                    help="also list the raw GBA addresses in pointer fields (ROM address, value), for the DSi port")
     ap.add_argument("--no-bake", dest="bake", action="store_false",
                     help="leave the extracted assets' bytes out; the program extracts them from a ROM at runtime")
     args = ap.parse_args()
@@ -154,6 +156,8 @@ def main() -> int:
         f"#define SCRIPT_POINTER_TAG {emitter.script_tag:#010x}u\n"
         f"#define SCRIPT_POINTER_TAG_MASK 0xff000000u\n"
     )
+    if args.raw_pointers is not None:
+        args.raw_pointers.write_text("".join(f"{rom:#010x} {value:#010x}\n" for rom, value in sorted(model.raw_pointers)))
     notes = [f"{name}: {why}" for name, why in model.c_fixes] + model.warnings
     (out / "notes.txt").write_text("\n".join(notes) + "\n")
     if notes:

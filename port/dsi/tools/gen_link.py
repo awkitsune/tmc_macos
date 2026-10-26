@@ -2,11 +2,14 @@
 """Generate the DSi build's link inputs from the GBA build.
 
     python3 -I port/dsi/tools/gen_link.py --relocs-elf RELINK.elf --map build/USA/tmc.map \
-        --linker-ld build/USA/linker.ld --native-defs DEFS.txt --out build/dsi/gen
+        --linker-ld build/USA/linker.ld --native-defs DEFS.txt --raw-pointers RAW.txt --out build/dsi/gen
 
 RELINK.elf is the GBA link redone with -q (--emit-relocs), see port/dsi/README.md.
 DEFS.txt lists the global symbols the DSi objects define (one per line, from nm):
-the binary's own definitions win over the ROM copy's.
+the binary's own definitions win over the ROM copy's. RAW.txt lists the pointer
+fields of data objects that hold a raw GBA address with no relocation, such as a
+tileset's VRAM destination (port/tools/datagen --raw-pointers: ROM address and
+value per line); the hardware ones go to the shadows, as on the Mac.
 
 Writes into --out:
 
@@ -37,6 +40,9 @@ from elftools.elf.elffile import ELFFile
 ROM_BASE = 0x08000000
 EWRAM_BASE, EWRAM_SIZE = 0x02000000, 0x40000
 IWRAM_BASE, IWRAM_SIZE = 0x03000000, 0x8000
+# GBA hardware regions and their shadows (port/include/port/hw.h).
+HW_SHADOWS = {0x04: ("gHwIo", 0x400, "I/O"), 0x05: ("gHwPltt", 0x400, "palette"),
+              0x06: ("gHwVram", 0x18000, "VRAM"), 0x07: ("gHwOam", 0x400, "OAM")}
 # The ROM copy sits at the top of main RAM, below the 48 KB libnds keeps
 # (DTCM and the loader's area from 0x02FF4000).
 RAM_TOP = 0x02FF4000
@@ -96,6 +102,7 @@ def main():
     parser.add_argument("--map", required=True)
     parser.add_argument("--linker-ld", required=True)
     parser.add_argument("--native-defs", required=True)
+    parser.add_argument("--raw-pointers", required=True)
     parser.add_argument("--rom-end", type=lambda s: int(s, 0),
                         help="end of the ROM range copied to RAM (default: all used ROM)")
     parser.add_argument("--out", required=True)
@@ -286,6 +293,26 @@ def main():
             kinds["IWRAM (into gDsiIwram)"] += 1
         else:
             errors.append("0x%08X -> 0x%08X: unexpected target" % (offset, value))
+    # Raw GBA addresses in pointer fields (datagen's list): the hardware ones point
+    # into the shadows, EWRAM stays, IWRAM goes to gDsiIwram.
+    for line in open(args.raw_pointers):
+        offset, value = (int(field, 16) for field in line.split())
+        region = value >> 24
+        if not is_data(offset) or offset >= rom_end:
+            errors.append("raw pointer at 0x%08X: not in a data object in the copy" % offset)
+        elif word(offset) != value:
+            errors.append("raw pointer at 0x%08X: the GBA link has 0x%08X, not 0x%08X" % (offset, word(offset), value))
+        elif region in HW_SHADOWS and value - (region << 24) < HW_SHADOWS[region][1]:
+            symbol_entries.append((offset, HW_SHADOWS[region][0], value - (region << 24)))
+            kinds["raw %s address (into %s)" % (HW_SHADOWS[region][2], HW_SHADOWS[region][0])] += 1
+        elif region == 2 and EWRAM_BASE <= value < EWRAM_BASE + EWRAM_SIZE:
+            kept.append(offset)
+            kinds["raw EWRAM address (kept)"] += 1
+        elif region == 3:
+            symbol_entries.append((offset, "gDsiIwram", value - IWRAM_BASE))
+            kinds["raw IWRAM address (into gDsiIwram)"] += 1
+        else:
+            errors.append("raw pointer at 0x%08X -> 0x%08X: not handled" % (offset, value))
     adds.sort()
     kept.sort()
     symbol_entries.sort()

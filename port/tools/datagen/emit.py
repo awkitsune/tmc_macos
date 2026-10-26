@@ -116,6 +116,7 @@ class DataModel:
         self.problems = []
         self.c_fixes = []  # (label, reason): C declarations that must change for native
         self.warnings = []
+        self.raw_pointers = []  # (ROM address, GBA address): raw addresses in pointer fields, made native
         self.room_hints = list(room_hints)
         self.list_type = ("record", "EntityData" if "EntityData" in types.records else "struct EntityData")
         self.derived_lists = []  # room properties typed as entity lists by RoomLists
@@ -398,6 +399,12 @@ class Emitter:
 
     def hardware_address(self, addr: int, label, off) -> str:
         """Native expression for a raw GBA address stored in a pointer field."""
+        expr = self._raw_address(addr, label, off)
+        if expr is not None:
+            self.model.raw_pointers.append((label.section.base + off, addr))
+        return expr
+
+    def _raw_address(self, addr: int, label, off) -> str:
         region = addr >> 24
         if region in self.HW_REGIONS:
             name, size = self.HW_REGIONS[region]

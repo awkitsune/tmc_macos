@@ -199,7 +199,8 @@ bool DsiRomRelocate(void) {
         uint32_t value = LoadWord(copy + gRomRelocSymbols[2 * i]);
         uint32_t region = value >> 24;
 
-        if (region != 0x08 && region != 0x09 && region != IWRAM_BASE >> 24) {
+        // ROM, IWRAM, or a raw GBA hardware address (into its shadow).
+        if (region != 0x08 && region != 0x09 && region != IWRAM_BASE >> 24 && (region < 0x04 || region > 0x07)) {
             unexpected++;
         }
         StoreWord(copy + gRomRelocSymbols[2 * i], gRomRelocSymbols[2 * i + 1]);

@@ -259,7 +259,7 @@ binary end 0x2173e34, ROM copy 0x220c000-0x2ff3da4
 heap 0x2174850-0x220c000
 read 16777216 bytes from sd:/tmc/baserom.gba in 5610 ms (read 931, SHA-1 4678)
 SHA-1 b4bd50e4131b027c334547b4524e2dbbd4227130
-relocated: 11547 add-base, 3117 symbol; 1425 EWRAM kept; 0 unexpected
+relocated: 11547 add-base, 3469 symbol; 1442 EWRAM kept; 0 unexpected
 copy CRC32 96314ed8 (1307 ms)
 GBA slot unmapped (MPU)
 running the game
@@ -299,6 +299,27 @@ which prints `frames 0-1023 match: CRC and task on every frame (233 distinct
 CRCs)` and `pictures of the even frames 0-1022 match (512), border clean on
 every one`. Every 64th frame is shown for three DS frames before its capture,
 which checks the picture stays right when the game is slower than the screen.
+
+Past the title screen, a checks build plays the buttons from `tmc/input.txt`
+on the SD image (the frame steps of the Mac's `TMC_INPUT`). Record them from
+a Mac run of a play script, and record as many frames as it takes
+(`DSI_RECORDS`; with the checks a game frame takes about two DS frames, so
+13,312 frames need about 8 minutes; GDB dumps values up to 64 KB, so the
+records are dumped as memory, 8 bytes a frame and 8 a picture):
+
+```bash
+(cd build/native && TMC_FRAMES=13312 TMC_INPUT=@$PWD/../../port/scripts/play/01_new_game.txt \
+    TMC_RECORD_INPUT=/tmp/tmcsd/tmc/input.txt TMC_HW_HASH=/tmp/mac_hw.txt \
+    TMC_FRAME_HASH=/tmp/mac_pic.txt TMC_PPU_DS_EFFECTS=1 ./tmc)
+/opt/wonderful/thirdparty/blocksds/core/tools/mkfatimg/mkfatimg /tmp/tmcsd /tmp/tmcsd.img 65536 4096
+make -C port/dsi -j4 DSI_CHECKS=1 DSI_RECORDS=13312
+python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_dsi.elf \
+    --seconds 480 --symbol gDsiLog --done-symbol gDsiLogDone --sd-image /tmp/tmcsd.img \
+    --gdb "dump binary memory /tmp/dsi_frames.bin (char*)&gDsiFrames (char*)&gDsiFrames+106496" \
+    --gdb "dump binary memory /tmp/dsi_pics.bin (char*)&gDsiPictures (char*)&gDsiPictures+53248"
+python3 -I port/dsi/scripts/compare_frames.py /tmp/mac_hw.txt /tmp/dsi_frames.bin \
+    --pictures /tmp/mac_pic.txt /tmp/dsi_pics.bin
+```
 
 To find where one picture differs, dump that frame's whole capture and
 compare it with the Mac's screenshot:

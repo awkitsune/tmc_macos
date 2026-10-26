@@ -89,8 +89,8 @@ static void Report(const char* what) {
  *
  * With DSI_CHECKS the first DSI_FRAME_RECORDS frames keep the shadows' CRC and
  * the game's task for the comparison with the Mac's TMC_HW_HASH, and the even
- * ones a capture of the picture for TMC_FRAME_HASH. Those frames have all keys
- * up, as the Mac headless run without a script.
+ * ones a capture of the picture for TMC_FRAME_HASH. Those frames take their
+ * keys from tmc/input.txt (all up without one), as the Mac's from TMC_INPUT.
  */
 void PlatformVBlank(void) {
     DsiFrameStats* s = &gDsiFrameStats;
@@ -101,7 +101,7 @@ void PlatformVBlank(void) {
         Track(&s->gameMin, &s->gameMax, &s->gameSum, start - sLeft);
     }
     scanKeys();
-    HwSetKeys(DSI_CHECKS && frame < DSI_FRAME_RECORDS ? 0 : keysHeld() & 0x3FF);
+    HwSetKeys(DSI_CHECKS && frame < DSI_FRAME_RECORDS ? DsiInputKeys(frame) : keysHeld() & 0x3FF);
     HwRunLines(NULL);
     DsiPresentPrepare();
     work = cpuGetTiming() - start;
@@ -182,6 +182,9 @@ _Noreturn void DsiRunGame(void) {
     irqEnable(IRQ_VBLANK);
     cpuStartTiming(0);
     DsiPresentInit();
+    if (DSI_CHECKS) {
+        DsiInputLoad();
+    }
     DsiLog("running the game\n");
     HwSetKeys(0); // KEYINPUT is active low: all zero would be every key held
     setjmp(sResetPoint);

@@ -220,6 +220,18 @@ Relocation figures from the generator (milestone 2):
 | to C rodata and port data | 6 | symbol entry |
 | to EWRAM | 1,425 | none: same address |
 | **total** | **16,089** | 3,117 symbol entries, 24,936 bytes |
+| raw VRAM addresses in pointer fields (since milestone 5) | 352 | symbol entry: `gHwVram` + offset |
+| raw EWRAM addresses in pointer fields (since milestone 5) | 17 | none: same address |
+
+The last two rows are not relocations: the data holds GBA hardware or RAM
+addresses as plain numbers, such as a tileset's VRAM destination
+(`MapDataDefinition.dest`, used by `LoadMapData`). The Mac's datagen already
+points those at the shadows because it knows which fields are pointers; the DSi
+build runs it with `--raw-pointers` for the list (`raw_pointers.txt`, about a
+minute, only when the GBA build changes). Without them, room tilesets went into
+the real DS VRAM bank A, the presenter overwrote them, and rooms showed the
+previous room's tiles (found after milestone 5, when buttons got past the title
+screen).
 
 That is the 15,849 of the measurements plus 240 in the two asm data tables. Nine
 targets the measurements counted as C rodata are byte-aligned data symbols
@@ -375,16 +387,16 @@ As built at milestone 3 (`port/dsi/src/rom.c`, `sha1.c`; the CRC is `port/src/hw
 5. **Relocate**, checking each word before it changes:
    - "add base" entries: the word must be a ROM address inside the copy, then
      `*(u32*)(copy + off) += (u32)__rom_copy - 0x08000000`;
-   - symbol entries: the word must be a ROM or IWRAM address, then
+   - symbol entries: the word must be a ROM, IWRAM or GBA hardware address, then
      `*(u32*)(copy + off) = value`, where the linker has already put the ARM9
      address in `value`. A Thumb function gets bit 0 set by the linker because
      the reference is to an `STT_FUNC` symbol, so a function compiled `-marm`
      later stays correct;
-   - kept entries (pointers into EWRAM, which keeps its GBA addresses): the word
+   - kept entries (pointers and raw addresses into EWRAM, which keeps its GBA addresses): the word
      must be in 0x02000000-0x0203FFFF; nothing is written;
    - then the data cache is flushed over the copy.
 6. **Self-check.** The counts per kind must equal the generator's (11,547
-   add-base, 3,117 symbol, 1,425 kept) and no word may be unexpected. Then the
+   add-base, 3,469 symbol, 1,442 kept since milestone 5) and no word may be unexpected. Then the
    log shows the CRC32 of the whole relocated copy. `port/dsi/tools/rom_crc.py`
    computes the same CRC on the host from the ROM and the lists in the built
    ELF.

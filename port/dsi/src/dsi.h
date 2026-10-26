@@ -65,12 +65,21 @@ _Noreturn void DsiRunGame(void);
  * shadows' CRC (HwShadowCrc) and the game's task, as the Mac's TMC_HW_HASH
  * writes them (read through GDB, port/dsi/scripts/compare_frames.py).
  */
+#ifndef DSI_FRAME_RECORDS
 #define DSI_FRAME_RECORDS 1024
+#endif
 typedef struct {
     uint32_t crc;
     uint8_t task, state, substate, fade;
 } DsiFrameRecord;
 extern DsiFrameRecord gDsiFrames[DSI_FRAME_RECORDS];
+
+/*
+ * Scripted buttons for the recorded frames of a DSI_CHECKS build (input_dsi.c):
+ * tmc/input.txt, frame steps of the Mac's TMC_INPUT syntax. No file, no keys.
+ */
+void DsiInputLoad(void);
+uint16_t DsiInputKeys(uint32_t frame);
 
 /*
  * Frame times in timer ticks (33.514 MHz), logged for frames 0-1023 (with the
