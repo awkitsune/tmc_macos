@@ -456,7 +456,13 @@ u32 UpdatePlayerCollision(void) {
             index = 0;
             tmp3 = 0;
             while (index < 3) {
+#ifdef PLATFORM_NATIVE
+                // No copies: gPlayerClones[0] is NULL (the GBA reads the BIOS); take it as no copy on a tile.
+                if (gPlayerClones[0] != NULL &&
+                    (((*(u32*)(&(((GenericEntity*)gPlayerClones[0]))->field_0x6c)) & (1 << index)) != 0) &&
+#else
                 if ((((*(u32*)(&(((GenericEntity*)gPlayerClones[0]))->field_0x6c)) & (1 << index)) != 0) &&
+#endif
                     (sub_0801A570(gPlayerClones[index], 0) == position)) {
                     tmp3++;
                 }

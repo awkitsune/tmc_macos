@@ -495,5 +495,7 @@ Other `%` by a value that can be 0 have not been swept.
 rest stay NULL while `PL_CLONING` is set. `sub_080171F0` (every player update) cleared `spriteOffsetY` on all
 three, and pressurePlate `get_standing_count` passes each to `IsColliding`; the GBA reads and writes BIOS
 through the NULL slots. Natively the first one crashed as soon as a copy was made. Fixed under
-`#ifdef PLATFORM_NATIVE` by skipping NULL slots (pressure plates treat them as not standing). The other uses
-check the slot (`sub_0801A8D0`, ghini, enemy50) or a per-copy bit first (`sub_0801A570`).
+`#ifdef PLATFORM_NATIVE` by skipping NULL slots: pressure plates and floor buttons (button.c `sub_08081D74`,
+`EntityInRectRadius` per slot) treat them as not standing, and the push tile `ACT_TILE_114` (beanstalkSubtask.c)
+reads copy 0's per-copy bits only when copy 0 exists. Swept every `gPlayerClones` use: the rest check the slot
+(`sub_0801A8D0`, ghini, enemy50, macroBook, button.c's push) or are a copy reaching its own slot (playerClone.c).

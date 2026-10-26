@@ -175,6 +175,12 @@ Entity* sub_08081D74(ButtonEntity* this) {
     if (GetCollisionDataAtTilePos(this->tilePos, super->collisionLayer) == COLLISION_DATA_15) {
         return NULL;
     }
+#ifdef PLATFORM_NATIVE
+// An unused copy slot is NULL (fewer than three copies); the GBA reads BIOS bytes through it.
+#define CLONE_IN_RECT(i) (gPlayerClones[i] != NULL && EntityInRectRadius(super, gPlayerClones[i], 5, 6))
+#else
+#define CLONE_IN_RECT(i) EntityInRectRadius(super, gPlayerClones[i], 5, 6)
+#endif
     ent = 0;
     if (sub_08081E0C(super)) {
         if ((gPlayerState.flags & PL_CAPTURED) == 0 && (gPlayerState.flags & PL_MINISH) == 0) {
@@ -182,11 +188,11 @@ Entity* sub_08081D74(ButtonEntity* this) {
         }
     } else {
         if (gPlayerState.flags & PL_CLONING) {
-            if (EntityInRectRadius(super, gPlayerClones[0], 5, 6)) {
+            if (CLONE_IN_RECT(0)) {
                 ent = gPlayerClones[0];
-            } else if (EntityInRectRadius(super, gPlayerClones[1], 5, 6)) {
+            } else if (CLONE_IN_RECT(1)) {
                 ent = gPlayerClones[1];
-            } else if (EntityInRectRadius(super, gPlayerClones[2], 5, 6)) {
+            } else if (CLONE_IN_RECT(2)) {
                 ent = gPlayerClones[2];
             }
         }
