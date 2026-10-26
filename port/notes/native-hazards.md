@@ -488,3 +488,12 @@ divisor (`Ldiv0`: `bl __div0; movs r0, #0`). Natively, arm64 `sdiv` gives 0 for 
 "moved" the cursor to the cleared position 0 and drew an arrow over the first letters of the text box. Fixed
 under `#ifdef PLATFORM_NATIVE` (count 0 gives 0). Found with a save state at a Business Scrub ("No, thanks").
 Other `%` by a value that can be 0 have not been swept.
+
+## Unused copy slots (Four Sword clones)
+
+`gPlayerClones[3]` holds the copies; with fewer than three (the first Crystal Sanctuaries give one or two) the
+rest stay NULL while `PL_CLONING` is set. `sub_080171F0` (every player update) cleared `spriteOffsetY` on all
+three, and pressurePlate `get_standing_count` passes each to `IsColliding`; the GBA reads and writes BIOS
+through the NULL slots. Natively the first one crashed as soon as a copy was made. Fixed under
+`#ifdef PLATFORM_NATIVE` by skipping NULL slots (pressure plates treat them as not standing). The other uses
+check the slot (`sub_0801A8D0`, ghini, enemy50) or a per-copy bit first (`sub_0801A570`).

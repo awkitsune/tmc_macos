@@ -118,6 +118,13 @@ static u32 sub_08088938(PressurePlateEntity* this) {
     return num;
 }
 
+#ifdef PLATFORM_NATIVE
+// An unused copy slot is NULL (fewer than three copies); the GBA reads BIOS bytes through it.
+#define CLONE_PRESENT(i) (gPlayerClones[i] != NULL)
+#else
+#define CLONE_PRESENT(i) 1
+#endif
+
 static u32 get_standing_count(PressurePlateEntity* this) {
     u32 num;
 
@@ -127,15 +134,15 @@ static u32 get_standing_count(PressurePlateEntity* this) {
         num = 1;
     }
     if ((gPlayerState.flags & PL_CLONING) != 0) {
-        if (IsColliding(super, gPlayerClones[0]) != 0) {
+        if (CLONE_PRESENT(0) && IsColliding(super, gPlayerClones[0]) != 0) {
             gPlayerClones[0]->spriteOffsetY = sSpriteOffsets[this->dir];
             num++;
         }
-        if (IsColliding(super, gPlayerClones[1]) != 0) {
+        if (CLONE_PRESENT(1) && IsColliding(super, gPlayerClones[1]) != 0) {
             gPlayerClones[1]->spriteOffsetY = sSpriteOffsets[this->dir];
             num++;
         }
-        if (IsColliding(super, gPlayerClones[2]) != 0) {
+        if (CLONE_PRESENT(2) && IsColliding(super, gPlayerClones[2]) != 0) {
             gPlayerClones[2]->spriteOffsetY = sSpriteOffsets[this->dir];
             num++;
         }

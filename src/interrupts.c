@@ -379,8 +379,18 @@ static void sub_080171F0(void) {
     gPlayerState.spriteOffsetY = 0;
     sub_0807B0C8();
 
-    if (gPlayerState.flags & PL_CLONING)
+    if (gPlayerState.flags & PL_CLONING) {
+#ifdef PLATFORM_NATIVE
+        // With fewer than three copies (the first Crystal Sanctuaries) the unused slots are NULL; the GBA's
+        // stores through them go to the BIOS and are lost.
+        for (u32 i = 0; i < 3; i++) {
+            if (gPlayerClones[i] != NULL)
+                gPlayerClones[i]->spriteOffsetY = 0;
+        }
+#else
         gPlayerClones[0]->spriteOffsetY = gPlayerClones[1]->spriteOffsetY = gPlayerClones[2]->spriteOffsetY = 0;
+#endif
+    }
 
     if (gPlayerEntity.base.action == PLAYER_CLIMB)
         gPlayerState.flags |= PL_CLIMBING;
