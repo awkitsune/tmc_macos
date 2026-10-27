@@ -65,6 +65,15 @@ static int RoomIsValid(int area, int room) {
            gAreaTable[area][room] != NULL;
 }
 
+// For the app's Map window (port/mapview.h).
+int WarpRoomCount(int area) {
+    return area >= 0 && area < WARP_AREA_COUNT ? RoomCount(area) : 0;
+}
+
+int WarpRoomIsValid(int area, int room) {
+    return RoomIsValid(area, room);
+}
+
 // The first transition in the game's exit lists that leads into area:room.
 static const Transition* FindEntrance(int area, int room) {
     for (int a = 0; a < WARP_AREA_COUNT; a++) {
@@ -86,7 +95,9 @@ static const Transition* FindEntrance(int area, int room) {
     return NULL;
 }
 
-static enum { WARP_OFF, WARP_WAITING, WARP_GOING, WARP_ARRIVED } sWarpState;
+// Also in mapview.c.
+enum { WARP_OFF, WARP_WAITING, WARP_GOING, WARP_ARRIVED };
+static int sWarpState;
 static int sArea, sRoom, sX = -1, sY = -1, sNudge;
 static int sItems[2];
 
@@ -123,6 +134,7 @@ int WarpRequest(int area, int room, int x, int y) {
     sRoom = room;
     sX = x;
     sY = y;
+    sNudge = 0;
     sWarpState = WARP_WAITING;
     return 1;
 }
@@ -163,8 +175,9 @@ static void MoveToWalkableTile(void) {
     printf("warp: no walkable tile near the player\n");
 }
 
-// Called once per frame by the runner, before input.
-void WarpUpdate(unsigned long long frame) {
+// Called once per frame by the runner, before input (and by the app's Map window, mapview.c).
+// Returns the warp's state.
+int WarpUpdate(unsigned long long frame) {
     if (sWarpState == WARP_WAITING && HasControl()) {
         Transition t = { 0 };
         const Transition* entrance = FindEntrance(sArea, sRoom);
@@ -202,6 +215,7 @@ void WarpUpdate(unsigned long long frame) {
         }
         sWarpState = WARP_ARRIVED;
     }
+    return sWarpState;
 }
 
 // The line the smoke test reads at the end of a run.

@@ -21,6 +21,10 @@
  *                            "warp: end ..." with the room it is in when the run
  *                            ends. TMC_WARP_ITEMS=A,B also equips those items
  *                            (ids from include/item.h) when the warp starts
+ *   TMC_MAPVIEW=K            every K frames, the macOS Map window's view of the
+ *                            room as its summary line (port/src/mapview.c);
+ *                            TMC_MAPVIEW_REQUEST=F:move:X,Y or F:warp:AA:RR makes
+ *                            one of the window's requests from frame F on
  *
  * Graphics dumps (port/gfxdebug.h), each a frame list (F,F,... or every:K), of
  * the hardware as that frame was drawn:
@@ -52,6 +56,7 @@
 #include <zlib.h>
 
 #include "port/gfxdebug.h"
+#include "port/mapview.h"
 #include "port/headless_state.h"
 #include "port/hw.h"
 #include "port/platform.h"
@@ -67,7 +72,7 @@ void CheckEntityLists(const char* path); // entitylistcheck.c
 void TracePlayer(uint64_t frame);
 int WarpRequest(int area, int room, int x, int y);
 void WarpSetItems(int a, int b);
-void WarpUpdate(unsigned long long frame);
+int WarpUpdate(unsigned long long frame);
 void WarpReport(unsigned long long frame);
 
 void AgbMain(void);
@@ -388,6 +393,47 @@ static void MaybeDumpMap(void) {
     snprintf(path, sizeof(path), "%s/map_%02x_%02x.png", sMapDir, s.area, s.room);
     DumpRoomMap(path);
 }
+
+// TMC_MAPVIEW=K: every K frames, take the macOS Map window's view of the room (mapview.c) and
+// print its summary line. TMC_MAPVIEW_REQUEST=F:move:X,Y (room pixels) or F:warp:AA:RR (hex): from
+// frame F on, make one of the window's requests, carried out as the app does (at a loop boundary;
+// a warp then goes on every frame), printing what became of it.
+static uint64_t sMapViewEvery;
+static const char* sMapViewRequest;
+
+static void MapViewFrame(void) {
+    static MapViewState sState;
+    static MapViewImage sImage;
+    static int sWarping;
+    char message[160] = "";
+    unsigned long long from;
+    int a, b;
+
+    if (sMapViewRequest != NULL && PlatformAtLoopBoundary() && sscanf(sMapViewRequest, "%llu:", &from) == 1 &&
+        gPlatformFrame >= from) {
+        const char* what = strchr(sMapViewRequest, ':') + 1;
+        if (sscanf(what, "move:%d,%d", &a, &b) == 2) {
+            MapViewMovePlayer(a, b, message, sizeof(message));
+        } else if (sscanf(what, "warp:%x:%x", &a, &b) == 2) {
+            sWarping = MapViewWarp(a, b, message, sizeof(message));
+        } else {
+            snprintf(message, sizeof(message), "TMC_MAPVIEW_REQUEST: cannot read '%s'", sMapViewRequest);
+        }
+        sMapViewRequest = NULL;
+    } else if (sWarping && PlatformAtLoopBoundary()) {
+        sWarping = MapViewUpdate(gPlatformFrame, message, sizeof(message));
+    }
+    if (message[0] != 0) {
+        printf("frame %llu: mapview: %s\n", (unsigned long long)gPlatformFrame, message);
+    }
+    if (sMapViewEvery != 0) {
+        MapViewCapture(&sState, &sImage, gPlatformFrame, 0, 0);
+        if (gPlatformFrame % sMapViewEvery == 0) {
+            MapViewSummary(&sState, &sImage, message, sizeof(message));
+            printf("%s\n", message);
+        }
+    }
+}
 static uint64_t sTracePlayer;
 static FILE* sHashFile; // TMC_FRAME_HASH
 
@@ -696,6 +742,9 @@ void PlatformVBlank(void) {
     if (sMapDir != NULL) {
         MaybeDumpMap();
     }
+    if (sMapViewEvery != 0 || sMapViewRequest != NULL) {
+        MapViewFrame();
+    }
     // The picture shown during this frame, drawn only when something needs it.
     {
         static uint16_t sFrame[PPU_WIDTH * PPU_HEIGHT];
@@ -940,6 +989,10 @@ int main(int argc, char** argv) {
     if ((sMapDir = getenv("TMC_MAPDUMP")) != NULL) {
         mkdir(sMapDir, 0755);
     }
+    if (getenv("TMC_MAPVIEW") != NULL) {
+        sMapViewEvery = strtoull(getenv("TMC_MAPVIEW"), NULL, 10);
+    }
+    sMapViewRequest = getenv("TMC_MAPVIEW_REQUEST");
     if (getenv("TMC_SCREENSHOT") != NULL) {
         ParseScreenshots(getenv("TMC_SCREENSHOT"));
         if (getenv("TMC_SCREENSHOT_DIR") != NULL) {

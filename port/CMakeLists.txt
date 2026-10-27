@@ -203,6 +203,7 @@ add_library(tmc_port STATIC
     src/trace.c
     src/warp.c
     src/mapdump.c
+    src/mapview.c
     src/entitylistcheck.c
     src/ppu.c
     src/frame.c
