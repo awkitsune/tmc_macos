@@ -114,7 +114,30 @@ void StalfosProjectile_Action1(Entity* this) {
     }
 }
 
+#ifdef PLATFORM_NATIVE
+// Stalfos_SubAction2 (the gust jar pulling a Stalfos's head off) creates the head without a
+// parent. The gust usually catches it at once (OnGrabbed reads no parent); if not, the GBA reads
+// BIOS opcode bytes through the NULL parent here (0xe55ec002 after an interrupt returns): next is
+// set and action is not 9, so sub_080A9C50 copies the BIOS "position" every frame. Every candidate
+// value is a large negative one: the head waits far up-left of the room, out of sight.
+static void StalfosProjectile_FollowNullParent(Entity* this) {
+    this->spriteOffsetX = 0x5e;
+    this->spriteOffsetY = (s8)0xe5; // the GBA adds a ROM byte past gUnk_08129B50; off screen anyway
+    this->x.WORD = (s32)0xe55ec002;
+    this->y.WORD = (s32)0xe55ec002 + Q_16_16(1.0);
+    this->z.WORD = (s32)0xe55ec002;
+    this->collisionLayer = 2;
+    UpdateSpriteForCollisionLayer(this);
+}
+#endif
+
 void StalfosProjectile_Action2(Entity* this) {
+#ifdef PLATFORM_NATIVE
+    if (this->parent == NULL) {
+        StalfosProjectile_FollowNullParent(this);
+        return;
+    }
+#endif
     if (this->parent->next == NULL) {
         sub_080A9BA8(this);
     }
