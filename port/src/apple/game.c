@@ -70,6 +70,24 @@ static os_unfair_lock sSnapLock = OS_UNFAIR_LOCK_INIT;
 static GfxSnapshot sSnapWork, sSnapShared;
 static uint64_t sSnapSequence;
 
+// The Map window's view (port/mapview.h): taken by the game thread into sMapWork
+// and sMapImageWork while the window is open, then published into the shared
+// copies (guarded by sMapLock, as is sMapRequest).
+static atomic_int sMapViewers;
+static atomic_bool sMapNow; // take one now (opened while paused, a request carried out)
+static atomic_bool sMapRequestPending;
+static os_unfair_lock sMapLock = OS_UNFAIR_LOCK_INIT;
+static MapViewState sMapWork, sMapShared;
+static MapViewImage sMapImageWork, sMapImageShared;
+static uint64_t sMapSequence;
+static struct {
+    FrontendMapRequest request;
+    int a, b;
+} sMapRequest;
+// Game thread only.
+static char sMapStatus[sizeof(sMapWork.status)];
+static bool sMapRedraw, sMapWarping;
+
 // Holding all four reset keys for a few frames goes through the game's own
 // DoSoftReset, which reinitialises things the way the cartridge would.
 #define RESET_KEYS (HW_KEY_A | HW_KEY_B | HW_KEY_SELECT | HW_KEY_START)
@@ -219,6 +237,102 @@ static void SnapshotNow(void) {
     GfxSnapshotEnd(&sSnapWork);
     sSnapWork.hasLines = 0;
     PublishSnapshot();
+}
+
+void FrontendMapRetain(void) {
+    if (atomic_fetch_add(&sMapViewers, 1) == 0) {
+        atomic_store(&sMapNow, true);
+    }
+}
+
+void FrontendMapRelease(void) {
+    atomic_fetch_sub(&sMapViewers, 1);
+}
+
+bool FrontendCopyMapState(MapViewState* dest, uint64_t* sequence) {
+    bool fresh;
+
+    os_unfair_lock_lock(&sMapLock);
+    fresh = sMapSequence != *sequence;
+    if (fresh) {
+        memcpy(dest, &sMapShared, sizeof(*dest));
+        *sequence = sMapSequence;
+    }
+    os_unfair_lock_unlock(&sMapLock);
+    return fresh;
+}
+
+bool FrontendCopyMapImage(MapViewImage* dest, uint64_t* sequence) {
+    bool fresh;
+
+    os_unfair_lock_lock(&sMapLock);
+    fresh = sMapImageShared.sequence != *sequence;
+    if (fresh) {
+        memcpy(dest, &sMapImageShared, sizeof(*dest));
+        *sequence = sMapImageShared.sequence;
+    }
+    os_unfair_lock_unlock(&sMapLock);
+    return fresh;
+}
+
+bool FrontendRequestMap(FrontendMapRequest request, int a, int b) {
+    bool accepted;
+
+    os_unfair_lock_lock(&sMapLock);
+    accepted = !atomic_load(&sMapRequestPending);
+    if (accepted) {
+        sMapRequest.request = request;
+        sMapRequest.a = a;
+        sMapRequest.b = b;
+        atomic_store(&sMapRequestPending, true);
+    }
+    os_unfair_lock_unlock(&sMapLock);
+    return accepted;
+}
+
+// Take the Map window's view (settled: paused or just loaded, nothing will change).
+static void CaptureMap(bool settled) {
+    bool drawn;
+
+    atomic_store(&sMapNow, false);
+    drawn = MapViewCapture(&sMapWork, &sMapImageWork, gPlatformFrame, settled, sMapRedraw);
+    sMapRedraw = sMapRedraw && !drawn && sMapWork.inGame;
+    memcpy(sMapWork.status, sMapStatus, sizeof(sMapStatus));
+    os_unfair_lock_lock(&sMapLock);
+    memcpy(&sMapShared, &sMapWork, sizeof(sMapShared));
+    if (drawn) {
+        memcpy(&sMapImageShared, &sMapImageWork, sizeof(sMapImageShared));
+    }
+    sMapSequence++;
+    os_unfair_lock_unlock(&sMapLock);
+}
+
+// Carry out the Map window's request (at a loop boundary only).
+static void ServiceMapRequest(void) {
+    FrontendMapRequest request;
+    int a, b;
+
+    if (!atomic_load(&sMapRequestPending)) {
+        return;
+    }
+    os_unfair_lock_lock(&sMapLock);
+    request = sMapRequest.request;
+    a = sMapRequest.a;
+    b = sMapRequest.b;
+    atomic_store(&sMapRequestPending, false);
+    os_unfair_lock_unlock(&sMapLock);
+    switch (request) {
+        case FRONTEND_MAP_REDRAW:
+            sMapRedraw = true;
+            break;
+        case FRONTEND_MAP_MOVE:
+            MapViewMovePlayer(a, b, sMapStatus, sizeof(sMapStatus));
+            break;
+        case FRONTEND_MAP_WARP:
+            sMapWarping = MapViewWarp(a, b, sMapStatus, sizeof(sMapStatus)) || sMapWarping;
+            break;
+    }
+    atomic_store(&sMapNow, true);
 }
 
 static uint16_t sRaw[PPU_WIDTH * PPU_HEIGHT];
@@ -390,6 +504,9 @@ static void ServiceStateRequest(void) {
             if (atomic_load(&sGfxViewers) > 0) {
                 SnapshotNow();
             }
+            if (atomic_load(&sMapViewers) > 0) {
+                CaptureMap(true);
+            }
         }
     }
     if (sStateRequest.done != NULL) {
@@ -414,8 +531,12 @@ static void WaitWhilePaused(void) {
             break;
         }
         ServiceStateRequest();
+        ServiceMapRequest();
         if (atomic_load(&sGfxSnapNow) && atomic_load(&sGfxViewers) > 0) {
             SnapshotNow();
+        }
+        if (atomic_load(&sMapNow) && atomic_load(&sMapViewers) > 0) {
+            CaptureMap(true);
         }
         usleep(5000);
     }
@@ -440,12 +561,19 @@ void PlatformVBlank(void) {
     if (PlatformAtLoopBoundary()) {
         ServiceStateRequest();
         WaitWhilePaused();
+        ServiceMapRequest();
+        if (sMapWarping) {
+            sMapWarping = MapViewUpdate(gPlatformFrame, sMapStatus, sizeof(sMapStatus));
+        }
     }
     driven = DisplayDriven();
     Pace(driven);
     StopIfRequested();
 
     frameStart = LatencyNowNs();
+    if (atomic_load_explicit(&sMapViewers, memory_order_relaxed) > 0) {
+        CaptureMap(false);
+    }
     // Draw this frame line by line, running its HBlank DMA and interrupts.
     // With debug viewers open, record the hardware it was drawn from.
     if (atomic_load_explicit(&sGfxViewers, memory_order_relaxed) > 0) {
