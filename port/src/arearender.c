@@ -680,6 +680,21 @@ bool AreaMapRenderFloor(int dungeon, int floor, AreaMap* out) {
     return Render(out);
 }
 
+bool AreaMapFloorOf(int area, int room, int* dungeon, int* floor) {
+    for (int d = 1; d < DUNGEON_COUNT; d++) {
+        for (int f = 0; f < AreaMapFloorCount(d); f++) {
+            for (const DungeonLayout* l = gDungeonLayouts[d][f]; l->area != 0; l++) {
+                if (l->area == area && l->room == room) {
+                    *dungeon = d;
+                    *floor = f;
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 void AreaMapFree(AreaMap* map) {
     free(map->rgba);
     map->rgba = NULL;
