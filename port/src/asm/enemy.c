@@ -122,9 +122,23 @@ void GenericKnockback2(Entity* this) {
     Knockback2(this);
 }
 
+u32 CalcCollisionDirection(s32 x1, s32 y1, s32 x2, s32 y2);
+
 // Facing direction from a to b when they share a layer and are not within 8px
 // of each other on both axes, else 0xFF.
 u32 sub_0800132C(Entity* a, Entity* b) {
+    if (b == NULL) {
+        // Leever_Move passes gEnemyTarget unchecked, NULL while Link cannot be targeted. The GBA
+        // then reads BIOS open bus (0xe55ec002 after an interrupt returns): layer byte 0x02,
+        // x and y halves 0xe55e, a point far off any room, so the direction is toward it.
+        if (!(a->collisionLayer & 0x02)) {
+            return 0xFF;
+        }
+        if ((u32)(a->x.HALF_U.HI - 0xe55e + 8) < 0x11 && (u32)(a->y.HALF_U.HI - 0xe55e + 8) < 0x11) {
+            return 0xFF;
+        }
+        return CalcCollisionDirection(a->x.HALF.HI, a->y.HALF.HI, (s16)0xe55e, (s16)0xe55e);
+    }
     if (!(a->collisionLayer & b->collisionLayer)) {
         return 0xFF;
     }

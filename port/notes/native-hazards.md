@@ -631,3 +631,16 @@ dereference a child they just failed to create: that is allocation failure, not 
 Not swept: heap entity pointers (`myHeap` part tables of the multi-part bosses; the room smoke test found the
 first-update cases), and the 2nd-pass sites in ChuchuBoss, MazaalBracelet, Moldworm, Madderpillar, Moldorm,
 which set every link in one init.
+
+## `gEnemyTarget` used without a target
+
+`ram_UpdateEntities` clears `gEnemyTarget` before each entity; `sub_08049FDC` and friends set it to the player only
+while Link can be targeted (not busy, falling, captured, in a portal, ...). Code that uses it after such a check
+returned FALSE reads through NULL, and the GBA reads BIOS open bus (see the section above).
+
+| Site | Reached | Fix |
+|---|---|---|
+| [enemy.c](../src/asm/enemy.c) `sub_0800132C`, from [leever.c](../../src/enemy/leever.c) `Leever_Move` | `Leever_Move` calls it with `gEnemyTarget` whether or not `sub_08049FDC` found a target: a Leever digging up or down while Link cannot be targeted (seen in Veil Falls after a bomb and a heart piece). Natively SIGSEGV at 0x40 | in the port's `sub_0800132C`: with `b` NULL use the GBA's bytes (layer 0x02, x and y 0xe55e, read signed by `GetFacingDirection`), so the Leever steers far up-left (direction 0x1c) on layer 2, or gets 0xFF |
+
+Armos also passes `gEnemyTarget`, but only after `sub_08049FDC` succeeded. Other uses of `gEnemyTarget` are not
+swept yet.
