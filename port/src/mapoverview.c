@@ -175,7 +175,8 @@ static int CheckOne(MapOverview* o, FILE* out, int* crossArea) {
     char line[512];
 
     *crossArea = 0;
-    if ((int64_t)o->width * o->height > MAP_OVERVIEW_MAX_PIXELS || o->scale != MapOverviewScaleFor(o->map.width, o->map.height)) {
+    if ((int64_t)o->width * o->height > MAP_OVERVIEW_MAX_PIXELS ||
+        o->scale != MapOverviewScaleFor(o->map.width, o->map.height)) {
         fprintf(out, "mapoverview: PROBLEM: %dx%d at scale %d is over the budget\n", o->width, o->height, o->scale);
         problems++;
     }
