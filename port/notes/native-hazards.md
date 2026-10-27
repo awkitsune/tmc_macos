@@ -479,6 +479,14 @@ read `entityData2` at offset 4 and stepped 12 bytes per `struct_080FCFB8`, which
 halves of two. Both use the struct's fields under `#ifdef PLATFORM_NATIVE`. The other `field_0xc[n]` readers
 point it at structs of bytes and halfwords only (`WorldEvent`, `CutsceneData`, pause menu tables).
 
+The Moldorm ([moldorm.c](../../src/enemy/moldorm.c)) keeps a pointer or 4 bytes in each of two unions, `unk_7c`
+and `unk_80`. The tail segments use them as an 8-byte position history, read and written as bytes from `unk_7c`
+on, but `sub_08022DE8` fills it through the two unions' byte members. Natively `unk_7c` is 8 bytes (the pointer),
+so `unk_80` starts at +8 and history bytes 4-7 stayed 0: a step of -8,-8 each, leaving every segment ~32 pixels
+up-left of the one before for good (outer Fortress of Winds: segments 32-105 pixels from the head, with the fix
+within 17). Natively those bytes are set to 0x88 too. The save state map's other union of a pointer and data,
+in MazaalBracelet, holds at most two data bytes, which never read as an address.
+
 ## Structs written as GBA byte arrays
 
 The figurine device (shell trading, `sub_080882A8`) passed two `u8[24]` arrays to `ShowTextBox` as `Font*`

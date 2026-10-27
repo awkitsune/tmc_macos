@@ -166,6 +166,18 @@ void sub_08022DE8(MoldormEntity* this) {
     this->unk_80.split.unk_81 = 0x88;
     this->unk_80.split.unk_82 = 0x88;
     this->unk_80.split.unk_83 = 0x88;
+#ifdef PLATFORM_NATIVE
+    // The 8-byte position history is read and written as bytes from unk_7c on (sub_08022E40,
+    // sub_08022EAC). On the GBA unk_80 follows at +4; natively unk_7c holds an 8-byte pointer, so
+    // bytes 4-7 are its upper half and were left 0: a step of -8,-8 on each, pulling every segment
+    // ~32 pixels up-left of the one before.
+    {
+        u32 i;
+        for (i = 4; i < 8; i++) {
+            ((u8*)&this->unk_7c.split.unk_7c)[i] = 0x88;
+        }
+    }
+#endif
     super->animationState = super->parent->animationState;
     this->unk_84 = super->animationState * 0x11111111;
 
