@@ -49,7 +49,8 @@ def table(name):
     return [None if s == "0x0" else words(SYMS[s]) for s in words(SYMS[name])]
 
 
-def main():
+def rooms():
+    """(valid, skipped): "AA:RR" and "AA:RR reason" strings, in area and room order."""
     syms = SYMS
     headers = []
     for sym in words(syms["gAreaRoomHeaders"]):
@@ -84,6 +85,11 @@ def main():
                 valid.append(spec)
                 continue
             skipped.append(f"{spec} {why}")
+    return valid, skipped
+
+
+def main():
+    valid, skipped = rooms()
     open(sys.argv[1], "w").write("".join(v + "\n" for v in valid))
     open(sys.argv[2], "w").write("".join(s + "\n" for s in skipped))
     print(f"rooms: {len(valid)} valid, {len(skipped)} skipped of {len(valid) + len(skipped)} headers")

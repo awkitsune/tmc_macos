@@ -191,6 +191,17 @@ add_custom_command(
     VERBATIM
 )
 
+# The rooms the area renderer can load (port/src/arearender.c).
+set(TMC_AREA_ROOMS ${CMAKE_BINARY_DIR}/area_rooms.c)
+add_custom_command(
+    OUTPUT ${TMC_AREA_ROOMS}
+    COMMAND ${TMC_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/area_rooms.py ${TMC_AREA_ROOMS}
+    DEPENDS scripts/area_rooms.py scripts/room_smoke_rooms.py ${TMC_ROOT}/data/map/room_headers.s
+        ${TMC_ROOT}/data/map/entity_headers.s ${TMC_ROOT}/data/map/map_headers.s
+        ${TMC_ROOT}/data/map/tileset_headers.s
+    COMMENT "Generating the area renderer's room table"
+)
+
 file(GLOB TMC_PORT_ASM_SOURCES CONFIGURE_DEPENDS src/asm/*.c)
 # The m4a engine's assembly in C, the CGB channels, WAV output (port/src/sound).
 file(GLOB TMC_PORT_SOUND_SOURCES CONFIGURE_DEPENDS src/sound/*.c)
@@ -204,6 +215,8 @@ add_library(tmc_port STATIC
     src/warp.c
     src/mapdump.c
     src/mapview.c
+    src/arearender.c
+    ${TMC_AREA_ROOMS}
     src/entitylistcheck.c
     src/ppu.c
     src/frame.c
@@ -272,7 +285,9 @@ set_source_files_properties(src/apple/roomname.c PROPERTIES
 if(NOT TMC_IOS)
 
 # `link-report` lists unresolved symbols if the link ever breaks again.
-add_executable(tmc src/headless.c $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
+add_executable(tmc src/headless.c ${TMC_ROOM_NAMES} $<TARGET_OBJECTS:tmc_game> $<TARGET_OBJECTS:tmc_data>)
+# The room names, for the area renderer's labels (port/src/arearender.c).
+target_include_directories(tmc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/apple)
 target_link_libraries(tmc PRIVATE tmc_port z)
 # Every variable of the save state segment must be in the pointer map.
 add_custom_command(TARGET tmc POST_BUILD

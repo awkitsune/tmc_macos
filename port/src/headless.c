@@ -36,6 +36,18 @@
  *   TMC_DUMP_PNG=dir         with TMC_DUMP_BG, also each layer's whole map and all
  *                            VRAM tiles (greyscale) as PNGs
  *   TMC_LAYER_MASK=hex       draw only these layers (bits 0-3 BG0-3, 4 OBJ; 1f = all)
+ *
+ * Area maps (port/arearender.h), drawn from the game's data without the game:
+ *   TMC_AREADUMP=dir         every area and dungeon floor as a PNG in dir, once:
+ *                            at TMC_AREADUMP_FRAME, or when the player first
+ *                            has had control for 30 frames; checks that the
+ *                            game's state (the whole save state segment: RAM,
+ *                            VRAM, palettes, registers) is byte for byte the
+ *                            same afterwards; TMC_AREADUMP_ROOMS=1 also lists
+ *                            each room's place and name
+ *   TMC_AREACHECK=1          for each room the player has had control in for 30
+ *                            frames, compare the renderer's picture of it with
+ *                            the live tile layers, and say what differs
  * States are taken at the main loop's frame boundary: a frame that falls in one
  * of the game's pause loops saves at the next boundary instead.
  */
@@ -55,6 +67,7 @@
 #include <unistd.h>
 #include <zlib.h>
 
+#include "port/arearender.h"
 #include "port/gfxdebug.h"
 #include "port/mapview.h"
 #include "port/headless_state.h"
@@ -434,6 +447,64 @@ static void MapViewFrame(void) {
         }
     }
 }
+
+static const char* sAreaDir; // TMC_AREADUMP
+static uint64_t sAreaFrame;  // TMC_AREADUMP_FRAME
+static int sAreaCheck;       // TMC_AREACHECK
+
+// TMC_AREADUMP: draw every area, with the save state segment (everything the game
+// can change) copied before and compared after, to show the renderer leaves it alone.
+static void MaybeDumpAreas(void) {
+    static int sStable, sDone;
+    HeadlessState s;
+    unsigned long size;
+    uint8_t* segment = getsegmentdata(&_mh_execute_header, "__TMCSTATE", &size);
+    uint8_t* copy;
+    uint64_t before, after;
+    size_t differ = 0, first = 0;
+
+    HeadlessGetState(&s);
+    sStable = s.control ? sStable + 1 : 0;
+    if (sDone || (sAreaFrame != 0 ? gPlatformFrame != sAreaFrame : sStable < 30)) {
+        return;
+    }
+    sDone = 1;
+    copy = malloc(size);
+    memcpy(copy, segment, size);
+    before = StateChecksum();
+    printf("areadump: frame %llu area %02x room %02x, state segment %lu bytes, checksum %016llx\n",
+           (unsigned long long)gPlatformFrame, s.area, s.room, size, (unsigned long long)before);
+    AreaMapDumpAll(sAreaDir, getenv("TMC_AREADUMP_ROOMS") != NULL, stdout);
+    after = StateChecksum();
+    for (size_t i = 0; i < size; i++) {
+        if (copy[i] != segment[i] && differ++ == 0) {
+            first = i;
+        }
+    }
+    printf("areadump: state segment after: checksum %016llx, %zu bytes differ%s", (unsigned long long)after, differ,
+           differ == 0 && before == after ? " (unchanged)\n" : "");
+    if (differ != 0 || before != after) {
+        printf(" (CHANGED, first at offset 0x%zx)\n", first);
+    }
+    free(copy);
+}
+
+// TMC_AREACHECK: once per room, after 30 frames of control.
+static void MaybeCheckArea(void) {
+    static uint8_t sChecked[256][64];
+    static int sStable;
+    HeadlessState s;
+
+    HeadlessGetState(&s);
+    sStable = s.control ? sStable + 1 : 0;
+    if (sStable < 30 || s.area > 255 || s.room > 63 || sChecked[s.area][s.room]) {
+        return;
+    }
+    sChecked[s.area][s.room] = 1;
+    printf("frame %llu: ", (unsigned long long)gPlatformFrame);
+    AreaMapCheckLive(stdout);
+}
+
 static uint64_t sTracePlayer;
 static FILE* sHashFile; // TMC_FRAME_HASH
 
@@ -745,6 +816,12 @@ void PlatformVBlank(void) {
     if (sMapViewEvery != 0 || sMapViewRequest != NULL) {
         MapViewFrame();
     }
+    if (sAreaDir != NULL) {
+        MaybeDumpAreas();
+    }
+    if (sAreaCheck) {
+        MaybeCheckArea();
+    }
     // The picture shown during this frame, drawn only when something needs it.
     {
         static uint16_t sFrame[PPU_WIDTH * PPU_HEIGHT];
@@ -993,6 +1070,13 @@ int main(int argc, char** argv) {
         sMapViewEvery = strtoull(getenv("TMC_MAPVIEW"), NULL, 10);
     }
     sMapViewRequest = getenv("TMC_MAPVIEW_REQUEST");
+    if ((sAreaDir = getenv("TMC_AREADUMP")) != NULL) {
+        mkdir(sAreaDir, 0755);
+        if (getenv("TMC_AREADUMP_FRAME") != NULL) {
+            sAreaFrame = strtoull(getenv("TMC_AREADUMP_FRAME"), NULL, 10);
+        }
+    }
+    sAreaCheck = getenv("TMC_AREACHECK") != NULL;
     if (getenv("TMC_SCREENSHOT") != NULL) {
         ParseScreenshots(getenv("TMC_SCREENSHOT"));
         if (getenv("TMC_SCREENSHOT_DIR") != NULL) {
