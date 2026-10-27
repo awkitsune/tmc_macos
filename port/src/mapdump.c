@@ -6,6 +6,9 @@
  * every 256). Markers: player white, NPCs blue, enemies red, objects yellow,
  * other entities grey. Fully solid tiles (bottom layer collision 0x0F) are
  * darkened.
+ *
+ * MapRenderRoom draws that picture into a buffer, and MapRenderLayer a single
+ * layer, for the macOS app's Map window too (port/mapview.h).
  */
 
 #include <stdio.h>
@@ -18,6 +21,7 @@
 #include "screen.h"
 
 #include "port/hw.h"
+#include "port/mapview.h"
 #include "port/ppu.h"
 
 // <stdlib.h> clashes with the game headers.
@@ -57,7 +61,7 @@ static void DrawLayer(MapLayer* layer, u16* fb, int width, int height, int tiles
                         int c = TilePixel(charBase, entry & 0x3FF, px, py);
                         if (c != 0 && ox + x < width && oy + y < height) {
                             const u8* p = &gHwPltt[((entry >> 12) * 16 + c) * 2];
-                            fb[(oy + y) * width + ox + x] = p[0] | (p[1] << 8);
+                            fb[(oy + y) * width + ox + x] = (p[0] | (p[1] << 8)) & 0x7FFF;
                         }
                     }
                 }
@@ -77,16 +81,21 @@ static void Mark(u16* fb, int width, int height, int cx, int cy, int size, u16 c
     }
 }
 
-void DumpRoomMap(const char* path) {
-    int width = gRoomControls.width, height = gRoomControls.height;
+// Draws one tile layer's opaque pixels (BGR555, as the palette holds them) over fb, a picture of the
+// room's top-left width x height pixels.
+void MapRenderLayer(int top, uint16_t* fb, int width, int height) {
     int tilesWide = (width + 15) / 16, tilesHigh = (height + 15) / 16;
-    u16* fb;
+
+    DrawLayer(top ? &gMapTop : &gMapBottom, fb, width, height, tilesWide, tilesHigh);
+}
+
+int MapRenderRoom(uint16_t* fb, int width, int height) {
+    int tilesWide = (width + 15) / 16, tilesHigh = (height + 15) / 16;
     const u8* backdrop = &gHwPltt[0];
 
     if (width <= 0 || height <= 0 || tilesWide > MAX_MAP_SIZE || tilesHigh > MAX_MAP_SIZE) {
-        return;
+        return 0;
     }
-    fb = malloc(sizeof(u16) * width * height);
     for (int i = 0; i < width * height; i++) {
         fb[i] = backdrop[0] | (backdrop[1] << 8);
     }
@@ -131,7 +140,18 @@ void DumpRoomMap(const char* path) {
             Mark(fb, width, height, x, y, e->kind == PLAYER ? 5 : 3, color);
         }
     }
-    if (PpuWritePngSize(fb, width, height, path) == 0) {
+    return 1;
+}
+
+void DumpRoomMap(const char* path) {
+    int width = gRoomControls.width, height = gRoomControls.height;
+    u16* fb;
+
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    fb = malloc(sizeof(u16) * width * height);
+    if (MapRenderRoom(fb, width, height) && PpuWritePngSize(fb, width, height, path) == 0) {
         printf("map: %s (%dx%d)\n", path, width, height);
     }
     free(fb);

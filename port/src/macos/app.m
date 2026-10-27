@@ -849,7 +849,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [menu addItemWithTitle:checkpoints.title action:nil keyEquivalent:@""].submenu = checkpoints;
     [menu addItemWithTitle:@"Show State Folder" action:@selector(showStateFolder:) keyEquivalent:@""];
     [menu addItem:NSMenuItem.separatorItem];
-    // Graphics viewers: Control-Command-1 .. 6.
+    // Graphics viewers: Control-Command-1 .. 7.
     for (NSInteger kind = 0; kind < DebugPanelCount; kind++) {
         NSMenuItem* item = [menu addItemWithTitle:[DebugWindows titleForPanel:kind]
                                            action:@selector(showDebugPanel:)

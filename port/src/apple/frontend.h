@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "port/gfxdebug.h"
+#include "port/mapview.h"
 #include "port/ppu.h"
 
 /* The GBA's refresh rate: 16.78 MHz / 280896 cycles per frame. */
@@ -106,6 +107,30 @@ bool FrontendRequestState(bool save, const char* path, FrontendStateDone done, v
 void FrontendGfxRetain(void);
 void FrontendGfxRelease(void);
 bool FrontendCopyGfxSnapshot(GfxSnapshot* dest, uint64_t* sequence);
+
+/*
+ * The Map debug window (port/mapview.h). While it holds a retain, the game
+ * thread takes the view of the room every frame (with the room's picture drawn
+ * again only when the room or its tiles change); while paused, a retain or a
+ * request takes one view as things stand; with none, nothing is taken.
+ * FrontendCopyMapState copies the newest state into dest if it is newer than
+ * *sequence, FrontendCopyMapImage the room's picture if it is not the one
+ * numbered *sequence, updating *sequence.
+ *
+ * Requests are carried out by the game thread at its next loop boundary, paused
+ * or not (a warp then goes on while the game runs, window open or not); what
+ * became of them is in the state's status. Returns false if one is still pending.
+ */
+typedef enum {
+    FRONTEND_MAP_REDRAW, // draw the room's picture again (animated tiles)
+    FRONTEND_MAP_MOVE,   // move the player to room pixel a, b
+    FRONTEND_MAP_WARP,   // warp to area a, room b
+} FrontendMapRequest;
+void FrontendMapRetain(void);
+void FrontendMapRelease(void);
+bool FrontendCopyMapState(MapViewState* dest, uint64_t* sequence);
+bool FrontendCopyMapImage(MapViewImage* dest, uint64_t* sequence);
+bool FrontendRequestMap(FrontendMapRequest request, int a, int b);
 
 /* Stop the game thread at its next frame boundary (so no save write is cut short). */
 void FrontendStopGame(void);
