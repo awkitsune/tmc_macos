@@ -91,10 +91,10 @@ Info.plist
 ctx.c
 !doxygen_config.py
 
-# python venv for the GBA build (port/README.md setup)
+# python venv for the GBA build (README.md setup)
 .venv/
 
-# headless screenshots (port/README.md)
+# headless screenshots (README.md)
 /screenshots/
 
 # save states (port/scripts/checkpoints.sh, the app keeps its own)

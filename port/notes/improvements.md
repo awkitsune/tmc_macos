@@ -10,12 +10,15 @@ Things that work today but could be better. Not bugs.
 ## Late-game checks
 
 Two audit fixes (`native-hazards.md`) have no in-game check yet: Zelda following Link (`npc5.c` ZeldaFollowAction)
-and the Golden Octorok. They need save states from that far in.
+and the Golden Octorok. They need save states from that far in. (Zelda following Link at the start of the game
+works.) Checked in play: the Gleerok death, shell trading, Crystal Sanctuary copies (two), Vaati appearing in
+North Hyrule Field, and the Great Fairy.
 
 ## PPU: OBJ cycle limit per line
 
 On hardware, sprites late in OAM are dropped on very crowded lines (1210 cycles per line). Here every sprite is
-always drawn. Whether TMC ever goes over the limit hasn't been measured (`ppu-audit.md`).
+always drawn. On a GBA the limit shows as flicker (with heavy slowdown) in the Mazaal and transformed Vaati fights;
+drawing every sprite there is kept on purpose (`ppu-audit.md`).
 
 ## iOS app
 

@@ -32,14 +32,14 @@ project(tmc_native VERSION 0.1 LANGUAGES C OBJC ASM)
 #   cmake -S port -B build/native
 #   cmake --build build/native -j
 #
-# Assets must have been extracted first (make extract_assets / see port/README.md).
+# Assets must have been extracted first (make extract_assets / see README.md).
 
 set(TMC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(TMC_GAME_VERSION USA CACHE STRING "Game version whose extracted assets to use")
 set(TMC_ASSETS_BUILD_DIR ${TMC_ROOT}/build/${TMC_GAME_VERSION} CACHE PATH "Directory holding assets/*.h from asset extraction")
 
 if(NOT EXISTS ${TMC_ASSETS_BUILD_DIR}/assets/gfx_offsets.h)
-    message(FATAL_ERROR "Extracted assets not found in ${TMC_ASSETS_BUILD_DIR}. Run asset extraction first (see port/README.md).")
+    message(FATAL_ERROR "Extracted assets not found in ${TMC_ASSETS_BUILD_DIR}. Run asset extraction first (see README.md).")
 endif()
 
 option(TMC_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
@@ -107,7 +107,7 @@ target_compile_options(tmc_game PRIVATE
 
 # Game data: the GBA data objects converted to native assembly by port/tools/datagen.
 # This needs the GBA build (build/<version>/data/*.o and tmc.elf) and the Python
-# environment from port/README.md.
+# environment from README.md.
 #
 # TMC_BAKE_DATA=ON (the default, for development) builds the game's assets (what
 # asset extraction copies out of baserom.gba) into the programs. OFF leaves them

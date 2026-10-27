@@ -1,5 +1,5 @@
 # C types for data labels whose type the game sources do not state.
-# Types are only needed for data that holds pointers; see port/README.md.
+# Types are only needed for data that holds pointers; see README.md.
 #
 #   <regex>    <C type> [object]   the regex matches the whole label name;
 #                                  optionally only in that data object

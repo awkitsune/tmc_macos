@@ -282,7 +282,7 @@ FrozenOctorok, GyorgBossObject; most likely warp artefacts). The gust jar state 
 whose code layout differs, so it was not run instrumented. (The cause was the version 1 state format guessing pointers from
 values: four entities' kind/id/type words, e.g. `0x1005f0506`, looked like pointers into `gGfx_94_0` and were re-pointed, so
 the entities' kinds changed and `ram_UpdateEntities` called a NULL update. States now list pointers exactly from the C types,
-and old states load through that map; see port/README.md, save states.) the lily pad state was not found on disk. Both run clean on the fixed build.
+and old states load through that map; see README.md, save states.) the lily pad state was not found on disk. Both run clean on the fixed build.
 
 **Fixed** (all GBA-faithful: the index wraps backwards as on the GBA instead of jumping 4 GB):
 
