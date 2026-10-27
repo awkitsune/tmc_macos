@@ -591,3 +591,43 @@ read code bytes as `prev`/`next`; for every `*_OnEnterRoom` function the
 writes go to BIOS, open bus, or at worst 4 bytes of `gTextGfxBuffer`, and
 `MemClear` writes to ROM. Natively those are wild pointers, so the native
 build only does the `gManagerCount--` that the GBA does.
+
+## `child` / `parent` that nothing sets
+
+An entity reads its `child` or `parent` on a path where neither its own code nor its creator stored one. The
+pointer is NULL (slots are cleared), and the GBA reads BIOS open bus through it: the last BIOS opcode fetched,
+0xe55ec002 after an interrupt returns (0xe3a02004 after a SWI). Stores go nowhere. Template: the Great Fairy's
+form 9 (81cf59a5). Fixed under `#ifdef PLATFORM_NATIVE`, keeping what the GBA does with those bytes:
+
+| Site | Missing pointer | Reached | Fix |
+|---|---|---|---|
+| [object63.c](../../src/object/object63.c) `Object63_Init`, `Object63_Action1` | `child`: `CreateItemDrop` sets it to the dropped ground item, but only for a ground item. With no drop (often: drop table 4) or a beetle, it stays NULL | pushable furniture type 2/4 with `type2` 1 (`Entities_HouseInteriors2_EastOracle_1`) when the player bounces into it with the Pegasus Boots (`sub_0808FECC`, `sub_0808FF20`). Natively a crash on every empty drop: `TMC_WARP=22:09:108:110 TMC_WARP_ITEMS=1,21` from `hyrule_field_north`, input `+60:up:2,+10:up+b:70` gives an empty drop on the first dash and, unfixed, SIGSEGV at 0x28 in `Object63_Init` | skip the `zVelocity` store and the 32 frames of `y++`, which go to BIOS on the GBA |
+| [stalfosProjectile.c](../../src/projectile/stalfosProjectile.c) `StalfosProjectile_Action2` | `parent`: `Stalfos_SubAction2` (the gust jar pulling the head off a Stalfos that carries nothing) creates the head, type 1 / type2 1, without one | the head's Init runs in the same frame (projectiles update after enemies) and the gust collision usually grabs it, so OnGrabbed runs instead. Action2 runs if it is not caught (the gust jar button released that frame, the head outside the gust cone). Not reproduced headless | the GBA sees `next` set and `action` 2 (not 9), so `sub_080A9C50` copies the BIOS bytes as the position every frame (every candidate is a large negative x/y: far up-left, out of sight). Natively the head gets those values and skips the parent read. The ROM byte the GBA adds to `spriteOffsetY` (read past `gUnk_08129B50`) is left out |
+
+**Method.** `child`/`parent` reads (`super`/`this`, through casts and locals) in `src/object`, `npc`, `enemy`,
+`projectile`, `manager`, `playerItem` (853 reads, 136 files), matched against: stores in the same file; stores by
+every creator found through `CreateObject`/`CreateObjectWithParent`/`CreateFx`/`CreateEnemy`/`CreateNPC`/
+`CreateProjectile`/`EnemyCreateProjectile`/`CreateManager` (ids mapped to files through `gObjectFunctions`,
+`gEnemyFunctions`, `gNPCFunctions`, `projectile_functions.s`); and the forms that come from room data
+(`entity_raw` family in `data/`, so no creator). A second pass listed, per function, unguarded dereferences of
+a pointer the file sets only in another function (197), checked by hand where the setter is conditional. The
+scripts are in the side-session notes folder (`null-entity-sweep/`).
+
+**Checked and fine.** Set by the creator for every form that reads it, or guarded:
+Enemy50 (`(enemy->base).parent`), ScissorsBeetle (`sub_08038C2C` runs on the mandibles), BusinessScrubPrologue,
+MazaalHead/Macro/Object, BigGoron (types 1/4 find their parent, type 3 is made by type 2), Rem, VaatiReborn,
+Bird, ChuchuBossParticle (`CreateObjectWithParent`), DoubleBookshelf, Flame (types 2/3 set by every creator; room
+data has only type 4), LavaPlatform (child set with the timer it is gated on), PullableLever, FloatingPlatform
+(room-data platforms have `timer` 0, so the parent is not read), LinkAnimation/LinkHoldingItem, GreatFairy
+MiniAffine, LakituCloudProjectile, Projectile5, Fire/Ice/WindProjectile (NULL-checked), GleerokProjectile (type 3
+reads neither), OctorokBossProjectile (type 3 reads none), BallAndChain (type 4 reads none), Thunderbolt (only
+compared), Vaati3Arm (type 2 reads none), WhiteTriangleEffect, SpecialFx (`FX_27`/`FX_32..34`, the only users of
+`child->next`, all come from `collision.c` with the child set), Vaati3InsideArmManager, PlayerItemGust/GustBig/
+FireRodProjectile, MandiblesProjectile, Keaton, SpearMoblin, ItemOnGround, Fairy, CameraTarget, PlayerClone,
+NPC23, Vaati3StartManager, RupeeLike, Pesto, CloudPiranha, GyorgMale. Rupee, Lakitu, MazaalHead and others
+dereference a child they just failed to create: that is allocation failure, not this class
+(`TMC_ENTITY_LIMIT`, a3010676, is the tool for that class).
+
+Not swept: heap entity pointers (`myHeap` part tables of the multi-part bosses; the room smoke test found the
+first-update cases), and the 2nd-pass sites in ChuchuBoss, MazaalBracelet, Moldworm, Madderpillar, Moldorm,
+which set every link in one init.
