@@ -5,6 +5,8 @@
 
 #include "frontend.h"
 #include "port/gfxdebug.h"
+#include "port/mapview.h"
+#include "roomname.h"
 
 #define REFRESH_HZ 12.0
 
@@ -46,6 +48,7 @@ static NSString* DumpText(void (^dump)(FILE* out)) {
 @property(nonatomic, copy, nullable) void (^click)(NSInteger x, NSInteger y);
 @property(nonatomic, copy) NSArray<NSBezierPath*>* overlays; // in picture pixels
 @property(nonatomic, strong) NSColor* overlayColor;
+@property(nonatomic, copy, nullable) NSArray<NSColor*>* overlayColors; // per overlay, else overlayColor
 - (void)setPixels:(const uint32_t*)pixels width:(NSInteger)width height:(NSInteger)height;
 @end
 
@@ -115,8 +118,9 @@ static NSString* DumpText(void (^dump)(FILE* out)) {
 
     NSAffineTransform* scale = [NSAffineTransform transform];
     [scale scaleBy:_zoom];
-    [_overlayColor setStroke];
-    for (NSBezierPath* path in _overlays) {
+    for (NSUInteger i = 0; i < _overlays.count; i++) {
+        NSBezierPath* path = _overlays[i];
+        [(i < _overlayColors.count ? _overlayColors[i] : _overlayColor) setStroke];
         NSBezierPath* scaled = [path copy];
         [scaled transformUsingAffineTransform:scale];
         scaled.lineWidth = 1.5;
@@ -1245,6 +1249,321 @@ static uint32_t Unorm(float v) {
 
 @end
 
+#pragma mark - Map
+
+// The whole current room (port/mapview.h): its two tile layers as the game
+// thread last drew them, with the camera, the entities and, on request, the
+// collision and a grid.
+@interface MapPanel : DebugPanel
+@end
+
+@implementation MapPanel {
+    MapViewState* _state;
+    MapViewImage* _image;
+    uint64_t _stateSequence, _imageSequence;
+    BOOL _hasState;
+    NSPopUpButton* _zoom;
+    NSButton* _bottom;
+    NSButton* _top;
+    NSButton* _collision;
+    NSButton* _grid;
+    int _shownRoom;             // area << 8 | room the view last scrolled to
+    PixelView* _view;
+    uint32_t* _pixels;
+    int _composedLayer; // the collision layer the picture shows (the player's)
+    NSInteger _hoverX, _hoverY;
+    NSString* _title;
+}
+
+static const CGFloat sMapZooms[] = { 0.5, 1, 2, 3, 4 };
+
+static NSString* const sMapToggles[4] = { @"Bottom", @"Top", @"Collision", @"Grid" };
+
+- (instancetype)init {
+    if ((self = [super initWithTitle:@"Map" name:@"Map" size:NSMakeSize(820, 680) usesSnapshot:NO])) {
+        _state = calloc(1, sizeof(MapViewState));
+        _image = calloc(1, sizeof(MapViewImage));
+        _pixels = calloc(MAPVIEW_MAX_SIZE * MAPVIEW_MAX_SIZE, sizeof(uint32_t));
+        _shownRoom = -1;
+        _hoverX = _hoverY = -1;
+        _zoom = [self popup:@[ @"1/2x", @"1x", @"2x", @"3x", @"4x" ] key:@"Zoom" fallback:1];
+        _bottom = [self toggle:0 on:YES];
+        _top = [self toggle:1 on:YES];
+        _collision = [self toggle:2 on:NO];
+        _grid = [self toggle:3 on:NO];
+        _collision.toolTip = @"Darken solid tiles, tint partly solid ones (collision of Link's layer)";
+        NSButton* redraw = [NSButton buttonWithTitle:@"Redraw" target:self action:@selector(redraw:)];
+        redraw.controlSize = NSControlSizeSmall;
+        redraw.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        redraw.toolTip = @"Draw the room again from VRAM now (otherwise only when its tiles change; "
+                         @"animated tiles stay as they were)";
+        [self.controls addView:redraw inGravity:NSStackViewGravityLeading];
+
+        _view = [[PixelView alloc] initWithFrame:NSMakeRect(0, 0, 256, 256)];
+        _view.zoom = sMapZooms[_zoom.indexOfSelectedItem];
+        __weak MapPanel* weakSelf = self;
+        _view.hover = ^(NSInteger x, NSInteger y) {
+            [weakSelf hoverAtX:x y:y];
+        };
+        [self layoutWithMain:[self scrollViewFor:_view]];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    free(_state);
+    free(_image);
+    free(_pixels);
+}
+
+// A check box whose state is kept in the user defaults.
+- (NSButton*)toggle:(int)index on:(BOOL)on {
+    NSString* key = [@"DebugMap" stringByAppendingString:sMapToggles[index]];
+    NSButton* box = [NSButton checkboxWithTitle:sMapToggles[index] target:self action:@selector(toggleChanged:)];
+    box.identifier = key;
+    box.controlSize = NSControlSizeSmall;
+    box.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    NSNumber* saved = [NSUserDefaults.standardUserDefaults objectForKey:key];
+    box.state = (saved != nil ? saved.boolValue : on) ? NSControlStateValueOn : NSControlStateValueOff;
+    [self.controls addView:box inGravity:NSStackViewGravityLeading];
+    return box;
+}
+
+- (void)toggleChanged:(NSButton*)sender {
+    [NSUserDefaults.standardUserDefaults setBool:sender.state == NSControlStateValueOn forKey:sender.identifier];
+    [self refresh];
+}
+
+- (void)panelOpened {
+    FrontendMapRetain();
+}
+
+- (void)panelClosed {
+    FrontendMapRelease();
+}
+
+- (void)tick {
+    BOOL fresh = FrontendCopyMapState(_state, &_stateSequence);
+    BOOL drawn = FrontendCopyMapImage(_image, &_imageSequence);
+    _hasState = _hasState || fresh;
+    if (drawn || (fresh && self.collisionLayer != _composedLayer)) {
+        [self compose];
+    }
+    if (fresh || drawn) {
+        [self update];
+    }
+}
+
+- (void)refresh {
+    _view.zoom = sMapZooms[_zoom.indexOfSelectedItem];
+    [self compose];
+    [self update];
+}
+
+// Whether the picture is of the room the player is in now.
+- (BOOL)imageCurrent {
+    return _hasState && _state->inGame && _image->sequence != 0 && _image->area == _state->area &&
+           _image->room == _state->room;
+}
+
+- (BOOL)on:(NSButton*)box {
+    return box.state == NSControlStateValueOn;
+}
+
+// GetLayerByIndex: layer 2 is the top layer, anything else the bottom one.
+- (int)collisionLayer {
+    return _hasState && _state->playerLayer == 2 ? 1 : 0;
+}
+
+- (void)compose {
+    int w = _image->width, h = _image->height;
+    if (_image->sequence == 0) {
+        return;
+    }
+    BOOL bottom = [self on:_bottom], top = [self on:_top], collision = [self on:_collision], grid = [self on:_grid];
+    int layer = self.collisionLayer;
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            int i = y * w + x;
+            uint16_t c = _image->backdrop;
+            if (bottom && _image->layer[0][i] != MAPVIEW_TRANSPARENT) {
+                c = _image->layer[0][i];
+            }
+            if (top && _image->layer[1][i] != MAPVIEW_TRANSPARENT) {
+                c = _image->layer[1][i];
+            }
+            uint8_t solid = collision ? _image->collision[layer][(y / 16) * MAPVIEW_TILES + x / 16] : 0;
+            if (solid == 0x0F) {
+                c = ((c >> 1) & 0x3DEF) & ~0x1F; // as TMC_MAPDUMP: half brightness, red dropped
+            }
+            uint32_t rgb = GfxRgb(c);
+            if (solid != 0 && solid != 0x0F) {
+                rgb = 0xFF000000u | (((rgb & 0xFEFEFE) >> 1) + 0x7F4000); // half way to orange
+            }
+            if (grid) { // as TMC_MAPDUMP: every 16 pixels dotted, every 64 white, marks every 256
+                if (x % 64 == 0 || y % 64 == 0) {
+                    rgb = (x % 256 == 0 && y % 256 == 0) ? 0xFFFF00FF : 0xFFFFFFFF;
+                } else if ((x % 16 == 0 || y % 16 == 0) && ((x + y) & 1)) {
+                    rgb = 0xFF848484;
+                }
+            }
+            _pixels[i] = rgb;
+        }
+    }
+    _composedLayer = layer;
+    [_view setPixels:_pixels width:w height:h];
+}
+
+static NSColor* KindColor(int kind) {
+    switch (kind) { // TMC_MAPDUMP's marker colours
+        case 1: return [NSColor colorWithSRGBRed:1 green:1 blue:1 alpha:1];       // player
+        case 7: return [NSColor colorWithSRGBRed:0 green:8 / 31.0 blue:1 alpha:1]; // NPC
+        case 3: return [NSColor colorWithSRGBRed:1 green:0 blue:0 alpha:1];       // enemy
+        case 6: return [NSColor colorWithSRGBRed:1 green:1 blue:0 alpha:1];       // object
+        default: return [NSColor colorWithWhite:20 / 31.0 alpha:1];
+    }
+}
+
+static NSString* KindName(int kind) {
+    switch (kind) {
+        case 1: return @"player";
+        case 3: return @"enemy";
+        case 4: return @"projectile";
+        case 6: return @"object";
+        case 7: return @"NPC";
+        case 8: return @"player item";
+        default: return [NSString stringWithFormat:@"kind %d", kind];
+    }
+}
+
+// The entity under picture pixel x, y: inside its marker or its hitbox, the nearest.
+- (const MapViewEntity*)entityAtX:(NSInteger)x y:(NSInteger)y {
+    const MapViewEntity* best = NULL;
+    long bestDistance = LONG_MAX;
+    for (int i = 0; i < _state->entityCount; i++) {
+        const MapViewEntity* e = &_state->entities[i];
+        int size = e->kind == 1 ? 6 : 4;
+        long dx = x - e->x, dy = y - e->y;
+        BOOL inMarker = labs(dx) <= size && labs(dy) <= size;
+        BOOL inHitbox =
+            e->hasHitbox && labs(dx - e->hitboxX) <= e->hitboxWidth && labs(dy - e->hitboxY) <= e->hitboxHeight;
+        if ((inMarker || inHitbox) && dx * dx + dy * dy < bestDistance) {
+            best = e;
+            bestDistance = dx * dx + dy * dy;
+        }
+    }
+    return best;
+}
+
+- (void)update {
+    BOOL current = self.imageCurrent;
+    NSMutableArray<NSBezierPath*>* paths = [NSMutableArray array];
+    NSMutableArray<NSColor*>* colors = [NSMutableArray array];
+    const MapViewEntity* hovered = current && _hoverX >= 0 ? [self entityAtX:_hoverX y:_hoverY] : NULL;
+    if (current) {
+        for (int i = 0; i < _state->entityCount; i++) {
+            const MapViewEntity* e = &_state->entities[i];
+            int size = e->kind == 1 ? 6 : 4;
+            // TMC_MAPDUMP's squares: pixels x - size .. x + size, outlined.
+            NSRect marker = NSMakeRect(e->x - size + 0.5, e->y - size + 0.5, size * 2, size * 2);
+            [paths addObject:[NSBezierPath bezierPathWithRect:marker]];
+            [colors addObject:KindColor(e->kind)];
+            if (e == hovered && e->hasHitbox) {
+                NSRect hitbox = NSMakeRect(e->x + e->hitboxX - e->hitboxWidth, e->y + e->hitboxY - e->hitboxHeight,
+                                           e->hitboxWidth * 2, e->hitboxHeight * 2);
+                NSBezierPath* box = [NSBezierPath bezierPathWithRect:hitbox];
+                CGFloat dash[2] = { 3, 2 };
+                [box setLineDash:dash count:2 phase:0];
+                [paths addObject:box];
+                [colors addObject:KindColor(e->kind)];
+            }
+        }
+        [paths addObject:[NSBezierPath bezierPathWithRect:NSMakeRect(_state->cameraX + 0.5, _state->cameraY + 0.5,
+                                                                     PPU_WIDTH - 1, PPU_HEIGHT - 1)]];
+        [colors addObject:[NSColor colorWithSRGBRed:0.2 green:1 blue:0.45 alpha:1]];
+        // A new room: show where the camera is.
+        if (_shownRoom != (_state->area << 8 | _state->room)) {
+            _shownRoom = _state->area << 8 | _state->room;
+            CGFloat zoom = _view.zoom;
+            [_view scrollRectToVisible:NSMakeRect(_state->cameraX * zoom, _state->cameraY * zoom, PPU_WIDTH * zoom,
+                                                  PPU_HEIGHT * zoom)];
+        }
+    }
+    _view.overlayColors = colors;
+    _view.overlays = paths;
+    [self updateTitle];
+    [self updateInfoWithEntity:hovered];
+}
+
+- (void)updateTitle {
+    NSString* title = @"Map";
+    if (_hasState && _state->inGame) {
+        const char* name = RoomName(_state->area, _state->room);
+        title = [NSString stringWithFormat:@"Map — %s (%02x:%02x)", name ?: "unnamed room", _state->area,
+                                           _state->room];
+    }
+    if (![title isEqualToString:_title]) {
+        _title = title;
+        self.window.title = title;
+    }
+}
+
+- (void)updateInfoWithEntity:(const MapViewEntity*)e {
+    NSString* head;
+    NSString* hover = @"hover a tile or an entity";
+    if (!_hasState) {
+        head = @"waiting for the game";
+    } else if (!_state->inGame) {
+        head = [NSString stringWithFormat:@"frame %llu — not in gameplay", (unsigned long long)_state->frame];
+    } else {
+        head = [NSString stringWithFormat:@"frame %llu — %dx%d (%dx%d tiles), %d entities, camera %d,%d, "
+                                          @"Link %d,%d layer %d%@%@",
+                                          (unsigned long long)_state->frame, _state->width, _state->height,
+                                          (_state->width + 15) / 16, (_state->height + 15) / 16, _state->entityCount,
+                                          _state->cameraX, _state->cameraY, _state->playerX, _state->playerY,
+                                          _state->playerLayer, _state->control ? @"" : @", no control",
+                                          self.imageCurrent ? @"" : @" — drawing the room once it has settled"];
+    }
+    if (e != NULL) {
+        hover = [NSString stringWithFormat:@"%@ id 0x%02x type %d action %d/%d — at %d,%d, list %d, layer %d",
+                                           KindName(e->kind), e->id, e->type, e->action, e->subAction, e->x, e->y,
+                                           e->list, e->layer];
+        if (e->hasHitbox) {
+            hover = [hover stringByAppendingFormat:@", hitbox %+d,%+d %dx%d", e->hitboxX, e->hitboxY,
+                                                   e->hitboxWidth * 2, e->hitboxHeight * 2];
+        }
+    } else if (_hoverX >= 0 && _image->sequence != 0) {
+        int t = (int)(_hoverY / 16) * MAPVIEW_TILES + (int)(_hoverX / 16);
+        hover = [NSString stringWithFormat:@"tile %ld,%ld (pixel %ld,%ld): bottom metatile 0x%03x collision %02x, "
+                                           @"top metatile 0x%03x collision %02x",
+                                           (long)_hoverX / 16, (long)_hoverY / 16, (long)_hoverX, (long)_hoverY,
+                                           _image->metatile[0][t], _image->collision[0][t], _image->metatile[1][t],
+                                           _image->collision[1][t]];
+    }
+    NSString* status = _hasState && _state->status[0] ? @(_state->status) : @"";
+    self.info.stringValue = [NSString stringWithFormat:@"%@\n%@\n%@", head, hover, status];
+}
+
+- (void)hoverAtX:(NSInteger)x y:(NSInteger)y {
+    _hoverX = x;
+    _hoverY = y;
+    [self update];
+}
+
+- (void)redraw:(id)sender {
+    if (!FrontendRequestMap(FRONTEND_MAP_REDRAW, 0, 0)) {
+        NSBeep();
+    }
+}
+
+- (NSString*)summary {
+    char line[256];
+    MapViewSummary(_state, _image, line, sizeof(line));
+    return @(line);
+}
+
+@end
+
 #pragma mark - Registry
 
 @implementation DebugWindows {
@@ -1261,7 +1580,7 @@ static uint32_t Unorm(float v) {
 
 + (NSString*)titleForPanel:(DebugPanelKind)kind {
     static NSString* const titles[DebugPanelCount] = { @"Tiles", @"Sprites", @"Layers", @"Palettes", @"IO Registers",
-                                                       @"Shader Buffers" };
+                                                       @"Shader Buffers", @"Map" };
     return titles[kind];
 }
 
@@ -1282,6 +1601,9 @@ static uint32_t Unorm(float v) {
                 break;
             case DebugPanelIo:
                 _panels[kind] = [IoPanel new];
+                break;
+            case DebugPanelMap:
+                _panels[kind] = [MapPanel new];
                 break;
             default:
                 _panels[kind] = [[ShaderPanel alloc] initWithRenderer:_renderer];

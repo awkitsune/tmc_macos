@@ -241,7 +241,8 @@ static void SnapshotNow(void) {
 
 void FrontendMapRetain(void) {
     if (atomic_fetch_add(&sMapViewers, 1) == 0) {
-        atomic_store(&sMapNow, true);
+        // A picture of the room as it is now, not one kept from an earlier opening.
+        FrontendRequestMap(FRONTEND_MAP_REDRAW, 0, 0);
     }
 }
 
