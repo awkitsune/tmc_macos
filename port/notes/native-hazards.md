@@ -470,6 +470,15 @@ pointers (`n` is 0, 1, 4 or 5; 5 is `ent2`, right after `entities[4]`). The room
 it needs the boss beaten. Sweep for `*(T**)(` casts through byte pointers: `src/interrupts.c` (GBA-only branch)
 and vaatiArm (already native-specific).
 
+The cutscenes in [cutscene.c](../../src/cutscene.c) keep a struct pointer in the byte pointer `gMenu.field_0xc`
+and read it at GBA offsets. `sub_08053DB4` (a small key falling from Fortress of Winds 2F to 1F, west and east)
+took area and room from bytes 4 and 5 of `struct_080FCF04`, natively the upper half of `entityData`: area 1,
+room 0, so the cutscene showed the top-left corner of Minish Village instead of the stairs room below. (The key
+itself lands right: the item is placed by the room.) `sub_08053EC4` (the Dark Hyrule Castle 2F darknut rooms)
+read `entityData2` at offset 4 and stepped 12 bytes per `struct_080FCFB8`, which natively builds a pointer from
+halves of two. Both use the struct's fields under `#ifdef PLATFORM_NATIVE`. The other `field_0xc[n]` readers
+point it at structs of bytes and halfwords only (`WorldEvent`, `CutsceneData`, pause menu tables).
+
 ## Structs written as GBA byte arrays
 
 The figurine device (shell trading, `sub_080882A8`) passed two `u8[24]` arrays to `ShowTextBox` as `Font*`

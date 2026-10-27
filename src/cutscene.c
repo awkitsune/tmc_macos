@@ -630,7 +630,13 @@ void sub_08053D90(void) {
 void sub_08053DB4(void) {
     if (gFadeControl.active == 0) {
         struct_080FCF04* ptr = (struct_080FCF04*)gMenu.field_0xc;
+#ifdef PLATFORM_NATIVE
+        // Bytes 4 and 5 are area and room only after a 4-byte pointer; natively they are
+        // the pointer's upper half (area 1, room 0: Minish Village).
+        sub_08052FF4(ptr->area, ptr->room);
+#else
         sub_08052FF4(gMenu.field_0xc[4], gMenu.field_0xc[5]);
+#endif
         InitializeCamera();
         gUpdateVisibleTiles = 1;
         gRoomControls.scroll_x = (s8)ptr->scrollX + gRoomControls.scroll_x;
@@ -737,8 +743,14 @@ void sub_08053E74(void) {
 void sub_08053EC4(void) {
     EntityData** data;
     if ((gFadeControl.active == 0) && (--gMenu.field_0xa == 0)) {
+#ifdef PLATFORM_NATIVE
+        // The GBA offsets (entityData2 at 4, 12-byte entries) assume 4-byte pointers.
+        data = (EntityData**)&((struct_080FCFB8*)gMenu.field_0xc)->entityData2;
+        gMenu.field_0xc += sizeof(struct_080FCFB8);
+#else
         data = (EntityData**)(gMenu.field_0xc + 4); // TODO entityData2 of struct_080FCFB8
         gMenu.field_0xc += 0xc;
+#endif
         LoadRoomEntityList(*data);
         gMenu.overlayType++;
     }
