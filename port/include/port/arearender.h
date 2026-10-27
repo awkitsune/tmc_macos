@@ -60,6 +60,8 @@ bool AreaMapRenderArea(int area, AreaMap* out);
 int AreaMapDungeonCount(void);
 int AreaMapFloorCount(int dungeon);
 bool AreaMapRenderFloor(int dungeon, int floor, AreaMap* out);
+/* The dungeon floor whose map has area:room (the first, if several do). */
+bool AreaMapFloorOf(int area, int room, int* dungeon, int* floor);
 void AreaMapFree(AreaMap* map);
 /* Index into rooms of the room drawn at image pixel x, y, or -1. */
 int AreaMapRoomAt(const AreaMap* map, int x, int y);

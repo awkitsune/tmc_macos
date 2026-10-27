@@ -5,6 +5,7 @@
 
 #include "frontend.h"
 #include "port/gfxdebug.h"
+#include "port/mapoverview.h"
 #include "port/mapview.h"
 #include "roomname.h"
 
@@ -46,6 +47,7 @@ static NSString* DumpText(void (^dump)(FILE* out)) {
 @property(nonatomic, readonly) NSInteger imageWidth, imageHeight;
 @property(nonatomic, copy, nullable) void (^hover)(NSInteger x, NSInteger y); // -1, -1 when outside
 @property(nonatomic, copy, nullable) void (^click)(NSInteger x, NSInteger y);
+@property(nonatomic, copy, nullable) void (^doubleClick)(NSInteger x, NSInteger y);
 // The menu for a right-click on picture pixel x, y (nil: none).
 @property(nonatomic, copy, nullable) NSMenu* _Nullable (^contextMenu)(NSInteger x, NSInteger y);
 @property(nonatomic, copy) NSArray<NSBezierPath*>* overlays; // in picture pixels
@@ -169,7 +171,9 @@ static NSString* DumpText(void (^dump)(FILE* out)) {
 
 - (void)mouseDown:(NSEvent*)event {
     NSInteger x, y;
-    if (self.click && [self pixelForEvent:event x:&x y:&y]) {
+    if (event.clickCount == 2 && self.doubleClick && [self pixelForEvent:event x:&x y:&y]) {
+        self.doubleClick(x, y);
+    } else if (self.click && [self pixelForEvent:event x:&x y:&y]) {
         self.click(x, y);
     }
 }
@@ -1263,11 +1267,45 @@ static uint32_t Unorm(float v) {
 
 // The whole current room (port/mapview.h): its two tile layers as the game
 // thread last drew them, with the camera, the entities and, on request, the
-// collision and a grid; right-click moves Link, the room list warps.
+// collision and a grid; right-click moves Link, the room list warps. Or an
+// overview of a whole area or dungeon floor (port/mapoverview.h), drawn from
+// the game's data off the main thread: hover names a room, a double click or
+// the right-click menu warps there.
 @interface MapPanel : DebugPanel
 @end
 
+typedef NS_ENUM(NSInteger, MapMode) { MapModeRoom, MapModeArea, MapModeFloor };
+
+// An overview drawn on the panel's queue, freed with the object.
+@interface MapOverviewImage : NSObject {
+  @public
+    MapOverview overview;
+}
+@end
+
+@implementation MapOverviewImage
+- (void)dealloc {
+    MapOverviewFree(&overview);
+}
+@end
+
+// Overviews kept for the areas and floors drawn last (each at most 16 MB, MAP_OVERVIEW_MAX_PIXELS).
+#define MAP_OVERVIEW_CACHE_BYTES (48 << 20)
+
 @implementation MapPanel {
+    NSSegmentedControl* _mode;
+    NSPopUpButton* _picker; // Follow Link, then every area or dungeon floor
+    NSButton* _warp;
+    NSButton* _redraw;
+    dispatch_queue_t _overviewQueue;
+    NSMutableDictionary<NSString*, MapOverviewImage*>* _overviews;
+    NSMutableArray<NSString*>* _overviewOrder; // least recently shown first
+    NSMutableSet<NSString*>* _drawing;
+    NSMutableSet<NSString*>* _undrawable;
+    NSString* _wantedKey; // the overview the view should show; read by the queue under @synchronized(self)
+    MapOverviewImage* _shown;
+    NSString* _scrolledTo; // overview key and room the view last scrolled to Link in
+    int _hoverRoom;        // index into the shown overview's rooms, or -1
     MapViewState* _state;
     MapViewImage* _image;
     uint64_t _stateSequence, _imageSequence;
@@ -1293,6 +1331,22 @@ static NSString* const sMapToggles[4] = { @"Bottom", @"Top", @"Collision", @"Gri
 
 - (instancetype)init {
     if ((self = [super initWithTitle:@"Map" name:@"Map" size:NSMakeSize(820, 680) usesSnapshot:NO])) {
+        _overviewQueue = dispatch_queue_create("tmc.map.overview", DISPATCH_QUEUE_SERIAL);
+        _overviews = [NSMutableDictionary dictionary];
+        _overviewOrder = [NSMutableArray array];
+        _drawing = [NSMutableSet set];
+        _undrawable = [NSMutableSet set];
+        _hoverRoom = -1;
+        _mode = [NSSegmentedControl segmentedControlWithLabels:@[ @"Room", @"Area", @"Floor" ]
+                                                  trackingMode:NSSegmentSwitchTrackingSelectOne
+                                                        target:self
+                                                        action:@selector(modeChanged:)];
+        _mode.controlSize = NSControlSizeSmall;
+        _mode.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        _mode.toolTip = @"The current room as the game drew it, or the whole area or dungeon floor from the game's data";
+        NSInteger savedMode = [NSUserDefaults.standardUserDefaults integerForKey:@"DebugMapMode"];
+        _mode.selectedSegment = savedMode >= MapModeRoom && savedMode <= MapModeFloor ? savedMode : MapModeRoom;
+        [self.controls addView:_mode inGravity:NSStackViewGravityLeading];
         _state = calloc(1, sizeof(MapViewState));
         _image = calloc(1, sizeof(MapViewImage));
         _pixels = calloc(MAPVIEW_MAX_SIZE * MAPVIEW_MAX_SIZE, sizeof(uint32_t));
@@ -1310,17 +1364,24 @@ static NSString* const sMapToggles[4] = { @"Bottom", @"Top", @"Collision", @"Gri
         _rooms.toolTip = @"A room of the current area";
         [_rooms.widthAnchor constraintLessThanOrEqualToConstant:240].active = YES;
         [self.controls addView:_rooms inGravity:NSStackViewGravityLeading];
-        NSButton* warp = [NSButton buttonWithTitle:@"Warp" target:self action:@selector(warp:)];
-        warp.controlSize = NSControlSizeSmall;
-        warp.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        warp.toolTip = @"Go to the chosen room through the game's own exit transition, once Link has control";
-        [self.controls addView:warp inGravity:NSStackViewGravityLeading];
-        NSButton* redraw = [NSButton buttonWithTitle:@"Redraw" target:self action:@selector(redraw:)];
-        redraw.controlSize = NSControlSizeSmall;
-        redraw.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-        redraw.toolTip = @"Draw the room again from VRAM now (otherwise only when its tiles change; "
-                         @"animated tiles stay as they were)";
-        [self.controls addView:redraw inGravity:NSStackViewGravityLeading];
+        _warp = [NSButton buttonWithTitle:@"Warp" target:self action:@selector(warp:)];
+        _warp.controlSize = NSControlSizeSmall;
+        _warp.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        _warp.toolTip = @"Go to the chosen room through the game's own exit transition, once Link has control";
+        [self.controls addView:_warp inGravity:NSStackViewGravityLeading];
+        _redraw = [NSButton buttonWithTitle:@"Redraw" target:self action:@selector(redraw:)];
+        _redraw.controlSize = NSControlSizeSmall;
+        _redraw.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        _redraw.toolTip = @"Draw the room again from VRAM now (otherwise only when its tiles change; "
+                          @"animated tiles stay as they were)";
+        [self.controls addView:_redraw inGravity:NSStackViewGravityLeading];
+        _picker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        _picker.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        _picker.controlSize = NSControlSizeSmall;
+        _picker.target = self;
+        _picker.action = @selector(pickerChanged:);
+        [_picker.widthAnchor constraintLessThanOrEqualToConstant:280].active = YES;
+        [self.controls addView:_picker inGravity:NSStackViewGravityLeading];
 
         _view = [[PixelView alloc] initWithFrame:NSMakeRect(0, 0, 256, 256)];
         _view.zoom = sMapZooms[_zoom.indexOfSelectedItem];
@@ -1331,9 +1392,76 @@ static NSString* const sMapToggles[4] = { @"Bottom", @"Top", @"Collision", @"Gri
         _view.contextMenu = ^NSMenu*(NSInteger x, NSInteger y) {
             return [weakSelf menuAtX:x y:y];
         };
+        _view.doubleClick = ^(NSInteger x, NSInteger y) {
+            [weakSelf doubleClickAtX:x y:y];
+        };
         [self layoutWithMain:[self scrollViewFor:_view]];
+        [self applyMode];
     }
     return self;
+}
+
+- (MapMode)mode {
+    return (MapMode)_mode.selectedSegment;
+}
+
+- (void)modeChanged:(id)sender {
+    [NSUserDefaults.standardUserDefaults setInteger:self.mode forKey:@"DebugMapMode"];
+    [self applyMode];
+    [self refresh];
+}
+
+// The controls of the mode; the picker lists the mode's areas or floors.
+- (void)applyMode {
+    MapMode mode = self.mode;
+    BOOL room = mode == MapModeRoom;
+    for (NSButton* box in @[ _bottom, _top, _collision, _grid ]) {
+        box.enabled = room;
+    }
+    _rooms.hidden = _warp.hidden = _redraw.hidden = !room;
+    _picker.hidden = room;
+    _shown = nil;
+    _scrolledTo = nil;
+    _hoverRoom = -1;
+    [_view setPixels:NULL width:0 height:0]; // the room is composed again, the overview shown once it is there
+    [_picker removeAllItems];
+    [_picker addItemWithTitle:@"Follow Link"];
+    _picker.lastItem.tag = -1;
+    if (mode == MapModeArea) {
+        _picker.toolTip = @"The area to show: Link's, or any area with rooms the game can load";
+        [_picker.menu addItem:NSMenuItem.separatorItem];
+        for (int area = 0; area < AreaMapAreaCount(); area++) {
+            int rooms = 0;
+            char name[96];
+            for (int room = 0; room < AreaMapRoomCount(area); room++) {
+                rooms += AreaMapRoomIsDrawable(area, room);
+            }
+            if (rooms == 0) {
+                continue;
+            }
+            MapOverviewAreaName(area, name, sizeof(name));
+            [_picker addItemWithTitle:[NSString stringWithFormat:@"%02x %s (%d room%@)", area,
+                                                                 name[0] ? name : "unnamed", rooms,
+                                                                 rooms == 1 ? @"" : @"s"]];
+            _picker.lastItem.tag = area;
+        }
+    } else if (mode == MapModeFloor) {
+        _picker.toolTip = @"The dungeon floor to show: Link's, or any (floor 0 is the highest)";
+        [_picker.menu addItem:NSMenuItem.separatorItem];
+        for (int dungeon = 1; dungeon < AreaMapDungeonCount(); dungeon++) {
+            for (int floor = 0; floor < AreaMapFloorCount(dungeon); floor++) {
+                [_picker addItemWithTitle:[NSString stringWithFormat:@"%s — floor %d of %d",
+                                                                     MapOverviewDungeonName(dungeon), floor,
+                                                                     AreaMapFloorCount(dungeon)]];
+                _picker.lastItem.tag = dungeon << 8 | floor;
+            }
+        }
+    }
+    [_picker selectItemWithTag:-1];
+}
+
+- (void)pickerChanged:(id)sender {
+    [self update];
 }
 
 - (void)dealloc {
@@ -1366,6 +1494,15 @@ static NSString* const sMapToggles[4] = { @"Bottom", @"Top", @"Collision", @"Gri
 
 - (void)panelClosed {
     FrontendMapRelease();
+    // Only the overviews being drawn stay; nothing is kept while the window is closed.
+    [_overviews removeAllObjects];
+    [_overviewOrder removeAllObjects];
+    _shown = nil;
+    _scrolledTo = nil;
+    [self.class wanted:nil by:self];
+    if (self.mode != MapModeRoom) {
+        [_view setPixels:NULL width:0 height:0];
+    }
 }
 
 - (void)tick {
@@ -1437,7 +1574,9 @@ static NSString* const sMapToggles[4] = { @"Bottom", @"Top", @"Collision", @"Gri
         }
     }
     _composedLayer = layer;
-    [_view setPixels:_pixels width:w height:h];
+    if (self.mode == MapModeRoom) {
+        [_view setPixels:_pixels width:w height:h];
+    }
 }
 
 static NSColor* KindColor(int kind) {
@@ -1482,6 +1621,10 @@ static NSString* KindName(int kind) {
 }
 
 - (void)update {
+    if (self.mode != MapModeRoom) {
+        [self updateOverview];
+        return;
+    }
     BOOL current = self.imageCurrent;
     NSMutableArray<NSBezierPath*>* paths = [NSMutableArray array];
     NSMutableArray<NSColor*>* colors = [NSMutableArray array];
@@ -1528,6 +1671,13 @@ static NSString* KindName(int kind) {
         const char* name = RoomName(_state->area, _state->room);
         title = [NSString stringWithFormat:@"Map — %s (%02x:%02x)", name ?: "unnamed room", _state->area,
                                            _state->room];
+    }
+    if (self.mode != MapModeRoom && _shown != nil) {
+        const MapOverview* o = &_shown->overview;
+        char overview[160];
+        MapOverviewTitle(o->kind, o->kind == MAP_OVERVIEW_AREA ? o->area : o->dungeon, o->floor, overview,
+                         sizeof(overview));
+        title = [title stringByAppendingFormat:@" — %s", overview];
     }
     if (![title isEqualToString:_title]) {
         _title = title;
@@ -1599,10 +1749,20 @@ static NSString* KindName(int kind) {
 - (void)hoverAtX:(NSInteger)x y:(NSInteger)y {
     _hoverX = x;
     _hoverY = y;
+    if (self.mode != MapModeRoom) {
+        int room = _shown != nil && x >= 0 ? MapOverviewRoomAt(&_shown->overview, (int)x, (int)y) : -1;
+        if (room == _hoverRoom) {
+            return;
+        }
+        _hoverRoom = room;
+    }
     [self update];
 }
 
 - (NSMenu*)menuAtX:(NSInteger)x y:(NSInteger)y {
+    if (self.mode != MapModeRoom) {
+        return [self overviewMenuAtX:x y:y];
+    }
     if (!self.imageCurrent) {
         return nil;
     }
@@ -1644,9 +1804,287 @@ static NSString* KindName(int kind) {
 }
 
 - (NSString*)summary {
-    char line[256];
+    static NSString* const modes[] = { @"room", @"area", @"floor" };
+    char line[512];
     MapViewSummary(_state, _image, line, sizeof(line));
-    return @(line);
+    NSString* summary = [NSString stringWithFormat:@"%s; mode %@", line, modes[self.mode]];
+    if (self.mode == MapModeRoom) {
+        return summary;
+    }
+    if (_shown == nil) {
+        return [summary stringByAppendingFormat:@"; overview %@ not drawn yet%@", _wantedKey ?: @"(none)",
+                                                [_undrawable containsObject:_wantedKey ?: @""] ? @" (nothing to draw)"
+                                                                                                 : @""];
+    }
+    // The test point: Link, when the overview has his room, else the overview's centre.
+    const MapOverview* o = &_shown->overview;
+    int i = [self currentRoomIndex], x = o->width / 2, y = o->height / 2;
+    if (i >= 0) {
+        x = (o->map.rooms[i].x + _state->playerX) / o->scale;
+        y = (o->map.rooms[i].y + _state->playerY) / o->scale;
+    }
+    MapOverviewSummary(o, x, y, line, sizeof(line));
+    return [summary stringByAppendingFormat:@"; %s (test point: %@)", line, i >= 0 ? @"Link" : @"centre"];
+}
+
+#pragma mark Overview
+
+// What the mode and the picker ask for: false if nothing (Follow Link outside gameplay or a dungeon).
+- (BOOL)wantedOverview:(MapOverviewKind*)kind a:(int*)a b:(int*)b {
+    NSInteger tag = _picker.selectedItem != nil ? _picker.selectedItem.tag : -1;
+    BOOL follow = tag < 0, inGame = _hasState && _state->inGame;
+    *b = 0;
+    if (self.mode == MapModeArea) {
+        *kind = MAP_OVERVIEW_AREA;
+        *a = follow ? _state->area : (int)tag;
+        return !follow || inGame;
+    }
+    *kind = MAP_OVERVIEW_FLOOR;
+    if (follow) {
+        return inGame && AreaMapFloorOf(_state->area, _state->room, a, b);
+    }
+    *a = (int)(tag >> 8);
+    *b = (int)(tag & 0xFF);
+    return YES;
+}
+
+static NSString* OverviewKey(MapOverviewKind kind, int a, int b) {
+    return kind == MAP_OVERVIEW_AREA ? [NSString stringWithFormat:@"area %02x", a]
+                                     : [NSString stringWithFormat:@"dungeon %d floor %d", a, b];
+}
+
+// The key the queue should still draw (nil: none), shared with the queue.
++ (void)wanted:(NSString*)key by:(MapPanel*)panel {
+    @synchronized(panel) {
+        panel->_wantedKey = key;
+    }
+}
+
+- (NSString*)wantedKeyLocked {
+    @synchronized(self) {
+        return _wantedKey;
+    }
+}
+
+// Draw on the queue, one at a time (the full-size picture can be 75 MB until it is scaled), unless the window
+// wants another one by the time the queue gets to it.
+- (void)drawOverview:(MapOverviewKind)kind a:(int)a b:(int)b key:(NSString*)key {
+    if ([_drawing containsObject:key] || [_undrawable containsObject:key]) {
+        return;
+    }
+    [_drawing addObject:key];
+    __weak MapPanel* weakSelf = self;
+    dispatch_async(_overviewQueue, ^{
+        MapPanel* panel = weakSelf;
+        MapOverviewImage* image = nil;
+        BOOL drawn = NO;
+        if (panel != nil && [key isEqualToString:[panel wantedKeyLocked]]) {
+            image = [MapOverviewImage new];
+            drawn = MapOverviewRender(kind, a, b, &image->overview);
+        }
+        panel = nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf overviewDrawn:image drawn:drawn key:key];
+        });
+    });
+}
+
+- (void)overviewDrawn:(MapOverviewImage*)image drawn:(BOOL)drawn key:(NSString*)key {
+    [_drawing removeObject:key];
+    if (image != nil && !drawn) {
+        [_undrawable addObject:key];
+    }
+    if (_wantedKey == nil) { // the window was closed meanwhile (or wants nothing)
+        return;
+    }
+    if (drawn) {
+        _overviews[key] = image;
+        [_overviewOrder removeObject:key];
+        [_overviewOrder addObject:key];
+        [self trimOverviews];
+    }
+    [self update];
+}
+
+// Forget the least recently shown overviews beyond MAP_OVERVIEW_CACHE_BYTES, never the one shown.
+- (void)trimOverviews {
+    size_t bytes = 0;
+    for (NSString* key in _overviewOrder) {
+        bytes += (size_t)_overviews[key]->overview.width * _overviews[key]->overview.height * 4;
+    }
+    for (NSUInteger i = 0; i < _overviewOrder.count && bytes > MAP_OVERVIEW_CACHE_BYTES;) {
+        MapOverviewImage* image = _overviews[_overviewOrder[i]];
+        if (image == _shown) {
+            i++;
+            continue;
+        }
+        bytes -= (size_t)image->overview.width * image->overview.height * 4;
+        [_overviews removeObjectForKey:_overviewOrder[i]];
+        [_overviewOrder removeObjectAtIndex:i];
+    }
+}
+
+// Index of Link's room in the shown overview, or -1.
+- (int)currentRoomIndex {
+    if (_shown == nil || !_hasState || !_state->inGame) {
+        return -1;
+    }
+    return MapOverviewFindRoom(&_shown->overview, _state->area, _state->room);
+}
+
+static NSRect OverviewRect(const MapOverview* o, int x, int y, int width, int height) {
+    CGFloat s = o->scale;
+    return NSMakeRect(x / s + 0.5, y / s + 0.5, MAX(width / s - 1, 1), MAX(height / s - 1, 1));
+}
+
+- (void)updateOverview {
+    MapOverviewKind kind;
+    int a, b;
+    NSString* key = nil;
+    if ([self wantedOverview:&kind a:&a b:&b]) {
+        key = OverviewKey(kind, a, b);
+    }
+    if (!(key == _wantedKey || [key isEqualToString:_wantedKey])) {
+        [self.class wanted:key by:self];
+    }
+    MapOverviewImage* image = key != nil ? _overviews[key] : nil;
+    if (key != nil && image == nil) {
+        [self drawOverview:kind a:a b:b key:key]; // the old picture stays until the new one is there
+    }
+    if (image != nil && image != _shown) {
+        _shown = image;
+        _hoverRoom = -1;
+        [_overviewOrder removeObject:key];
+        [_overviewOrder addObject:key];
+        [_view setPixels:image->overview.pixels width:image->overview.width height:image->overview.height];
+    } else if (key == nil && _shown != nil) {
+        _shown = nil;
+        _hoverRoom = -1;
+        [_view setPixels:NULL width:0 height:0];
+    }
+
+    NSMutableArray<NSBezierPath*>* paths = [NSMutableArray array];
+    NSMutableArray<NSColor*>* colors = [NSMutableArray array];
+    int current = [self currentRoomIndex];
+    if (_shown != nil) {
+        const MapOverview* o = &_shown->overview;
+        if (_hoverRoom >= 0 && _hoverRoom != current) {
+            const AreaMapRoom* r = &o->map.rooms[_hoverRoom];
+            NSBezierPath* box = [NSBezierPath bezierPathWithRect:OverviewRect(o, r->x, r->y, r->width, r->height)];
+            CGFloat dash[2] = { 4, 3 };
+            [box setLineDash:dash count:2 phase:0];
+            [paths addObject:box];
+            [colors addObject:[NSColor colorWithSRGBRed:1 green:1 blue:0 alpha:1]];
+        }
+        if (current >= 0) {
+            const AreaMapRoom* r = &o->map.rooms[current];
+            CGFloat s = o->scale, size = MAX(6 / s, 2);
+            [paths addObject:[NSBezierPath bezierPathWithRect:OverviewRect(o, r->x, r->y, r->width, r->height)]];
+            [colors addObject:[NSColor colorWithSRGBRed:1 green:0.1 blue:0.9 alpha:1]];
+            [paths addObject:[NSBezierPath bezierPathWithRect:OverviewRect(o, r->x + _state->cameraX,
+                                                                           r->y + _state->cameraY, PPU_WIDTH,
+                                                                           PPU_HEIGHT)]];
+            [colors addObject:[NSColor colorWithSRGBRed:0.2 green:1 blue:0.45 alpha:1]];
+            NSPoint link = NSMakePoint((r->x + _state->playerX) / s, (r->y + _state->playerY) / s);
+            [paths addObject:[NSBezierPath bezierPathWithRect:NSMakeRect(link.x - size, link.y - size, size * 2,
+                                                                         size * 2)]];
+            [colors addObject:NSColor.whiteColor];
+            // A new overview or a new room: show where Link is.
+            NSString* scrolled = [NSString stringWithFormat:@"%@ %02x:%02x", key, _state->area, _state->room];
+            if (![scrolled isEqualToString:_scrolledTo]) {
+                _scrolledTo = scrolled;
+                CGFloat zoom = _view.zoom;
+                [_view scrollRectToVisible:NSMakeRect((link.x - PPU_WIDTH / s) * zoom, (link.y - PPU_HEIGHT / s) * zoom,
+                                                      PPU_WIDTH * 2 / s * zoom, PPU_HEIGHT * 2 / s * zoom)];
+            }
+        }
+    }
+    _view.overlayColors = colors;
+    _view.overlays = paths;
+    [self updateTitle];
+    [self updateOverviewInfoForKey:key];
+}
+
+- (void)updateOverviewInfoForKey:(NSString*)key {
+    NSString* head;
+    NSString* hover = @"hover a room for its name; double-click it, or right-click it and choose Warp, to go there";
+    if (key == nil) {
+        head = self.mode == MapModeFloor && _hasState && _state->inGame
+                   ? @"Link is not on a dungeon floor: choose one from the list"
+                   : @"not in gameplay: choose an area or floor from the list";
+    } else if (_shown == nil || [_undrawable containsObject:key]) {
+        head = [NSString stringWithFormat:@"%@: %@", key,
+                                          [_undrawable containsObject:key] ? @"nothing to draw" : @"drawing…"];
+    } else {
+        const MapOverview* o = &_shown->overview;
+        char title[160];
+        MapOverviewTitle(o->kind, o->kind == MAP_OVERVIEW_AREA ? o->area : o->dungeon, o->floor, title,
+                         sizeof(title));
+        head = [NSString stringWithFormat:@"%s: %d rooms, %dx%d%@%@", title, o->map.roomCount, o->map.width,
+                                          o->map.height,
+                                          o->scale > 1 ? [NSString stringWithFormat:@" shown at 1/%d (%dx%d)",
+                                                                                    o->scale, o->width, o->height]
+                                                       : @"",
+                                          [self currentRoomIndex] >= 0 ? @"" : @" — Link is not in it"];
+        if (![key isEqualToString:OverviewKey(o->kind, o->kind == MAP_OVERVIEW_AREA ? o->area : o->dungeon,
+                                              o->floor)]) {
+            head = [head stringByAppendingFormat:@" — drawing %@…", key];
+        }
+        if (_hoverRoom >= 0) {
+            const AreaMapRoom* r = &o->map.rooms[_hoverRoom];
+            hover = [NSString stringWithFormat:@"room %02x:%02x %s — %dx%d, map position %d,%d%@%@", r->area, r->room,
+                                               r->name ?: "(unnamed)", r->width, r->height, r->worldX, r->worldY,
+                                               r->atMapPosition ? @"" : @" (shares it: shown below the others)",
+                                               WarpRoomIsValid(r->area, r->room) ? @" — double-click to warp" : @""];
+        }
+    }
+    NSString* status = _hasState && _state->status[0] ? @(_state->status) : @"";
+    self.info.stringValue = [NSString stringWithFormat:@"%@\n%@\n%@", head, hover, status];
+}
+
+- (void)warpToArea:(int)area room:(int)room {
+    if (!FrontendRequestMap(FRONTEND_MAP_WARP, area, room)) {
+        NSBeep();
+    }
+}
+
+- (void)doubleClickAtX:(NSInteger)x y:(NSInteger)y {
+    int area, room;
+    if (self.mode == MapModeRoom || _shown == nil) {
+        return;
+    }
+    if (MapOverviewWarpTarget(&_shown->overview, (int)x, (int)y, &area, &room)) {
+        [self warpToArea:area room:room];
+    } else {
+        NSBeep();
+    }
+}
+
+- (NSMenu*)overviewMenuAtX:(NSInteger)x y:(NSInteger)y {
+    int i = _shown != nil ? MapOverviewRoomAt(&_shown->overview, (int)x, (int)y) : -1, area, room;
+    if (i < 0) {
+        return nil;
+    }
+    const AreaMapRoom* r = &_shown->overview.map.rooms[i];
+    BOOL ok = MapOverviewWarpTarget(&_shown->overview, (int)x, (int)y, &area, &room);
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Map"];
+    menu.autoenablesItems = NO;
+    NSString* title = [NSString stringWithFormat:@"Warp to %02x:%02x %s", r->area, r->room, r->name ?: "(unnamed)"];
+    if (!ok) {
+        title = [title stringByAppendingString:@" — the game cannot load it"];
+    } else if (!_state->control) {
+        title = [title stringByAppendingString:@" — once Link has control"];
+    }
+    NSMenuItem* item = [menu addItemWithTitle:title action:@selector(warpFromMenu:) keyEquivalent:@""];
+    item.target = self;
+    item.representedObject = @[ @(r->area), @(r->room) ];
+    item.enabled = ok;
+    return menu;
+}
+
+- (void)warpFromMenu:(NSMenuItem*)sender {
+    NSArray<NSNumber*>* target = sender.representedObject;
+    [self warpToArea:target[0].intValue room:target[1].intValue];
 }
 
 @end

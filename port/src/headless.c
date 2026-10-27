@@ -24,7 +24,10 @@
  *   TMC_MAPVIEW=K            every K frames, the macOS Map window's view of the
  *                            room as its summary line (port/src/mapview.c);
  *                            TMC_MAPVIEW_REQUEST=F:move:X,Y or F:warp:AA:RR makes
- *                            one of the window's requests from frame F on
+ *                            one of the window's requests from frame F on;
+ *                            F:overview:area:AA:X,Y or F:overview:floor:D:F:X,Y
+ *                            warps to the room at pixel X,Y of that overview
+ *                            (port/src/mapoverview.c), as a double click does
  *
  * Graphics dumps (port/gfxdebug.h), each a frame list (F,F,... or every:K), of
  * the hardware as that frame was drawn:
@@ -48,6 +51,10 @@
  *   TMC_AREACHECK=1          for each room the player has had control in for 30
  *                            frames, compare the renderer's picture of it with
  *                            the live tile layers, and say what differs
+ *   TMC_MAPOVERVIEW=1        once (as TMC_AREADUMP), the Map window's overview of
+ *                            every area and floor: scale, size, each room's hit
+ *                            test and warp target; then the current area's and
+ *                            floor's summary at Link's position
  * States are taken at the main loop's frame boundary: a frame that falls in one
  * of the game's pause loops saves at the next boundary instead.
  */
@@ -69,6 +76,7 @@
 
 #include "port/arearender.h"
 #include "port/gfxdebug.h"
+#include "port/mapoverview.h"
 #include "port/mapview.h"
 #include "port/headless_state.h"
 #include "port/hw.h"
@@ -414,6 +422,33 @@ static void MaybeDumpMap(void) {
 static uint64_t sMapViewEvery;
 static const char* sMapViewRequest;
 
+// TMC_MAPVIEW_REQUEST's overview:area:AA:X,Y or overview:floor:D:F:X,Y: the window's double click.
+static int MapOverviewRequest(const char* what, char* message, int size) {
+    MapOverview o;
+    char line[512];
+    int a, b = 0, x, y, area, room, started = 0;
+    MapOverviewKind kind = MAP_OVERVIEW_AREA;
+
+    if (sscanf(what, "area:%x:%d,%d", &a, &x, &y) != 3 &&
+        (kind = MAP_OVERVIEW_FLOOR, sscanf(what, "floor:%d:%d:%d,%d", &a, &b, &x, &y) != 4)) {
+        snprintf(message, size, "TMC_MAPVIEW_REQUEST: cannot read overview '%s'", what);
+        return 0;
+    }
+    if (!MapOverviewRender(kind, a, b, &o)) {
+        snprintf(message, size, "overview %s: nothing to draw", what);
+        return 0;
+    }
+    MapOverviewSummary(&o, x, y, line, sizeof(line));
+    printf("frame %llu: mapview: %s\n", (unsigned long long)gPlatformFrame, line);
+    if (MapOverviewWarpTarget(&o, x, y, &area, &room)) {
+        started = MapViewWarp(area, room, message, size);
+    } else {
+        snprintf(message, size, "overview: no room to warp to at %d,%d", x, y);
+    }
+    MapOverviewFree(&o);
+    return started;
+}
+
 static void MapViewFrame(void) {
     static MapViewState sState;
     static MapViewImage sImage;
@@ -429,6 +464,8 @@ static void MapViewFrame(void) {
             MapViewMovePlayer(a, b, message, sizeof(message));
         } else if (sscanf(what, "warp:%x:%x", &a, &b) == 2) {
             sWarping = MapViewWarp(a, b, message, sizeof(message));
+        } else if (strncmp(what, "overview:", 9) == 0) {
+            sWarping = MapOverviewRequest(what + 9, message, sizeof(message));
         } else {
             snprintf(message, sizeof(message), "TMC_MAPVIEW_REQUEST: cannot read '%s'", sMapViewRequest);
         }
@@ -446,6 +483,46 @@ static void MapViewFrame(void) {
             printf("%s\n", message);
         }
     }
+}
+
+static int sMapOverview; // TMC_MAPOVERVIEW
+
+// TMC_MAPOVERVIEW: the overview's checks, once the player has had control for 30 frames, and what the window
+// would show where Link is: the summary with Link's position as the test point.
+static void MaybeCheckOverview(void) {
+    static int sStable, sDone;
+    HeadlessState s;
+    MapOverview o;
+    char line[512];
+    int dungeon, floor, i;
+    uint64_t before, after;
+
+    HeadlessGetState(&s);
+    sStable = s.control ? sStable + 1 : 0;
+    if (sDone || sStable < 30) {
+        return;
+    }
+    sDone = 1;
+    before = StateChecksum();
+    printf("mapoverview: frame %llu in %02x:%02x at %d,%d\n", (unsigned long long)gPlatformFrame, s.area, s.room,
+           s.x, s.y);
+    MapOverviewCheckAll(stdout);
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 0 ? !MapOverviewRender(MAP_OVERVIEW_AREA, s.area, 0, &o)
+                      : !AreaMapFloorOf(s.area, s.room, &dungeon, &floor) ||
+                            !MapOverviewRender(MAP_OVERVIEW_FLOOR, dungeon, floor, &o)) {
+            printf("mapoverview: current %s: none\n", pass == 0 ? "area" : "floor");
+            continue;
+        }
+        i = MapOverviewFindRoom(&o, s.area, s.room);
+        MapOverviewSummary(&o, i < 0 ? -1 : (o.map.rooms[i].x + s.x) / o.scale,
+                           i < 0 ? -1 : (o.map.rooms[i].y + s.y) / o.scale, line, sizeof(line));
+        printf("mapoverview: current %s\n", line);
+        MapOverviewFree(&o);
+    }
+    after = StateChecksum();
+    printf("mapoverview: state checksum %016llx -> %016llx%s\n", (unsigned long long)before,
+           (unsigned long long)after, before == after ? " (unchanged)" : " (CHANGED)");
 }
 
 static const char* sAreaDir; // TMC_AREADUMP
@@ -822,6 +899,9 @@ void PlatformVBlank(void) {
     if (sAreaCheck) {
         MaybeCheckArea();
     }
+    if (sMapOverview) {
+        MaybeCheckOverview();
+    }
     // The picture shown during this frame, drawn only when something needs it.
     {
         static uint16_t sFrame[PPU_WIDTH * PPU_HEIGHT];
@@ -1077,6 +1157,7 @@ int main(int argc, char** argv) {
         }
     }
     sAreaCheck = getenv("TMC_AREACHECK") != NULL;
+    sMapOverview = getenv("TMC_MAPOVERVIEW") != NULL;
     if (getenv("TMC_SCREENSHOT") != NULL) {
         ParseScreenshots(getenv("TMC_SCREENSHOT"));
         if (getenv("TMC_SCREENSHOT_DIR") != NULL) {

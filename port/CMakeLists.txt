@@ -215,6 +215,7 @@ add_library(tmc_port STATIC
     src/warp.c
     src/mapdump.c
     src/mapview.c
+    src/mapoverview.c
     src/arearender.c
     ${TMC_AREA_ROOMS}
     src/entitylistcheck.c
