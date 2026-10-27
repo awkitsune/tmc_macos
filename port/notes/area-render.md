@@ -2,7 +2,7 @@
 
 [arearender.c](../src/arearender.c) ([arearender.h](../include/port/arearender.h)) draws any room, a whole area or
 a dungeon floor into an RGBA buffer from the game's data, without touching the running game. It is the core for a
-whole-area overview in the app's Map window; the UI is not wired up yet.
+whole-area overview in the app's Map window (see [The Map window's overview](#the-map-windows-overview)).
 
 `TMC_MAPDUMP` ([mapdump.c](../src/mapdump.c)) can only draw the room the player is in, because only that room's
 tiles are in VRAM. The area renderer decodes every room's tile set, palettes, metatiles and tile maps itself.
@@ -138,6 +138,24 @@ VRAM.
   does this (`sub_0805AA58`, light rays), not the area's background animations.
 - 44:00 (Simon's Simulation) has a bottom BG control that differs from the default in bits that do not change the
   tile layers. It matches exactly.
+
+## The Map window's overview
+
+The Map window (Debug → Map) has a Room / Area / Floor switch. Area and Floor show
+[mapoverview.c](../src/mapoverview.c)'s picture of the area or dungeon floor Link is in ("Follow Link"), or of any
+area or floor chosen from the list. The current room is outlined, with the camera and a square for Link; hovering a
+room names it; a double click, or Warp in its right-click menu, warps there with the window's warp request (any
+area: a floor's boss room is in another area than the rest of the floor).
+
+- The picture is drawn on a serial queue, so at most one full-size picture (Palace of Winds: 75 MB) exists at a
+  time. It is scaled down by the smallest whole factor that brings it within 4M pixels (16 MB) and freed at once:
+  7 areas are scaled, by 2, or by 3 for Palace of Winds (640x3270); no floor is.
+- The window keeps the last drawn overviews up to 48 MB and drops them when it closes. A queued drawing the window
+  no longer wants is skipped.
+- `TMC_MAPOVERVIEW=1` (headless) draws every area and floor once Link has had control for 30 frames, checks that
+  each room's centre hits that room and is a warp target, and prints the summary of the current area and floor at
+  Link's position. `TMC_MAPVIEW_REQUEST=F:overview:floor:D:F:X,Y` (or `area:AA:X,Y`) warps as a double click at that
+  overview pixel does.
 
 ## Known gaps
 
