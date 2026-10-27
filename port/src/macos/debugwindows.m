@@ -46,6 +46,8 @@ static NSString* DumpText(void (^dump)(FILE* out)) {
 @property(nonatomic, readonly) NSInteger imageWidth, imageHeight;
 @property(nonatomic, copy, nullable) void (^hover)(NSInteger x, NSInteger y); // -1, -1 when outside
 @property(nonatomic, copy, nullable) void (^click)(NSInteger x, NSInteger y);
+// The menu for a right-click on picture pixel x, y (nil: none).
+@property(nonatomic, copy, nullable) NSMenu* _Nullable (^contextMenu)(NSInteger x, NSInteger y);
 @property(nonatomic, copy) NSArray<NSBezierPath*>* overlays; // in picture pixels
 @property(nonatomic, strong) NSColor* overlayColor;
 @property(nonatomic, copy, nullable) NSArray<NSColor*>* overlayColors; // per overlay, else overlayColor
@@ -170,6 +172,14 @@ static NSString* DumpText(void (^dump)(FILE* out)) {
     if (self.click && [self pixelForEvent:event x:&x y:&y]) {
         self.click(x, y);
     }
+}
+
+- (NSMenu*)menuForEvent:(NSEvent*)event {
+    NSInteger x, y;
+    if (self.contextMenu && [self pixelForEvent:event x:&x y:&y]) {
+        return self.contextMenu(x, y);
+    }
+    return [super menuForEvent:event];
 }
 
 @end
@@ -1253,7 +1263,7 @@ static uint32_t Unorm(float v) {
 
 // The whole current room (port/mapview.h): its two tile layers as the game
 // thread last drew them, with the camera, the entities and, on request, the
-// collision and a grid.
+// collision and a grid; right-click moves Link, the room list warps.
 @interface MapPanel : DebugPanel
 @end
 
@@ -1267,6 +1277,8 @@ static uint32_t Unorm(float v) {
     NSButton* _top;
     NSButton* _collision;
     NSButton* _grid;
+    NSPopUpButton* _rooms;
+    int _roomsArea, _roomsRoom; // what the room list was last set for
     int _shownRoom;             // area << 8 | room the view last scrolled to
     PixelView* _view;
     uint32_t* _pixels;
@@ -1284,7 +1296,7 @@ static NSString* const sMapToggles[4] = { @"Bottom", @"Top", @"Collision", @"Gri
         _state = calloc(1, sizeof(MapViewState));
         _image = calloc(1, sizeof(MapViewImage));
         _pixels = calloc(MAPVIEW_MAX_SIZE * MAPVIEW_MAX_SIZE, sizeof(uint32_t));
-        _shownRoom = -1;
+        _roomsArea = _roomsRoom = _shownRoom = -1;
         _hoverX = _hoverY = -1;
         _zoom = [self popup:@[ @"1/2x", @"1x", @"2x", @"3x", @"4x" ] key:@"Zoom" fallback:1];
         _bottom = [self toggle:0 on:YES];
@@ -1292,6 +1304,17 @@ static NSString* const sMapToggles[4] = { @"Bottom", @"Top", @"Collision", @"Gri
         _collision = [self toggle:2 on:NO];
         _grid = [self toggle:3 on:NO];
         _collision.toolTip = @"Darken solid tiles, tint partly solid ones (collision of Link's layer)";
+        _rooms = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+        _rooms.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        _rooms.controlSize = NSControlSizeSmall;
+        _rooms.toolTip = @"A room of the current area";
+        [_rooms.widthAnchor constraintLessThanOrEqualToConstant:240].active = YES;
+        [self.controls addView:_rooms inGravity:NSStackViewGravityLeading];
+        NSButton* warp = [NSButton buttonWithTitle:@"Warp" target:self action:@selector(warp:)];
+        warp.controlSize = NSControlSizeSmall;
+        warp.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+        warp.toolTip = @"Go to the chosen room through the game's own exit transition, once Link has control";
+        [self.controls addView:warp inGravity:NSStackViewGravityLeading];
         NSButton* redraw = [NSButton buttonWithTitle:@"Redraw" target:self action:@selector(redraw:)];
         redraw.controlSize = NSControlSizeSmall;
         redraw.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
@@ -1304,6 +1327,9 @@ static NSString* const sMapToggles[4] = { @"Bottom", @"Top", @"Collision", @"Gri
         __weak MapPanel* weakSelf = self;
         _view.hover = ^(NSInteger x, NSInteger y) {
             [weakSelf hoverAtX:x y:y];
+        };
+        _view.contextMenu = ^NSMenu*(NSInteger x, NSInteger y) {
+            return [weakSelf menuAtX:x y:y];
         };
         [self layoutWithMain:[self scrollViewFor:_view]];
     }
@@ -1491,6 +1517,7 @@ static NSString* KindName(int kind) {
     }
     _view.overlayColors = colors;
     _view.overlays = paths;
+    [self updateRooms];
     [self updateTitle];
     [self updateInfoWithEntity:hovered];
 }
@@ -1508,9 +1535,34 @@ static NSString* KindName(int kind) {
     }
 }
 
+// The rooms of the current area, current room selected (rebuilt when the area changes).
+- (void)updateRooms {
+    if (!_hasState || !_state->inGame) {
+        return;
+    }
+    if (_roomsArea != _state->area) {
+        _roomsArea = _state->area;
+        _shownRoom = -1;
+        [_rooms removeAllItems];
+        for (int room = 0; room < WarpRoomCount(_roomsArea); room++) {
+            if (!WarpRoomIsValid(_roomsArea, room)) {
+                continue;
+            }
+            const char* name = RoomName(_roomsArea, room);
+            [_rooms addItemWithTitle:[NSString stringWithFormat:@"%02x %s", room, name ?: ""]];
+            _rooms.lastItem.tag = room;
+        }
+        _roomsRoom = -1;
+    }
+    if (_roomsRoom != _state->room) {
+        _roomsRoom = _state->room;
+        [_rooms selectItemWithTag:_state->room];
+    }
+}
+
 - (void)updateInfoWithEntity:(const MapViewEntity*)e {
     NSString* head;
-    NSString* hover = @"hover a tile or an entity";
+    NSString* hover = @"hover a tile or an entity; right-click a tile to move Link there";
     if (!_hasState) {
         head = @"waiting for the game";
     } else if (!_state->inGame) {
@@ -1548,6 +1600,41 @@ static NSString* KindName(int kind) {
     _hoverX = x;
     _hoverY = y;
     [self update];
+}
+
+- (NSMenu*)menuAtX:(NSInteger)x y:(NSInteger)y {
+    if (!self.imageCurrent) {
+        return nil;
+    }
+    int t = (int)(y / 16) * MAPVIEW_TILES + (int)(x / 16);
+    uint8_t collision = _image->collision[self.collisionLayer][t];
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Map"];
+    menu.autoenablesItems = NO;
+    NSString* title = [NSString stringWithFormat:@"Move Link Here (tile %ld,%ld)", (long)x / 16, (long)y / 16];
+    if (collision != 0) {
+        title = [title stringByAppendingFormat:@" — not walkable (collision %02x)", collision];
+    } else if (!_state->control) {
+        title = [title stringByAppendingString:@" — Link has no control"];
+    }
+    NSMenuItem* move = [menu addItemWithTitle:title action:@selector(moveLink:) keyEquivalent:@""];
+    move.target = self;
+    move.representedObject = @[ @(x), @(y) ];
+    move.enabled = collision == 0 && _state->control;
+    return menu;
+}
+
+- (void)moveLink:(NSMenuItem*)sender {
+    NSArray<NSNumber*>* at = sender.representedObject;
+    if (!FrontendRequestMap(FRONTEND_MAP_MOVE, at[0].intValue, at[1].intValue)) {
+        NSBeep();
+    }
+}
+
+- (void)warp:(id)sender {
+    if (_roomsArea < 0 || _rooms.selectedItem == nil ||
+        !FrontendRequestMap(FRONTEND_MAP_WARP, _roomsArea, (int)_rooms.selectedItem.tag)) {
+        NSBeep();
+    }
 }
 
 - (void)redraw:(id)sender {

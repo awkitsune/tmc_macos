@@ -10,7 +10,8 @@ NS_ASSUME_NONNULL_BEGIN
  * hardware snapshot (FrontendCopyGfxSnapshot), taken only while one of them is
  * open; the Shader Buffers window has the renderer copy one pipeline texture
  * back; the Map window reads the game thread's view of the room
- * (FrontendCopyMapState, port/mapview.h), taken only while it is open. All refresh at about 12 Hz on the main
+ * (FrontendCopyMapState, port/mapview.h), taken only while it is open, and asks
+ * the game thread to move Link or warp. All refresh at about 12 Hz on the main
  * thread while open.
  */
 typedef NS_ENUM(NSInteger, DebugPanelKind) {
