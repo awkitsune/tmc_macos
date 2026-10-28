@@ -717,3 +717,9 @@ ends, but phase 2's male is `male2`; `male1` was set to NULL when phase 1's male
 The GBA's store goes to the BIOS (0x45) and is lost; natively it crashed (write at 0x4d) at the end of phase 2.
 Natively the store is skipped when `male1` is NULL. `male2` stays set until the fight's end, so phase 3's
 `male2->health = 12` is fine.
+
+Phase 4 (the female alone): when she runs out of health, her eye (`sub_08048D70`, gyorgFemaleEye.c) reads
+`male1`, else `male2`, `->health`, and by then both are NULL. The GBA reads 0x45 from BIOS open bus, 0xc0 of
+0xe55ec002, so nonzero: it returns 0. Natively that is returned without the read (it crashed, read at 0x4d).
+`boss` and `female` are never NULL; phases 2 and 3 read `male2` only while it is alive (a NULL there would
+read 0xc0 on the GBA and the fight could not go on).

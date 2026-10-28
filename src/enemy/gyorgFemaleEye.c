@@ -210,6 +210,13 @@ u32 sub_08048D70(GyorgFemaleEntity* parent) {
     if (!tmp) {
         tmp = ((GyorgHeap*)parent->base.myHeap)->male2;
     }
+#ifdef PLATFORM_NATIVE
+    // Both males gone (the last one finished dying): the GBA reads health (0x45) from BIOS open bus,
+    // 0xc0 of 0xe55ec002 after an interrupt returns, so nonzero.
+    if (tmp == NULL) {
+        return 0;
+    }
+#endif
     if (tmp->base.health != 0) {
         return 0;
     }
