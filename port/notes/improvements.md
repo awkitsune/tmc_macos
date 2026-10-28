@@ -35,3 +35,13 @@ drawing every sprite there is kept on purpose (`ppu-audit.md`).
   controllers without a Home button only have that way (or a tap, or the touch controls' ☰).
 - No in-app way to change the ROM or re-extract the data after the first launch (the Mac app has Change ROM…); a
   new build that needs other data re-extracts from the remembered ROM by itself.
+
+## Open: torches on the top layer do not light (lantern)
+
+Dojos Grimblade (25:05), 21:09 and 22:08 (save states `cant_lightup*.tmcs`, not in the repo): the torches are tile
+117 on layer 2 over floor tile 11 on layer 1, and LightLevelSetManager type 2 watches layer 2 (paramB 0x4002;
+Royal Crypt's working torches use 0x4001, layer 1). The lantern (`itemLantern.c` `sub_08075B54`,
+`sub_0807AB44`) checks only `gPlayerEntity.collisionLayer`, and Link is on layer 1 there, so nothing lights.
+Map data equals mapDataOriginal and the port's layer tables, `CheckOnLayerTransition` and `sub_080B1BA4`
+match the asm, so where the GBA differs is not found yet. Next: how Link reaches layer 2 (or how layer 2 is
+read) on the GBA in these rooms; Percy's house candles (paramB 0x4002) are the same case.
