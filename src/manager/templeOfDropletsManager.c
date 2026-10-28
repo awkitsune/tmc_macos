@@ -18,6 +18,12 @@
 #include "pauseMenu.h"
 #include "asm.h"
 
+#ifdef PLATFORM_NATIVE
+// The room data (paramB, x, y, paramC) must land in unk_34 .. localFlag (src/room.c RegisterRoomEntity).
+static_assert(offsetof(TempleOfDropletsManager, unk_34) == sizeof(Manager) + 0x14);
+static_assert(offsetof(TempleOfDropletsManager, localFlag) == sizeof(Manager) + 0x1e);
+#endif
+
 static const u16 gUnk_081085B8[] = { 0x1008, 0x1007, 0x1006, 0x1005, 0x1006, 0x1007, 0x1008, 0x1009,
                                      0x1008, 0x1007, 0x1006, 0x1005, 0x1006, 0x1007, 0x1008, 0x1009 };
 
@@ -511,9 +517,15 @@ void sub_0805A9CC(TempleOfDropletsManager* this) {
     tmp3 = (&gBG3Buffer[((tmp1 / 0x40) << 8)]);
     gScreen.bg3.subTileMap = (u32*)tmp3;
     gScreen.controls.window1VerticalDimensions = DISPLAY_HEIGHT;
+#ifdef PLATFORM_NATIVE
+    if (this->unk_28 == (u32)(uintptr_t)tmp3)
+        return;
+    this->unk_28 = (u32)(uintptr_t)tmp3;
+#else
     if (this->unk_28 == tmp3)
         return;
     this->unk_28 = tmp3;
+#endif
     gScreen.bg3.updated = 1;
 }
 

@@ -487,6 +487,15 @@ up-left of the one before for good (outer Fortress of Winds: segments 32-105 pix
 within 17). Natively those bytes are set to 0x88 too. The save state map's other union of a pointer and data,
 in MazaalBracelet, holds at most two data bytes, which never read as an address.
 
+The Temple of Droplets manager ([templeOfDropletsManager.c](../../src/manager/templeOfDropletsManager.c)) had a
+`void* unk_28` before its room data. `RegisterRoomEntity` (src/room.c) lays a manager's room data out from
+`sizeof(Manager) + 0x10` as at the GBA's 0x30, so the 8-byte pointer pushed `unk_34` .. `localFlag` 4 bytes past
+it: `unk_34`/`unk_36` (the light layer's offset, paramB) got the room's x and y, and `flag`/`localFlag` other
+bytes. The light rays (BG3, through window 1) were scrolled 144 pixels away from the window (room 0x21, north
+small key: 0 pixels drawn, 3803 with the fix). Natively `unk_28` is a `u32`, with static asserts on the
+offsets. Other managers with a pointer field (Manager29, TileChangeObserveManager, LightRayManager,
+VerticalMinishPathBackgroundManager) are not checked yet.
+
 ## Structs written as GBA byte arrays
 
 The figurine device (shell trading, `sub_080882A8`) passed two `u8[24]` arrays to `ShowTextBox` as `Font*`
