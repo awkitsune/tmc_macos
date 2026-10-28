@@ -15,6 +15,11 @@
 #include "player.h"
 #include "physics.h"
 
+#ifdef PLATFORM_NATIVE
+// The room data (paramB) lands in unk_34 (src/room.c RegisterRoomEntity).
+static_assert(offsetof(LightRayManager, unk_34) == sizeof(Manager) + 0x14);
+#endif
+
 extern void DisableVBlankDMA(void);
 
 void (*const LightRayManager_Actions[])(LightRayManager*);
@@ -53,7 +58,11 @@ static void LightRayManager_OnEnterRoom(LightRayManager* this) {
     u8* pbVar1;
 
     LoadGfxGroup(this->gfxGroup);
+#ifdef PLATFORM_NATIVE
+    this->unk_34 = 0;
+#else
     this->unk_34 = NULL;
+#endif
     pbVar1 = &this->unk_21;
     if (*pbVar1 == 3) {
         gScreen.bg3.updated = 1;
@@ -133,7 +142,11 @@ void LightRayManager_Action1(LightRayManager* this) {
                         if (this->unk_21 == 0) {
                             super->action = 2;
                             super->timer = 0;
+#ifdef PLATFORM_NATIVE
+                            this->unk_34 = 0;
+#else
                             this->unk_34 = NULL;
+#endif
                         }
                         break;
                     case 3:
@@ -222,10 +235,17 @@ void sub_08057450(LightRayManager* this) {
 
     gScreen.bg3.yOffset = y & 0x3f;
     gScreen.bg3.subTileMap = &gBG3Buffer[(y / 0x40) << 8];
+#ifdef PLATFORM_NATIVE
+    if (this->unk_34 != (u32)(uintptr_t)gScreen.bg3.subTileMap) {
+        this->unk_34 = (u32)(uintptr_t)gScreen.bg3.subTileMap;
+        gScreen.bg3.updated = 1;
+    }
+#else
     if (this->unk_34 != gScreen.bg3.subTileMap) {
         this->unk_34 = gScreen.bg3.subTileMap;
         gScreen.bg3.updated = 1;
     }
+#endif
 
     if (this->unk_22 == 0 && (gRoomTransition.frameCount & 0x1f) == 0) {
         this->unk_24 = (this->unk_24 + 1) & 7;

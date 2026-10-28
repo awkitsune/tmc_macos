@@ -493,8 +493,37 @@ The Temple of Droplets manager ([templeOfDropletsManager.c](../../src/manager/te
 it: `unk_34`/`unk_36` (the light layer's offset, paramB) got the room's x and y, and `flag`/`localFlag` other
 bytes. The light rays (BG3, through window 1) were scrolled 144 pixels away from the window (room 0x21, north
 small key: 0 pixels drawn, 3803 with the fix). Natively `unk_28` is a `u32`, with static asserts on the
-offsets. Other managers with a pointer field (Manager29, TileChangeObserveManager, LightRayManager,
-VerticalMinishPathBackgroundManager) are not checked yet.
+offsets.
+
+**Sweep of every manager subtype** (the 57 structs in `include/manager/*.h` and DelayedEntityLoadManager in its
+.c file), GBA and native layouts from libclang. Managers come from room data through `LoadRoomEntity` (the
+`manager` entries in `data/map/*.s`, the `.incbin` lists in `entity_headers.s`, kinstone and worldEvent17 tables);
+`sub_0801AD6C` (beanstalkSubtask.c) also writes x/y at the same offsets for FlameManager, from tile types. Five
+subtypes had an 8-byte pointer before fields at or after the data:
+
+| Manager | From room data | Read from the data | Natively before | Fix |
+|---|---|---|---|---|
+| TileChangeObserveManager (`u16* observedTile` at 0x30) | yes: Deepwood Shrine 48:01 (4), 48:06, Fortress of Winds 58:04, Temple of Droplets 60:36 | x = tilePos, y = layer, paramC = flag | tilePos 0 and layer = the flag (0x8001 ...): it watched the bottom layer's top-left tile (0x1e / 0xd) instead of the dirt, stone or lever tile (0x192 on layer 1 ...), which gameplay never changes, so the entity list it loads (puffstools, the portal) never came | pointer moved past the data |
+| AngryStatueManager (`Entity* field_0x20[4]`) | yes: Dark Hyrule Castle 88:26, 88:34 (also outside NE/SE, flag 0) | paramC = flag 0x61 / 0x68 | flag 0, so the statues puzzle was never recorded and came back | pointers moved past the data; the struct is 0x80, the whole slot |
+| LightRayManager (`void* unk_34`) | yes | nothing (unk_34 is reset on room entry, compared with the BG3 map) | fine | `u32` for the build check |
+| VerticalMinishPathBackgroundManager (`void* field_0x38/0x3c`) | yes | nothing (reset on room entry, compared with the BG3/BG1 maps) | fine | `u32` for the build check |
+| Manager29 (`u16* unk_28/unk_2c`) | no (nothing creates id 0x29) | layer, unk_38 .. flag | (unreachable) | pointers moved past the data |
+
+Checked fine: EnemyInteractionManager and FightManagerHelper keep only pointers there (the room-data instance
+zeroes them first; the helper is created in code), SpecialWarpManager has no field after its pointer, and every
+other subtype has no pointer in its own fields, so its layout matches the GBA's: AnimatedBackground, ArmosInterior,
+BombableWall, Bridge, CameraTarget, CloudOverlay, CloudStaircaseTransition, DelayedEntityLoad,
+DestructibleTileObserve, DiggingCaveEntrance, EnterRoomTextbox, EntitySpawn, EzloHint, FallingItem, Fight,
+FlagAndOperator, Flame, FloatingPlatform, GoronMerchantShop, Hole, HorizontalMinishPathBackground, HouseSign,
+HyruleTownBell, HyruleTownTileSet, LightLevelSet, Light, MinishPortal, MinishRaftersBackground, MinishSizedEntrance,
+MinishVillageTileSet, Misc, MoveableObject, PowBackground, PushableFurniture, RailIntersection, Rainfall,
+RegionTrigger, RepeatedSound, RollingBarrel, Secret, StaticBackground, SteamOverlay, TempleOfDroplets (fixed
+above), TilePuzzle, Vaati3Background, Vaati3InsideArm, Vaati3Start, VaatiAppearing, WaterfallBottom, WeatherChange.
+
+The build checks the whole class: `port/tools/datagen/statemap.py` (which already lays out every manager
+subtype for the save state map) fails when a manager subtype has a pointer in `sizeof(Manager)` ..
+`sizeof(Manager) + 0x20` and anything but pointers from `sizeof(Manager) + 0x10` on, or is bigger than a
+manager slot (`Temp`, 0x80). With the TempleOfDroplets or AngryStatue fix reverted it names the struct.
 
 ## Structs written as GBA byte arrays
 

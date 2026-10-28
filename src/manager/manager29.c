@@ -11,6 +11,13 @@
 #include "player.h"
 #include "map.h"
 
+#ifdef PLATFORM_NATIVE
+// The room data (paramB, x, y, paramC) must land in layer .. flag (src/room.c RegisterRoomEntity).
+static_assert(offsetof(Manager29, layer) == sizeof(Manager) + 0x14);
+static_assert(offsetof(Manager29, unk_38) == sizeof(Manager) + 0x18);
+static_assert(offsetof(Manager29, flag) == sizeof(Manager) + 0x1e);
+#endif
+
 bool32 sub_0805CF80(Manager29* this);
 void sub_0805CBD0(Manager29* this);
 void sub_0805CC3C(Manager29* this);

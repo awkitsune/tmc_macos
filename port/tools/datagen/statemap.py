@@ -37,6 +37,7 @@ variables declared with different types).
 
 import argparse
 import json
+import os
 import re
 import sys
 from multiprocessing import Pool
@@ -213,6 +214,50 @@ def subtype_root(c, depth=0):
     return subtype_root(fields[0].type, depth + 1)
 
 
+def base_record(c, depth=0):
+    """The entity or manager base record a subtype c starts with."""
+    c = c.get_canonical()
+    if c.spelling in ENTITY_BASES | MANAGER_BASES or depth > 8:
+        return c
+    return base_record(next(iter(c.get_fields())).type, depth + 1)
+
+
+def data_after(t, lo, base=0):
+    """Whether type t, placed at base, keeps anything but pointers past byte lo."""
+    c = t.get_canonical()
+    if c.kind == K.POINTER or is_ptrint(t):
+        return False
+    if c.kind == K.RECORD:
+        return any(f.is_bitfield() and base + f.get_field_offsetof() // 8 >= lo or
+                   not f.is_bitfield() and data_after(f.type, lo, base + f.get_field_offsetof() // 8)
+                   for f in c.get_fields())
+    if c.kind == K.CONSTANTARRAY:
+        esize = max(c.element_type.get_canonical().get_size(), 1)
+        return any(data_after(c.element_type, lo, base + i * esize) for i in range(c.element_count))
+    return base + max(c.get_size(), 0) > lo
+
+
+def rel_location(c):
+    """file:line of record type c's declaration, from include/ or src/ on."""
+    loc = c.get_declaration().location
+    path = os.path.normpath(loc.file.name) if loc.file else "?"
+    cut = max(path.rfind("/include/"), path.rfind("/src/"))
+    return f"{path[cut + 1:] if cut >= 0 else path}:{loc.line}"
+
+
+def room_data_pointer(c, ptrs):
+    """For a manager subtype: a pointer that moves its room data fields, or None.
+
+    RegisterRoomEntity (src/room.c) lays a manager's 16-byte room data out from
+    sizeof(Manager) + 0x10, where the GBA has it (0x30-0x3f) once the 8-byte
+    header pointers are counted. A field the subtype declares there or after
+    only lines up with it while no 8-byte pointer comes before it in the subtype's
+    own fields (a pointer past the data, from sizeof(Manager) + 0x20, is fine)."""
+    m = base_record(c).get_size()
+    early = [p for p in ptrs if m <= p < m + 0x20]
+    return early[0] if early and data_after(c, m + 0x10) else None
+
+
 def designator_index(cur):
     for d in cur.walk_preorder():
         if d.kind == C.DECL_REF_EXPR and d.referenced is not None and d.referenced.kind == C.ENUM_CONSTANT_DECL:
@@ -258,6 +303,7 @@ def scan(job):
             break
     lay = Layouts(script_offset)
     variables, functions, subtypes, tables, types, subtype_notes = {}, {}, {}, {}, {}, set()
+    room_data = {}
 
     def note_subtype(t):
         c = t.get_canonical()
@@ -271,6 +317,8 @@ def scan(job):
             script = root == "entity" and (script_offset in ptrs or
                                            not has_data_at(c, script_offset, script_offset + 8))
             subtypes[c.spelling] = (root, size, ptrs, script)
+            if root == "manager":
+                room_data[c.spelling] = (rel_location(c), room_data_pointer(c, ptrs))
             subtype_notes.update(f"{c.spelling}{p}: {w}" for p, w in notes)
             return c.spelling
         return None
@@ -349,7 +397,7 @@ def scan(job):
             heap.append((Path(main).name, number, (name, size if array else 0, ptrs, (total + 3) & ~3), line.strip()))
     return {"file": main, "variables": variables, "functions": functions, "subtypes": subtypes,
             "tables": tables, "bases": bases, "offsets": offsets, "heap": heap,
-            "subtype_notes": sorted(subtype_notes)}
+            "subtype_notes": sorted(subtype_notes), "room_data": room_data}
 
 
 def asm_table(path, label):
@@ -433,7 +481,7 @@ def main():
     errors, report = [], []
 
     variables, functions, subtypes, tables, bases, offsets, heap = {}, {}, {}, {}, {}, {}, []
-    file_subtypes, subtype_notes = {}, set()
+    file_subtypes, subtype_notes, room_data = {}, set(), {}
     for u in units:
         for name, decls in u["variables"].items():
             for d in decls:
@@ -449,6 +497,7 @@ def main():
         offsets = offsets or u["offsets"]
         heap += u["heap"]
         subtype_notes.update(u["subtype_notes"])
+        room_data.update(u["room_data"])
         file_subtypes[u["file"]] = sorted(u["subtypes"])
     tables["gProjectileFunctions"] = asm_table(root / "data/projectile_functions.s", "gProjectileFunctions")
     for name in ("GenericEntity", "Temp", "PlayerEntity"):
@@ -456,6 +505,17 @@ def main():
             errors.append(f"no layout for {name}")
     if set(offsets) != {"kind", "id", "type", "flags", "script"}:
         errors.append("no layout for Entity")
+
+    # ---- manager subtypes against the slot and the room data -----------------------
+    for name, (where, pointer) in sorted(room_data.items()):
+        if "Temp" in bases and subtypes[name][1] > bases["Temp"][0]:
+            errors.append(f"{where}: {name} is {subtypes[name][1]:#x} bytes, more than a manager slot "
+                          f"(Temp in src/entity.c, {bases['Temp'][0]:#x})")
+        if pointer is not None:
+            errors.append(f"{where}: {name} has a pointer at {pointer:#x}, before fields at or after the room data "
+                          "that src/room.c RegisterRoomEntity lays out at the GBA offsets 0x30-0x3f: they read "
+                          "other bytes natively. Make it a u32 if it is only compared, or move it past the data "
+                          "(port/notes/native-hazards.md, \"Pointers read at a GBA byte offset\")")
 
     # ---- slot and block types ------------------------------------------------------
     types, type_index = [], {}

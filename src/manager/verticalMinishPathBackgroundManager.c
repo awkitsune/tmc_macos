@@ -10,6 +10,12 @@
 #include "screen.h"
 #include "room.h"
 
+#ifdef PLATFORM_NATIVE
+// The room data (x, y, paramC) lands in field_0x38 and field_0x3c (src/room.c RegisterRoomEntity).
+static_assert(offsetof(VerticalMinishPathBackgroundManager, field_0x38) == sizeof(Manager) + 0x18);
+static_assert(offsetof(VerticalMinishPathBackgroundManager, field_0x3c) == sizeof(Manager) + 0x1c);
+#endif
+
 extern void VerticalMinishPathBackgroundManager_OnEnterRoom(void*);
 extern void sub_0805754C(VerticalMinishPathBackgroundManager*);
 
@@ -32,18 +38,32 @@ void sub_0805754C(VerticalMinishPathBackgroundManager* this) {
     bgOffset += bgOffset >> 3;
     gScreen.bg3.yOffset = bgOffset & 0x3f;
     gScreen.bg3.subTileMap = gMapDataTopSpecial + (bgOffset / 0x40) * 0x200;
+#ifdef PLATFORM_NATIVE
+    if (this->field_0x38 != (u32)(uintptr_t)gScreen.bg3.subTileMap) {
+        this->field_0x38 = (u32)(uintptr_t)gScreen.bg3.subTileMap;
+        gScreen.bg3.updated = 1;
+    }
+#else
     if (this->field_0x38 != gScreen.bg3.subTileMap) {
         this->field_0x38 = gScreen.bg3.subTileMap;
         gScreen.bg3.updated = 1;
     }
+#endif
     bgOffset = (gRoomControls.scroll_y - gRoomControls.origin_y);
     bgOffset += bgOffset >> 2;
     gScreen.bg1.yOffset = bgOffset & 0x3f;
     gScreen.bg1.subTileMap = gMapDataTopSpecial + 0x2000 + (bgOffset / 0x40) * 0x200;
+#ifdef PLATFORM_NATIVE
+    if (this->field_0x3c != (u32)(uintptr_t)gScreen.bg1.subTileMap) {
+        this->field_0x3c = (u32)(uintptr_t)gScreen.bg1.subTileMap;
+        gScreen.bg1.updated = 1;
+    }
+#else
     if (this->field_0x3c != gScreen.bg1.subTileMap) {
         this->field_0x3c = gScreen.bg1.subTileMap;
         gScreen.bg1.updated = 1;
     }
+#endif
 }
 
 void sub_080575C8(u32 param) {
@@ -82,7 +102,12 @@ void sub_08057688(void) {
 
 void VerticalMinishPathBackgroundManager_OnEnterRoom(void* this) {
     LoadGfxGroup(gRoomVars.graphicsGroups[0]);
+#ifdef PLATFORM_NATIVE
+    ((VerticalMinishPathBackgroundManager*)this)->field_0x38 = 0;
+    ((VerticalMinishPathBackgroundManager*)this)->field_0x3c = 0;
+#else
     ((VerticalMinishPathBackgroundManager*)this)->field_0x38 = NULL;
     ((VerticalMinishPathBackgroundManager*)this)->field_0x3c = NULL;
+#endif
     sub_0805754C((VerticalMinishPathBackgroundManager*)this);
 }

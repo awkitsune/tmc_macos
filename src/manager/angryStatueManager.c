@@ -14,6 +14,12 @@
 
 #include "player.h"
 
+#ifdef PLATFORM_NATIVE
+// The room data (all 16 bytes, paramC in field_0x3c .. field_0x3e) must land in field_0x30 .. field_0x3e (src/room.c RegisterRoomEntity).
+static_assert(offsetof(AngryStatueManager, field_0x30) == sizeof(Manager) + 0x10);
+static_assert(offsetof(AngryStatueManager, field_0x3e) == sizeof(Manager) + 0x1e);
+#endif
+
 void sub_0805D11C(AngryStatueManager*);
 void AngryStatueManager_Init(AngryStatueManager*);
 void AngryStatueManager_Action1(AngryStatueManager*);
