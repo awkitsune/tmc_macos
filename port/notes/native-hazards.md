@@ -498,7 +498,7 @@ offsets.
 **Sweep of every manager subtype** (the 57 structs in `include/manager/*.h` and DelayedEntityLoadManager in its
 .c file), GBA and native layouts from libclang. Managers come from room data through `LoadRoomEntity` (the
 `manager` entries in `data/map/*.s`, the `.incbin` lists in `entity_headers.s`, kinstone and worldEvent17 tables);
-`sub_0801AD6C` (beanstalkSubtask.c) also writes x/y at the same offsets for FlameManager, from tile types. Five
+`sub_0801AD6C` (beanstalkSubtask.c) also makes FlameManager from tile types, writing x/y itself (below). Five
 subtypes had an 8-byte pointer before fields at or after the data:
 
 | Manager | From room data | Read from the data | Natively before | Fix |
@@ -519,6 +519,13 @@ HyruleTownBell, HyruleTownTileSet, LightLevelSet, Light, MinishPortal, MinishRaf
 MinishVillageTileSet, Misc, MoveableObject, PowBackground, PushableFurniture, RailIntersection, Rainfall,
 RegionTrigger, RepeatedSound, RollingBarrel, Secret, StaticBackground, SteamOverlay, TempleOfDroplets (fixed
 above), TilePuzzle, Vaati3Background, Vaati3InsideArm, Vaati3Start, VaatiAppearing, WaterfallBottom, WeatherChange.
+
+`sub_0801AD6C` makes a FlameManager for every unlit torch (tile type 117) on the top layer and stores its x/y as
+`*(u16*)(&manager[1].timer + 10)` / `+ 12`, the GBA's 0x38/0x3a. Natively that is `sizeof(Manager) + 0x20`, not
+FlameManager's `x`/`y` at `sizeof(Manager) + 0x18`, so it read tile 0, found no torch there and deleted itself
+without putting SPECIAL_TILE_106 (flag 0x40) under the torch on the bottom layer. The lantern only looks at Link's
+layer (1), so top-layer torches never lit: Dojos Grimblade 25:05, 21:09, 22:08, Percy's house candles. Natively it
+stores through `FlameManager`; all six torches in those three rooms now get tile 0x406a and light.
 
 The build checks the whole class: `port/tools/datagen/statemap.py` (which already lays out every manager
 subtype for the save state map) fails when a manager subtype has a pointer in `sizeof(Manager)` ..
