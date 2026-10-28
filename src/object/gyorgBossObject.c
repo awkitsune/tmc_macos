@@ -167,6 +167,10 @@ void GyorgBossObject_MalePhase1(GyorgBossObjectEntity* this) {
 void GyorgBossObject_FemalePhase2(GyorgBossObjectEntity* this) {
     if (((GyorgHeap*)super->myHeap)->female->base.health == 0) {
         // start male phase 2
+#ifdef PLATFORM_NATIVE
+        // male1 (phase 1's) is gone by now and NULL; the GBA's store goes to the BIOS and is lost.
+        if (((GyorgHeap*)super->myHeap)->male1 != NULL)
+#endif
         ((GyorgHeap*)super->myHeap)->male1->base.health = 12;
         super->action = 5;
         super->timer = 35;

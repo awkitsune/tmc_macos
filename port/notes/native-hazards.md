@@ -709,3 +709,11 @@ returned FALSE reads through NULL, and the GBA reads BIOS open bus (see the sect
 
 Armos also passes `gEnemyTarget`, but only after `sub_08049FDC` succeeded. Other uses of `gEnemyTarget` are not
 swept yet.
+
+## Gyorg: a store through the dead phase-1 male
+
+`GyorgBossObject_FemalePhase2` (src/object/gyorgBossObject.c) sets `male1->health = 12` when the female's phase 2
+ends, but phase 2's male is `male2`; `male1` was set to NULL when phase 1's male finished dying (`sub_08047D24`).
+The GBA's store goes to the BIOS (0x45) and is lost; natively it crashed (write at 0x4d) at the end of phase 2.
+Natively the store is skipped when `male1` is NULL. `male2` stays set until the fight's end, so phase 3's
+`male2->health = 12` is fine.
