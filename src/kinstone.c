@@ -10,6 +10,7 @@
 #include "room.h"
 #include "subtask.h"
 #include "tiles.h"
+#include "manager/miscManager.h"
 
 extern const struct_gUnk_080B3D20 gUnk_080B3D20[];
 extern const EntityData gUnk_080FEC28[];
@@ -350,8 +351,15 @@ void sub_0801876C(u32 worldEventId, bool32 isKinstoneFused) {
             }
             ent = LoadRoomEntity(&gUnk_080FEE78[ptr->entity_idx]);
             if (ent != 0) {
+#ifdef PLATFORM_NATIVE
+                // A MiscManager (type 0xb, swimming into a waterfall cave): the stores go to the GBA's 0x38 and
+                // 0x3a, its x and y, which natively are not at collisionLayer / gustJarState.
+                ((MiscManager*)ent)->x = ptr->x + gRoomControls.origin_x;
+                ((MiscManager*)ent)->y = ptr->y + gRoomControls.origin_y;
+#else
                 *(u16*)&ent->collisionLayer = ptr->x + gRoomControls.origin_x;
                 *(u16*)&ent->gustJarState = ptr->y + gRoomControls.origin_y;
+#endif
             }
             if (ptr->entity_idx == 0) {
                 SetTileType(TILE_TYPE_141, (ptr->x >> 4 & 0x3f) | (ptr->y >> 4 & 0x3f) << 6, LAYER_BOTTOM);

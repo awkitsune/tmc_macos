@@ -723,3 +723,11 @@ Phase 4 (the female alone): when she runs out of health, her eye (`sub_08048D70`
 0xe55ec002, so nonzero: it returns 0. Natively that is returned without the read (it crashed, read at 0x4d).
 `boss` and `female` are never NULL; phases 2 and 3 read `male2` only while it is alive (a NULL there would
 read 0xc0 on the GBA and the fight could not go on).
+
+## Kinstone waterfall caves: a manager's x/y stored through Entity fields
+
+`sub_0801876C` (src/kinstone.c), world event type 9 (a fused waterfall you swim into, e.g. Veil Falls' top
+left), loads a MiscManager (type 0xb) and stores its x/y as `*(u16*)&ent->collisionLayer` /
+`&ent->gustJarState`, the GBA's 0x38/0x3a. Natively those Entity fields are elsewhere, so the manager's x/y
+stayed 0 and swimming up into the opening did nothing. Natively it stores through `MiscManager`. Checked with
+`cant_enter.tmcs` (Veil Falls 0a:00): after re-entering the room, swimming up goes to AREA_VEIL_FALLS_CAVES.
