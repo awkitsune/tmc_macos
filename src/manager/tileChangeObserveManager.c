@@ -12,6 +12,13 @@
 #include "room.h"
 #include "map.h"
 
+#ifdef PLATFORM_NATIVE
+// The room data (x, y, paramC) must land in tilePos .. flag (src/room.c RegisterRoomEntity).
+static_assert(offsetof(TileChangeObserveManager, tilePos) == sizeof(Manager) + 0x18);
+static_assert(offsetof(TileChangeObserveManager, field_0x3a) == sizeof(Manager) + 0x1a);
+static_assert(offsetof(TileChangeObserveManager, flag) == sizeof(Manager) + 0x1e);
+#endif
+
 void TileChangeObserveManager_Init(TileChangeObserveManager*);
 void TileChangeObserveManager_Action1(TileChangeObserveManager*);
 void TileChangeObserveManager_Action2(TileChangeObserveManager*);
