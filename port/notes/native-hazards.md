@@ -659,5 +659,7 @@ returned FALSE reads through NULL, and the GBA reads BIOS open bus (see the sect
 |---|---|---|
 | [enemy.c](../src/asm/enemy.c) `sub_0800132C`, from [leever.c](../../src/enemy/leever.c) `Leever_Move` | `Leever_Move` calls it with `gEnemyTarget` whether or not `sub_08049FDC` found a target: a Leever digging up or down while Link cannot be targeted (seen in Veil Falls after a bomb and a heart piece). Natively SIGSEGV at 0x40 | in the port's `sub_0800132C`: with `b` NULL use the GBA's bytes (layer 0x02, x and y 0xe55e, read signed by `GetFacingDirection`), so the Leever steers far up-left (direction 0x1c) on layer 2, or gets 0xFF |
 
+| [mandiblesProjectile.c](../../src/projectile/mandiblesProjectile.c) `MandiblesProjectile` | (a `child`/`parent` case) a thrown mandible whose Scissors Beetle (antlion) died: Action4 clears `child`, and `parent` is NULL too, so the entry reads `confusedTime` (GBA 0x43) through NULL. Natively SIGSEGV at 0x4b (Flippers mini-dungeon) | the GBA byte is 0xe5 of 0xe55ec002, nonzero, so the `COLLISION_ON` is skipped and the frame goes on; natively skip it the same way when both are NULL |
+
 Armos also passes `gEnemyTarget`, but only after `sub_08049FDC` succeeded. Other uses of `gEnemyTarget` are not
 swept yet.

@@ -45,6 +45,14 @@ void MandiblesProjectile(MandiblesProjectileEntity* this) {
     if (entity == NULL) {
         entity = super->parent;
     }
+#ifdef PLATFORM_NATIVE
+    // A thrown mandible whose beetle died (Action4 clears child) has neither. The GBA reads
+    // confusedTime (0x43) from BIOS open bus, 0xe5 of 0xe55ec002: nonzero, so no COLLISION_ON.
+    if (entity == NULL) {
+        MandiblesProjectile_Functions[GetNextFunction(super)](this);
+        return;
+    }
+#endif
     if ((entity->confusedTime == 0) && ((super->flags & ENT_COLLIDE) == 0)) {
         COLLISION_ON(super);
     }
