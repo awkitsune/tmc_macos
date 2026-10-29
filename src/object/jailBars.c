@@ -56,6 +56,16 @@ void JailBars_Action1(JailBarsEntity* this) {
 }
 
 void JailBars_Action2(JailBarsEntity* this) {
+#ifdef PLATFORM_NATIVE
+    // Init starts no animation for closed bars. The GBA's GetNextFrame reads BIOS open bus at
+    // address 0, whose byte 3 (an ARM condition byte, 0xEx) sets ANIM_DONE; natively GetNextFrame
+    // does nothing without an animation, so the bars stayed drawn closed.
+    if (super->animPtr == NULL) {
+        super->action = 3;
+        InitializeAnimation(super, 1);
+        return;
+    }
+#endif
     GetNextFrame(super);
     if (super->frame & ANIM_DONE) {
         super->action = 3;
