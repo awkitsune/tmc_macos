@@ -40,7 +40,9 @@ typedef NS_ENUM(NSInteger, RowKind) {
 @property(nonatomic, copy, nullable) NSArray<NSString*>* options;   // choice
 @property(nonatomic, copy, nullable) NSInteger (^selected)(void);   // choice
 @property(nonatomic, copy, nullable) void (^select)(NSInteger index); // choice
-@property(nonatomic) const Knob* knob;                              // slider
+@property(nonatomic) const Knob* knob;                              // slider: its range and format
+@property(nonatomic, copy, nullable) float (^value)(void);          // slider: nil for a filter knob
+@property(nonatomic, copy, nullable) void (^setValue)(float value); // slider
 @property(nonatomic, copy, nullable) void (^run)(void);             // action
 @property(nonatomic) BOOL destructive;                              // action: the first press asks, the second runs
 @property(nonatomic, copy, nullable) NSString* confirmTitle;        // its title while asking
@@ -205,14 +207,12 @@ typedef NS_ENUM(NSInteger, RowKind) {
         SliderCell* cell = [tableView dequeueReusableCellWithIdentifier:@"slider"]
                                ?: [[SliderCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"slider"];
         const Knob* knob = row.knob;
-        FilterParams params = self.host.renderer.params;
-        float value = *KnobValue(&params, knob);
+        float value = [self valueOf:row];
         cell.title.text = row.title;
         cell.value.text = KnobText(knob, value);
         cell.slider.minimumValue = knob->min;
         cell.slider.maximumValue = knob->max;
         cell.slider.value = value;
-        cell.slider.tag = (NSInteger)(knob - kKnobs);
         [cell.slider removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
         [cell.slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
         return cell;
@@ -284,19 +284,38 @@ typedef NS_ENUM(NSInteger, RowKind) {
 }
 
 - (void)sliderChanged:(UISlider*)slider {
-    const Knob* knob = &kKnobs[slider.tag];
-    [self setKnob:knob value:slider.value updateSlider:NO];
+    for (UITableViewCell* cell in self.tableView.visibleCells) {
+        NSIndexPath* path = [self.tableView indexPathForCell:cell];
+        if ([cell isKindOfClass:SliderCell.class] && ((SliderCell*)cell).slider == slider && path != nil) {
+            [self setRow:[self rowAt:path] value:slider.value updateSlider:NO];
+        }
+    }
 }
 
-- (void)setKnob:(const Knob*)knob value:(float)value updateSlider:(BOOL)updateSlider {
-    Renderer* renderer = self.host.renderer;
-    FilterParams params = renderer.params;
+// A slider's value: its own, or a filter knob's.
+- (float)valueOf:(SettingsRow*)row {
+    if (row.value != nil) {
+        return row.value();
+    }
+    FilterParams params = self.host.renderer.params;
+    return *KnobValue(&params, row.knob);
+}
+
+- (void)setRow:(SettingsRow*)row value:(float)value updateSlider:(BOOL)updateSlider {
+    const Knob* knob = row.knob;
     value = KnobSnap(knob, fminf(fmaxf(value, knob->min), knob->max));
-    *KnobValue(&params, knob) = value;
-    renderer.params = params;
-    [NSUserDefaults.standardUserDefaults setFloat:value forKey:knob->key];
+    if (row.setValue != nil) {
+        row.setValue(value);
+    } else {
+        Renderer* renderer = self.host.renderer;
+        FilterParams params = renderer.params;
+        *KnobValue(&params, knob) = value;
+        renderer.params = params;
+        [NSUserDefaults.standardUserDefaults setFloat:value forKey:knob->key];
+    }
     for (UITableViewCell* cell in self.tableView.visibleCells) {
-        if ([cell isKindOfClass:SliderCell.class] && ((SliderCell*)cell).slider.tag == knob - kKnobs) {
+        NSIndexPath* path = [self.tableView indexPathForCell:cell];
+        if ([cell isKindOfClass:SliderCell.class] && path != nil && [self rowAt:path] == row) {
             ((SliderCell*)cell).value.text = KnobText(knob, value);
             if (updateSlider) {
                 ((SliderCell*)cell).slider.value = value;
@@ -378,9 +397,8 @@ typedef NS_ENUM(NSInteger, RowKind) {
             break;
         }
         case RowKindSlider: {
-            FilterParams params = self.host.renderer.params;
             float step = fmaxf(row.knob->step, (row.knob->max - row.knob->min) / 20);
-            [self setKnob:row.knob value:*KnobValue(&params, row.knob) + step * (float)delta updateSlider:YES];
+            [self setRow:row value:[self valueOf:row] + step * (float)delta updateSlider:YES];
             break;
         }
         default:
@@ -518,6 +536,10 @@ static SettingsPage* DisplayPage(id<SettingsHost> host) {
                                                    ^(BOOL on) {
                                                        weakHost.renderer.integerScaling = on;
                                                        [NSUserDefaults.standardUserDefaults setBool:on forKey:kIntegerScalingDefault];
+                                                       // The touch layout sizes the picture by it.
+                                                       [NSNotificationCenter.defaultCenter
+                                                           postNotificationName:kTouchControlsChangedNotification
+                                                                         object:nil];
                                                    }),
                                                Toggle(
                                                    @"Draw on the GPU", ^BOOL { return weakHost.renderer.gpuPpuEnabled; },
@@ -562,6 +584,33 @@ static SettingsPage* DisplayPage(id<SettingsHost> host) {
     return page;
 }
 
+// The touch controls' opacity and size, in percent, for the layout shown now.
+static const Knob kTouchOpacityKnob = { nil, @"Opacity", @"Opacity", 0, 10, 100, 5, @"%.0f%%" };
+static const Knob kTouchSizeKnob = { nil, @"Size", @"Size", 0, 75, 150, 5, @"%.0f%%" };
+
+static SettingsRow* TouchSlider(id<SettingsHost> host, const Knob* knob) {
+    __weak id<SettingsHost> weakHost = host;
+    BOOL opacity = knob == &kTouchOpacityKnob;
+    SettingsRow* row = [SettingsRow rowWithKind:RowKindSlider title:knob->title];
+    row.knob = knob;
+    row.value = ^float {
+        TouchSettings settings = TouchSettingsLoad(weakHost.portrait);
+        return (float)round(100 * (opacity ? settings.opacity : settings.layout.size));
+    };
+    row.setValue = ^(float value) {
+        BOOL portrait = weakHost.portrait;
+        TouchSettings settings = TouchSettingsLoad(portrait);
+        if (opacity) {
+            settings.opacity = value / 100;
+        } else {
+            settings.layout.size = value / 100;
+        }
+        TouchSettingsSave(portrait, &settings);
+        [NSNotificationCenter.defaultCenter postNotificationName:kTouchControlsChangedNotification object:nil];
+    };
+    return row;
+}
+
 static SettingsPage* ControlsPage(id<SettingsHost> host) {
     SettingsPage* page = [[SettingsPage alloc] initWithTitle:@"Controls" host:host];
     __weak id<SettingsHost> weakHost = host;
@@ -575,13 +624,31 @@ static SettingsPage* ControlsPage(id<SettingsHost> host) {
     void (^touchChanged)(BOOL) = ^(BOOL on) {
         [NSNotificationCenter.defaultCenter postNotificationName:kTouchControlsChangedNotification object:nil];
     };
+    __weak SettingsPage* weakPage = page;
+    SettingsRow* resetTouch = Action(@"Reset Touch Layout", ^{
+        TouchSettingsReset(weakHost.portrait);
+        [NSNotificationCenter.defaultCenter postNotificationName:kTouchControlsChangedNotification object:nil];
+        [weakPage refresh];
+    });
+    resetTouch.destructive = YES;
+    resetTouch.confirmTitle = @"Reset Opacity, Size and Places?";
     page.sections = @[
         [SettingsSection header:@"Touch"
                            rows:@[
                                DefaultsToggle(@"Touch controls", kTouchControlsDefault, touchChanged),
                                DefaultsToggle(@"Haptics", kTouchHapticsDefault, touchChanged),
                            ]
-                         footer:@"On-screen buttons, hidden while a gamepad is connected. Their ☰ opens the settings."],
+                         footer:@"On-screen buttons, hidden while a gamepad is connected. Their ☰ opens the settings; "
+                                @"⏩ switches fast-forward, or holds it while held."],
+        [SettingsSection header:host.portrait ? @"Touch Layout (Portrait)" : @"Touch Layout (Landscape)"
+                           rows:@[
+                               TouchSlider(host, &kTouchOpacityKnob),
+                               TouchSlider(host, &kTouchSizeKnob),
+                               Action(@"Move Controls…", ^{ [weakHost editTouchControls]; }),
+                               resetTouch,
+                           ]
+                         footer:@"Kept apart for portrait and landscape; these change the one shown now. Move Controls "
+                                @"pauses the game so the D-pad, A and B, L, R, Start and Select, ☰ and ⏩ can be dragged."],
         [SettingsSection header:@"Gamepad"
                            rows:@[ Choice(
                                     @"A and B", @[ @"By label (A is A)", @"By position (right is A)" ],

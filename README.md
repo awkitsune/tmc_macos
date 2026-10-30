@@ -486,12 +486,16 @@ needs no controller, and the **☰** button opens the settings instead of a tap 
 Escape still work).
 
 - **Landscape** is laid out like the original GBA: the D-pad with Start and Select under it on the left, A and B on the
-  right, L and R in the top corners, ☰ bottom right, and the picture in the middle (5x on an iPhone 15).
+  right, L and R in the top corners, ⏩ and ☰ bottom right, and the picture in the middle (5x on an iPhone 15).
 - **Portrait** is like the GBA SP: the screen in halves, the picture in the top one (4x on an iPhone 15) and the
   controls in the bottom one: L and R as bars at its top, then the D-pad and A and B, with Start, Select and ☰ in the
-  middle at the bottom.
-- The buttons are the same size in points on iPhone and iPad, and the picture never sits under them: it gets the
-  largest whole-number scale that leaves them room.
+  middle at the bottom and ⏩ in the bottom left corner.
+- The buttons are the same size in points on iPhone and iPad, and the picture never sits under them: with Integer
+  scaling it gets the largest whole-number scale that leaves them room, without it all the room they leave.
+- **⏩** switches fast-forward with a tap (as Game > Fast-forward) and holds it while held.
+- **Touch Layout** (per orientation, for the one shown): **Opacity** and **Size** sliders, **Move Controls…** (the game
+  pauses; drag the D-pad, A and B, L, R, Start and Select, ☰ and ⏩ anywhere on the screen; Reset puts them back,
+  Done ends) and **Reset Touch Layout**.
 - Every finger counts on its own. The D-pad goes 8 ways by the angle of your thumb, and slides from one direction to
   the next without lifting. Slide between A and B to move the press; the gap between them presses both.
 - **Haptics** (on by default): a light tap on each press and a softer tick when the D-pad changes direction. Devices

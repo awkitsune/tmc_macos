@@ -26,9 +26,6 @@ drawing every sprite there is kept on purpose (`ppu-audit.md`).
   Xcode and has to be installed again every 7 days (`port/scripts/ios_install.sh`).
 - The touch controls are flat shapes drawn in code. A skin like the GBA's shell (the purple plastic, the speaker
   grille) drawn around them would be a possible later option.
-- The touch controls' layout gives the picture a whole-number scale even with Integer scaling off: in landscape the
-  middle column is only as wide as that picture.
-- The touch controls cannot be moved, resized or made more transparent, and there is no fast-forward button.
 - The settings sheet is driven by a controller through its own polling (`port/src/ios/settingsview.m`), not UIKit's
   focus system; a slider moves in 1/20 steps of its range.
 - ☰ is both Start and (held) the settings, so holding it to open the settings first gives the game a Start press;

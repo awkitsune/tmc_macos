@@ -38,11 +38,33 @@ static int WholeScale(CGFloat width, CGFloat height, CGFloat pixelsPerPoint) {
     return MAX(scale, 1);
 }
 
-static void Landscape(TouchLayout* layout, CGRect safe, const Sizes* s, CGFloat pixelsPerPoint) {
+const TouchLayoutOptions TouchLayoutDefaults = { .size = 1, .integerScaling = YES };
+
+// The sizes at the player's scale (the margins and gaps stay).
+static Sizes Scaled(const Sizes* s, CGFloat k) {
+    Sizes scaled = *s;
+    scaled.dpad *= k;
+    scaled.face *= k;
+    scaled.faceDX *= k;
+    scaled.faceDY *= k;
+    scaled.shoulder = CGSizeMake(s->shoulder.width * k, s->shoulder.height * k);
+    scaled.shoulderBar *= k;
+    scaled.start = CGSizeMake(s->start.width * k, s->start.height * k);
+    scaled.startGap *= k;
+    scaled.menu *= k;
+    return scaled;
+}
+
+static void Landscape(TouchLayout* layout, CGRect safe, const Sizes* s, CGFloat pixelsPerPoint, BOOL integerScaling) {
     // At the narrowest, the controls keep a margin from the edge and half that from the picture.
     CGFloat column = MAX(s->dpad, s->faceDX + s->face) + 1.5 * s->margin;
-    int scale = WholeScale(safe.size.width - 2 * column, safe.size.height, pixelsPerPoint);
-    CGFloat width = GBA_WIDTH * scale / pixelsPerPoint;
+    CGFloat width;
+    if (integerScaling) {
+        width = GBA_WIDTH * WholeScale(safe.size.width - 2 * column, safe.size.height, pixelsPerPoint) / pixelsPerPoint;
+    } else {
+        width = MIN(safe.size.width - 2 * column, safe.size.height * GBA_WIDTH / GBA_HEIGHT);
+        width = MAX(floor(width * pixelsPerPoint) / pixelsPerPoint, GBA_WIDTH / pixelsPerPoint);
+    }
     column = (safe.size.width - width) / 2;
     layout->picture = CGRectMake(CGRectGetMinX(safe) + column, CGRectGetMinY(safe), width, safe.size.height);
 
@@ -69,6 +91,8 @@ static void Landscape(TouchLayout* layout, CGRect safe, const Sizes* s, CGFloat 
     layout->controls[TouchControlA] = Circle(CGPointMake(rightCentre + s->faceDX / 2, dpad.y - s->faceDY / 2), s->face);
     layout->controls[TouchControlB] = Circle(CGPointMake(rightCentre - s->faceDX / 2, dpad.y + s->faceDY / 2), s->face);
     layout->controls[TouchControlMenu] = CGRectMake(right - s->margin - s->menu, bottom - s->menu, s->menu, s->menu);
+    layout->controls[TouchControlFastForward] =
+        CGRectMake(right - s->margin - 2 * s->menu - s->startGap, bottom - s->menu, s->menu, s->menu);
 }
 
 // The screen in halves: the picture centred in the top one, the controls in the
@@ -92,6 +116,7 @@ static void Portrait(TouchLayout* layout, CGRect safe, const Sizes* s, CGFloat s
         CGRectMake(centre - s->startGap / 2 - s->start.width, row, s->start.width, s->start.height);
     layout->controls[TouchControlStart] = CGRectMake(centre + s->startGap / 2, row, s->start.width, s->start.height);
     layout->controls[TouchControlMenu] = CGRectMake(centre - s->menu / 2, row - s->margin - s->menu, s->menu, s->menu);
+    layout->controls[TouchControlFastForward] = CGRectMake(left, bottom - s->menu, s->menu, s->menu);
 
     // The D-pad and A and B in between.
     CGFloat regionTop = top + s->shoulder.height + s->gap, regionBottom = row - s->gap;
@@ -102,17 +127,43 @@ static void Portrait(TouchLayout* layout, CGRect safe, const Sizes* s, CGFloat s
     layout->controls[TouchControlB] = Circle(CGPointMake(faceCentre - s->faceDX / 2, middle + s->faceDY / 2), s->face);
 }
 
-TouchLayout TouchLayoutMake(CGSize bounds, UIEdgeInsets safe, BOOL portrait, BOOL pad, CGFloat pixelsPerPoint) {
+// Each cluster moved by its offset, but no further than the safe area's edges.
+static void Move(TouchLayout* layout, CGRect safe, const CGPoint offsets[TouchClusterCount]) {
+    for (TouchCluster cluster = 0; cluster < TouchClusterCount; cluster++) {
+        CGRect box = CGRectNull;
+        for (TouchControl control = 0; control < TouchControlCount; control++) {
+            if (TouchControlCluster(control) == cluster) {
+                box = CGRectUnion(box, layout->controls[control]);
+            }
+        }
+        CGFloat dx = MAX(MIN(offsets[cluster].x, CGRectGetMaxX(safe) - CGRectGetMaxX(box)), CGRectGetMinX(safe) - CGRectGetMinX(box));
+        CGFloat dy = MAX(MIN(offsets[cluster].y, CGRectGetMaxY(safe) - CGRectGetMaxY(box)), CGRectGetMinY(safe) - CGRectGetMinY(box));
+        for (TouchControl control = 0; control < TouchControlCount; control++) {
+            if (TouchControlCluster(control) == cluster) {
+                layout->controls[control] = CGRectOffset(layout->controls[control], dx, dy);
+            }
+        }
+        layout->clusters[cluster] = CGRectOffset(box, dx, dy);
+        layout->offsets[cluster] = CGPointMake(dx, dy);
+    }
+}
+
+TouchLayout TouchLayoutMake(CGSize bounds, UIEdgeInsets safe, BOOL portrait, BOOL pad, CGFloat pixelsPerPoint,
+                            const TouchLayoutOptions* options) {
     TouchLayout layout = { .portrait = portrait };
-    const Sizes* s = pad ? &kPad : &kPhone;
+    if (options == NULL) {
+        options = &TouchLayoutDefaults;
+    }
+    Sizes s = Scaled(pad ? &kPad : &kPhone, MAX(0.5, MIN(options->size, 2)));
     CGRect area = UIEdgeInsetsInsetRect(CGRectMake(0, 0, bounds.width, bounds.height), safe);
     pixelsPerPoint = MAX(pixelsPerPoint, 1);
     if (portrait) {
-        Portrait(&layout, area, s, bounds.height);
+        Portrait(&layout, area, &s, bounds.height);
     } else {
-        Landscape(&layout, area, s, pixelsPerPoint);
+        Landscape(&layout, area, &s, pixelsPerPoint, options->integerScaling);
     }
-    layout.deadZone = 0.18 * s->dpad / 2;
+    Move(&layout, area, options->offsets);
+    layout.deadZone = 0.18 * s.dpad / 2;
     return layout;
 }
 
@@ -201,13 +252,21 @@ uint16_t TouchLayoutButtonKeys(const TouchLayout* layout, CGPoint point) {
 }
 
 NSString* TouchControlName(TouchControl control) {
-    static NSString* const names[TouchControlCount] = { @"D-pad", @"A", @"B", @"L", @"R", @"START", @"SELECT", @"☰" };
+    static NSString* const names[TouchControlCount] = { @"D-pad", @"A", @"B", @"L", @"R", @"START", @"SELECT", @"☰", @"Fast-forward" };
     return control < TouchControlCount ? names[control] : @"none";
 }
 
 uint16_t TouchControlKey(TouchControl control) {
-    static const uint16_t keys[TouchControlCount] = { 0, HW_KEY_A, HW_KEY_B, HW_KEY_L, HW_KEY_R, HW_KEY_START, HW_KEY_SELECT, 0 };
+    static const uint16_t keys[TouchControlCount] = { 0, HW_KEY_A, HW_KEY_B, HW_KEY_L, HW_KEY_R, HW_KEY_START, HW_KEY_SELECT, 0, 0 };
     return control < TouchControlCount ? keys[control] : 0;
+}
+
+TouchCluster TouchControlCluster(TouchControl control) {
+    static const TouchCluster clusters[TouchControlCount] = {
+        TouchClusterDpad,        TouchClusterFace,        TouchClusterFace, TouchClusterL,          TouchClusterR,
+        TouchClusterStartSelect, TouchClusterStartSelect, TouchClusterMenu, TouchClusterFastForward,
+    };
+    return control < TouchControlCount ? clusters[control] : TouchClusterCount;
 }
 
 CGRect TouchLayoutPixelRect(CGRect points, CGFloat pixelsPerPoint) {

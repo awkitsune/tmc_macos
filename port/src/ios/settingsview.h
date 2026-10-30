@@ -20,6 +20,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)quickLoad;
 - (void)resetGame;
 - (void)closeSettings;
+// The touch controls' edit mode (closes the settings), and whether the touch
+// settings apply to the portrait layout now.
+- (void)editTouchControls;
+@property(nonatomic, readonly) BOOL portrait;
 @end
 
 /*
