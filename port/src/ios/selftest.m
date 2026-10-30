@@ -75,8 +75,9 @@ static void CheckGamepadMapping(Input* input) {
             }
         }
     }
+    // ☰ is Start only when let go before it opens the settings (Input's handler).
     [pad.buttonMenu setValue:1];
-    failures += [input keysForController:controller nintendo:NO] != HW_KEY_START;
+    failures += [input keysForController:controller nintendo:NO] != 0;
     [pad.buttonMenu setValue:0];
     input.gamepadLayout = saved;
     Check(failures == 0, @"gamepad mapping");

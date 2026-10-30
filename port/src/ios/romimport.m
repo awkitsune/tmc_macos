@@ -60,6 +60,10 @@ static void OnProgress(void* context, RomDataStage stage, double fraction) {
     progress->block(stage, fraction);
 }
 
+@interface RomChanger : NSObject <UIDocumentPickerDelegate>
+- (instancetype)initOver:(UIViewController*)presenter reextract:(BOOL)reextract;
+@end
+
 @implementation RomImport
 
 + (BOOL)needsRom {
@@ -130,6 +134,135 @@ static void OnProgress(void* context, RomDataStage stage, double fraction) {
         default:
             return @"The game data couldn't be prepared";
     }
+}
+
++ (void)changeRomOver:(UIViewController*)presenter reextract:(BOOL)reextract {
+    (void)[[RomChanger alloc] initOver:presenter reextract:reextract];
+}
+
+@end
+
+static UIDocumentPickerViewController* RomPicker(id<UIDocumentPickerDelegate> delegate) {
+    UIDocumentPickerViewController* picker =
+        [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[ UTTypeData ] asCopy:NO];
+    picker.delegate = delegate;
+    picker.allowsMultipleSelection = NO;
+    return picker;
+}
+
+// One Change ROM… from the settings. It keeps itself alive until it is done.
+@implementation RomChanger {
+    __weak UIViewController* _presenter;
+    RomChanger* _alive;
+}
+
+- (instancetype)initOver:(UIViewController*)presenter reextract:(BOOL)reextract {
+    if ((self = [super init]) != nil) {
+        _presenter = presenter;
+        _alive = self;
+        NSURL* rom = reextract ? EnvironmentRom() ?: RememberedRom() : nil;
+        if (rom != nil) {
+            [self extractFrom:rom];
+        } else {
+            [self askWithMessage:reextract ? @"The ROM used before can't be found. Choose your The Minish Cap (USA) ROM "
+                                             @"to extract the game data from it again."
+                                           : nil];
+        }
+    }
+    return self;
+}
+
+// Shown over whatever is in front of the presenter then (the settings may have closed).
+- (void)present:(UIViewController*)controller {
+    UIViewController* top = _presenter;
+    while (top.presentedViewController != nil && !top.presentedViewController.isBeingDismissed) {
+        top = top.presentedViewController;
+    }
+    [top presentViewController:controller animated:YES completion:nil];
+}
+
+- (void)askWithMessage:(NSString*)message {
+    if (message == nil) {
+        [self present:RomPicker(self)];
+        return;
+    }
+    UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Choose the ROM"
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction* action) {
+               [self finish];
+           }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Choose…" style:UIAlertActionStyleDefault handler:^(UIAlertAction* action) {
+               [self askWithMessage:nil];
+           }]];
+    [self present:alert];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController*)controller didPickDocumentsAtURLs:(NSArray<NSURL*>*)urls {
+    if (urls.firstObject != nil) {
+        [self extractFrom:urls.firstObject];
+    } else {
+        [self finish];
+    }
+}
+
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController*)controller {
+    [self finish];
+}
+
+- (void)extractFrom:(NSURL*)rom {
+    NSString* cache = RomImport.cachePath;
+    UIAlertController* progress =
+        [UIAlertController alertControllerWithTitle:@"Preparing the game data"
+                                            message:[NSString stringWithFormat:@"Extracting from “%@”…", rom.lastPathComponent]
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [self present:progress];
+    NSDate* shown = [NSDate date];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString* message = @"The game data folder's path is too long.";
+        RomDataResult result = ROMDATA_WRITE_FAILED;
+        if (cache != nil) {
+            result = [RomImport extractFrom:rom cache:cache load:NO progress:nil message:&message];
+        }
+        NSLog(@"game data from %@: %@", rom.path, message);
+        NSTimeInterval wait = MAX(0, kMinimumProgressTime + shown.timeIntervalSinceNow);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [progress dismissViewControllerAnimated:YES completion:^{
+                [self extractionFinished:result message:message rom:rom];
+            }];
+        });
+    });
+}
+
+- (void)extractionFinished:(RomDataResult)result message:(NSString*)message rom:(NSURL*)rom {
+    UIAlertController* alert;
+    if (result == ROMDATA_OK) {
+        RememberRom(rom);
+        alert = [UIAlertController
+            alertControllerWithTitle:@"Game data extracted"
+                             message:[NSString stringWithFormat:@"The game data was extracted from “%@”.", rom.lastPathComponent]
+                      preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction* action) {
+                   [self finish];
+               }]];
+    } else {
+        alert = [UIAlertController alertControllerWithTitle:[RomImport titleForResult:result]
+                                                    message:message
+                                             preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction* action) {
+                   [self finish];
+               }]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Choose Another File…"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(UIAlertAction* action) {
+                                                    [self askWithMessage:nil];
+                                                }]];
+    }
+    [self present:alert];
+}
+
+- (void)finish {
+    _alive = nil;
 }
 
 @end
@@ -247,11 +380,7 @@ static void OnProgress(void* context, RomDataStage stage, double fraction) {
     if (_busy) {
         return;
     }
-    UIDocumentPickerViewController* picker =
-        [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[ UTTypeData ] asCopy:NO];
-    picker.delegate = self;
-    picker.allowsMultipleSelection = NO;
-    [self presentViewController:picker animated:YES completion:nil];
+    [self presentViewController:RomPicker(self) animated:YES completion:nil];
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController*)controller didPickDocumentsAtURLs:(NSArray<NSURL*>*)urls {

@@ -19,6 +19,11 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 // Held this long, a direction repeats every kRepeatSeconds.
 static const CFTimeInterval kRepeatDelay = 0.35;
 static const CFTimeInterval kRepeatSeconds = 0.08;
+// A slider moves 1/kSliderSteps of its range a step, and a held direction
+// speeds up to kSliderMaxSpeed steps a repeat (one every kSliderSpeedUp repeats).
+static const float kSliderSteps = 100;
+static const NSInteger kSliderMaxSpeed = 8;
+static const NSInteger kSliderSpeedUp = 5;
 
 typedef NS_ENUM(NSInteger, RowKind) {
     RowKindToggle, // a switch
@@ -375,8 +380,26 @@ typedef NS_ENUM(NSInteger, RowKind) {
     }
 }
 
-// Left and right: switch, step through the options, move a slider.
-- (void)adjust:(NSInteger)delta {
+// The first row of the section after (delta 1) or before (-1) the focused one.
+- (void)jumpSection:(NSInteger)delta {
+    if (self.focus == nil) {
+        [self moveFocus:1];
+        return;
+    }
+    for (NSInteger s = self.focus.section + delta; s >= 0 && s < (NSInteger)self.sections.count; s += delta) {
+        NSArray<SettingsRow*>* rows = self.sections[(NSUInteger)s].rows;
+        for (NSUInteger r = 0; r < rows.count; r++) {
+            if (rows[r].focusable) {
+                [self setFocusTo:[NSIndexPath indexPathForRow:(NSInteger)r inSection:s]];
+                return;
+            }
+        }
+    }
+}
+
+// Left and right: switch, step through the options, move a slider (speed
+// steps at a time; the rest take one).
+- (void)adjust:(NSInteger)delta speed:(NSInteger)speed {
     if (self.focus == nil) {
         return;
     }
@@ -397,8 +420,8 @@ typedef NS_ENUM(NSInteger, RowKind) {
             break;
         }
         case RowKindSlider: {
-            float step = fmaxf(row.knob->step, (row.knob->max - row.knob->min) / 20);
-            [self setRow:row value:[self valueOf:row] + step * (float)delta updateSlider:YES];
+            float step = fmaxf(row.knob->step, (row.knob->max - row.knob->min) / kSliderSteps);
+            [self setRow:row value:[self valueOf:row] + step * (float)(delta * speed) updateSlider:YES];
             break;
         }
         default:
@@ -621,6 +644,16 @@ static SettingsPage* ControlsPage(id<SettingsHost> host) {
     if (connected.count == 0) {
         [connected addObject:Info(@"None", @"")];
     }
+    NSString* home = host.input.homeButtonStatus;
+    if (home != nil) {
+        SettingsRow* row = Action(@"Home Button…", ^{
+            [weakHost.input openHomeButtonSettings];
+        });
+        row.detail = ^NSString* {
+            return [home isEqualToString:@"System"] ? @"Opens the system overlay" : @"Opens these settings";
+        };
+        [connected addObject:row];
+    }
     void (^touchChanged)(BOOL) = ^(BOOL on) {
         [NSNotificationCenter.defaultCenter postNotificationName:kTouchControlsChangedNotification object:nil];
     };
@@ -658,18 +691,24 @@ static SettingsPage* ControlsPage(id<SettingsHost> host) {
                                         [NSUserDefaults.standardUserDefaults setInteger:index forKey:kGamepadLayoutDefault];
                                     }) ]
                          footer:@"Nintendo pads use their labels either way; this changes Xbox and PlayStation pads."],
-        [SettingsSection header:@"Connected" rows:connected footer:nil],
+        [SettingsSection header:@"Connected"
+                           rows:connected
+                         footer:[home isEqualToString:@"System"]
+                                    ? @"The system keeps Home for itself. In Home Button…, let apps handle it, and Home "
+                                      @"opens these settings."
+                                    : nil],
         [SettingsSection header:@"Gamepad Buttons"
                            rows:@[
                                Info(@"A, B (and X, Y)", @"A, B"),
                                Info(@"Shoulders and triggers", @"L, R"),
                                Info(@"D-pad or left stick", @"D-pad"),
-                               Info(@"☰ Menu", @"Start"),
+                               Info(@"☰ Menu (press)", @"Start"),
                                Info(@"Options / View / Share", @"Select"),
                                Info(@"Right stick click (hold)", @"Fast-forward"),
                                Info(@"Home, or hold ☰", @"Settings"),
                            ]
-                         footer:nil],
+                         footer:@"Start is given when ☰ is let go; held, ☰ opens the settings and the game sees no "
+                                @"Start."],
         [SettingsSection header:@"Keyboard"
                            rows:@[
                                Info(@"Arrow keys", @"D-pad"),
@@ -733,7 +772,8 @@ static SettingsPage* GamePage(id<SettingsHost> host) {
     });
     reset.destructive = YES;
     reset.confirmTitle = @"Press Again to Reset";
-    page.sections = @[
+    NSMutableArray<SettingsSection*>* sections = [NSMutableArray array];
+    [sections addObjectsFromArray:@[
         [SettingsSection header:@"Save States"
                            rows:@[
                                Choice(
@@ -758,7 +798,17 @@ static SettingsPage* GamePage(id<SettingsHost> host) {
                            ]
                          footer:@"High quality mixes at 48 kHz instead of the GBA's 15.7 kHz."],
         [SettingsSection header:nil rows:@[ reset ] footer:@"Back to the title screen, as A+B+Select+Start. The save is kept."],
-    ];
+    ]];
+    if (!RomDataIsBaked()) {
+        [sections addObject:[SettingsSection header:@"Game Data"
+                                               rows:@[
+                                                   Action(@"Change ROM…", ^{ [weakHost changeRom:NO]; }),
+                                                   Action(@"Re-extract Game Data", ^{ [weakHost changeRom:YES]; }),
+                                               ]
+                                             footer:@"The graphics, maps and sound are extracted from your ROM. "
+                                                    @"Re-extract uses the ROM chosen before."]];
+    }
+    page.sections = sections;
     return page;
 }
 
@@ -804,6 +854,7 @@ static SettingsRow* PageRow(NSString* title, NSString* symbol, SettingsPage* (*m
     CADisplayLink* _poll;
     uint16_t _held;
     uint16_t _repeating;
+    NSInteger _repeats; // of the direction held now
     CFTimeInterval _repeatAt;
 }
 
@@ -819,8 +870,9 @@ static SettingsRow* PageRow(NSString* title, NSString* symbol, SettingsPage* (*m
                                PageRow(@"Game", @"square.and.arrow.down.on.square", GamePage, host),
                                PageRow(@"About", @"info.circle", AboutPage, host),
                            ]
-                         footer:@"B closes. In the game, press Home or hold ☰ (Escape on a keyboard), or tap the "
-                                @"screen (☰ with touch controls on), to come back here."],
+                         footer:@"D-pad moves, L and R jump between sections, A selects, B goes back and closes. In "
+                                @"the game, press Home or hold ☰ (Escape on a keyboard), or tap the screen (☰ with "
+                                @"touch controls on), to come back here."],
     ];
     if ((self = [super initWithRootViewController:root]) != nil) {
         _host = host;
@@ -861,14 +913,17 @@ static SettingsRow* PageRow(NSString* title, NSString* symbol, SettingsPage* (*m
     // A direction held down repeats.
     if (pressed & directions) {
         _repeating = pressed & directions;
+        _repeats = 0;
         _repeatAt = now + kRepeatDelay;
     } else if (_repeating != 0 && (keys & _repeating) == _repeating && now >= _repeatAt) {
         pressed |= _repeating;
+        _repeats++;
         _repeatAt = now + kRepeatSeconds;
     } else if ((keys & _repeating) != _repeating) {
         _repeating = 0;
     }
-    if (pressed == 0 || self.transitionCoordinator != nil) {
+    // Nothing while a ROM picker or an alert is over the sheet.
+    if (pressed == 0 || self.transitionCoordinator != nil || self.presentedViewController != nil) {
         return;
     }
     SettingsPage* page = self.page;
@@ -876,10 +931,13 @@ static SettingsRow* PageRow(NSString* title, NSString* symbol, SettingsPage* (*m
         [page moveFocus:-1];
     } else if (pressed & HW_KEY_DOWN) {
         [page moveFocus:1];
-    } else if (pressed & HW_KEY_LEFT) {
-        [page adjust:-1];
-    } else if (pressed & HW_KEY_RIGHT) {
-        [page adjust:1];
+    } else if (pressed & (HW_KEY_LEFT | HW_KEY_RIGHT)) {
+        NSInteger speed = MIN(kSliderMaxSpeed, 1 + _repeats / kSliderSpeedUp);
+        [page adjust:(pressed & HW_KEY_LEFT) ? -1 : 1 speed:speed];
+    } else if (pressed & HW_KEY_L) {
+        [page jumpSection:-1];
+    } else if (pressed & HW_KEY_R) {
+        [page jumpSection:1];
     } else if (pressed & HW_KEY_A) {
         [page activate];
     } else if (pressed & HW_KEY_B) {

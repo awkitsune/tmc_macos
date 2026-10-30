@@ -41,6 +41,13 @@ NS_ASSUME_NONNULL_BEGIN
 // A heading for a failed result ("This isn't a ROM of The Minish Cap").
 + (NSString*)titleForResult:(RomDataResult)result;
 
+// Settings › Change ROM… (and Re-extract Game Data, reextract YES: the ROM
+// chosen before, if it can still be read): pick a ROM in a document picker
+// over presenter and extract the data from it again, with the result in an
+// alert. As on macOS only the cache is rewritten while the game runs: the data
+// in memory is the same, as there is only one valid ROM.
++ (void)changeRomOver:(UIViewController*)presenter reextract:(BOOL)reextract;
+
 @end
 
 /*

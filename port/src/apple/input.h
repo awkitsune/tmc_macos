@@ -52,8 +52,16 @@ typedef NS_ENUM(NSInteger, GamepadLayout) {
 // The names of the connected gamepads and keyboard.
 @property(nonatomic, readonly) NSArray<NSString*>* controllerNames;
 // Called on the main thread when the player asks for the settings: the
-// controller's Home button, holding ☰ (Menu, also GBA Start), or Escape.
+// controller's Home button, holding ☰ (Menu; a short press is GBA Start, given
+// on release), or Escape.
 @property(nonatomic, copy, nullable) void (^settingsRequested)(void);
+// Ask the system again to leave the connected controllers' Home button to the app.
+- (void)claimHomeButtons;
+// Who gets Home while the app is in front, by the system's controller settings
+// (iOS 27): @"Settings" (this app) or @"System" (its overlay); nil if unknown.
+@property(nonatomic, readonly, nullable) NSString* homeButtonStatus;
+// Open the system's controller settings where Home's in-app action is chosen (iOS 27).
+- (void)openHomeButtonSettings;
 #endif
 @end
 

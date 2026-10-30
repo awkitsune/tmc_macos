@@ -6,6 +6,7 @@
 #import <GameController/GameController.h>
 
 #include <stdatomic.h>
+#include <time.h>
 
 #include "latency.h"
 #include "port/hw.h"
@@ -35,8 +36,10 @@ static const KeyBinding kKeyBindings[] = {
 
 static const GCKeyCode kFastForwardKey = 0x2B; // GCKeyCodeTab
 static const GCKeyCode kSettingsKey = 0x29;    // GCKeyCodeEscape
-// Holding ☰ this long opens the settings (a press is GBA Start).
+// Holding ☰ this long opens the settings; a shorter press is GBA Start, given
+// to the game on release for kStartPulseNs (the settings never see a Start).
 static const NSTimeInterval kMenuHoldSeconds = 0.6;
+static const uint64_t kStartPulseNs = 100000000ull;
 #else
 typedef struct {
     unsigned short keyCode;
@@ -75,7 +78,10 @@ static BOOL IsNintendoPad(GCController* controller);
     NSMutableSet<GCController*>* _connected; // main thread
     BOOL _keyboardConnected;
     BOOL _menuDown;
+    BOOL _menuOpenedSettings; // this press of ☰ was a hold: no Start on release
     NSUInteger _menuPresses;
+    _Atomic uint64_t _startUntilNs; // ☰ was tapped: Start until then (CLOCK_UPTIME_RAW)
+    id _homeSettings;               // GCControllerHomeButtonSettingsManager (iOS 27)
 #endif
 }
 
@@ -201,6 +207,9 @@ static BOOL IsNintendoPad(GCController* controller);
 - (void)releaseAll {
     atomic_store(&_keyboardKeys, 0);
     atomic_store(&_fastForwardKey, false);
+#if TARGET_OS_IOS
+    atomic_store(&_startUntilNs, 0);
+#endif
 }
 
 // GameController reports Nintendo pads by printed label (buttonA is the button
@@ -233,7 +242,10 @@ static uint16_t GamepadKeys(GCController* controller, BOOL nintendo, GamepadLayo
     if (forB[0].pressed || forB[1].pressed) keys |= HW_KEY_B;
     if (pad.leftShoulder.pressed || pad.leftTrigger.pressed) keys |= HW_KEY_L;
     if (pad.rightShoulder.pressed || pad.rightTrigger.pressed) keys |= HW_KEY_R;
+#if !TARGET_OS_IOS
+    // On iOS ☰ is also the settings when held: Input gives its Start on release.
     if (pad.buttonMenu.pressed) keys |= HW_KEY_START;
+#endif
     if (pad.buttonOptions.pressed) keys |= HW_KEY_SELECT;
     if (pad.dpad.up.pressed || y > threshold) keys |= HW_KEY_UP;
     if (pad.dpad.down.pressed || y < -threshold) keys |= HW_KEY_DOWN;
@@ -255,6 +267,9 @@ static uint16_t GamepadKeys(GCController* controller, BOOL nintendo, GamepadLayo
         uint16_t keys = atomic_load(&_keyboardKeys);
 #if TARGET_OS_IOS
         keys |= atomic_load(&_touchKeys);
+        if (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) < atomic_load(&_startUntilNs)) {
+            keys |= HW_KEY_START;
+        }
         GCKeyboardInput* keyboard = GCKeyboard.coalescedKeyboard.keyboardInput;
         if (keyboard != nil) {
             for (size_t i = 0; i < sizeof(kKeyBindings) / sizeof(kKeyBindings[0]); i++) {
@@ -369,12 +384,60 @@ int InputCheckKeyCodes(void) {
     };
 }
 
+// Ask the system to leave Home to the app instead of showing its own (Game)
+// overlay. Set on both profiles, as iOS 27's Home button settings document it;
+// the system may still keep the button (see homeButtonStatus).
+static void ClaimHomeButton(GCController* controller) {
+    controller.extendedGamepad.buttonHome.preferredSystemGestureState = GCSystemGestureStateDisabled;
+    controller.physicalInputProfile.buttons[GCInputButtonHome].preferredSystemGestureState = GCSystemGestureStateDisabled;
+}
+
+- (void)claimHomeButtons {
+    for (GCController* controller in _connected) {
+        ClaimHomeButton(controller);
+    }
+}
+
+- (GCControllerHomeButtonSettingsManager*)homeSettings API_AVAILABLE(ios(27.0)) {
+    if (_homeSettings == nil) {
+        _homeSettings = [[GCControllerHomeButtonSettingsManager alloc] initWithQueue:dispatch_get_main_queue()];
+    }
+    return _homeSettings;
+}
+
+- (NSString*)homeButtonStatus {
+    if (_connected.count == 0) {
+        return nil;
+    }
+    if (@available(iOS 27.0, *)) {
+        switch ([self.homeSettings readControllerHomeButtonInAppActionWithError:nil]) {
+            case GCControllerHomeButtonSettingInAppActionDefault:
+                return @"System";
+            case GCControllerHomeButtonSettingInAppActionDefer:
+                return @"Settings";
+            default:
+                return nil;
+        }
+    }
+    return nil;
+}
+
+- (void)openHomeButtonSettings {
+    if (@available(iOS 27.0, *)) {
+        NSError* error = nil;
+        if (![self.homeSettings openControllerHomeButtonSettingsForActivity:GCControllerHomeButtonSettingsCustomizeInAppActionActivity
+                                                                      error:&error]) {
+            NSLog(@"cannot open the Home button settings: %@", error);
+        }
+    }
+}
+
 // The settings open from the Home button (taken from the system, which would
 // show its own overlay) or from holding ☰.
 - (void)watchSettingsButtons:(GCController*)controller {
     GCExtendedGamepad* pad = controller.extendedGamepad;
     __weak Input* weakSelf = self;
-    pad.buttonHome.preferredSystemGestureState = GCSystemGestureStateDisabled;
+    ClaimHomeButton(controller);
     pad.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput* button, float value, BOOL pressed) {
         if (pressed) {
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -390,13 +453,20 @@ int InputCheckKeyCodes(void) {
 }
 
 - (void)menuButtonPressed:(BOOL)pressed {
+    BOOL wasDown = _menuDown;
     _menuDown = pressed;
     NSUInteger press = ++_menuPresses;
     if (!pressed) {
+        if (wasDown && !_menuOpenedSettings) {
+            atomic_store(&_startUntilNs, clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + kStartPulseNs);
+            LatencyInputEvent(LATENCY_PAD, LatencyNowNs());
+        }
+        _menuOpenedSettings = NO;
         return;
     }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kMenuHoldSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (self->_menuDown && self->_menuPresses == press) {
+            self->_menuOpenedSettings = YES;
             [self requestSettings];
         }
     });
