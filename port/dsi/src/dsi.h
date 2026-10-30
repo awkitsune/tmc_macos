@@ -47,6 +47,14 @@ void DsiClearGbaRam(void);
 bool DsiRomLoad(void);
 
 /*
+ * The save (port/src/eeprom.c): tmc/tmc.sav on the ROM's card, NULL before
+ * DsiRomLoad finds one. EepromFlush writes it once the game has stopped
+ * writing: 0 nothing written, 1 written, -1 failed.
+ */
+const char* DsiSavePath(void);
+int EepromFlush(void);
+
+/*
  * Patch the pointer words in the copy (rom_relocs.s). False if a count is off
  * or a word did not hold the GBA address the generator expects.
  */

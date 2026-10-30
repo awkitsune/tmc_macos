@@ -31,6 +31,12 @@ extern const uint16_t gRomRelocKept[], gRomRelocKeptEnd[];
 // boot log goes next to the ROM.
 static const char* const sRomPaths[] = { "sd:/tmc/baserom.gba", "fat:/tmc/baserom.gba" };
 static const char* const sLogPaths[] = { "sd:/tmc/boot.txt", "fat:/tmc/boot.txt" };
+static const char* const sSavePaths[] = { "sd:/tmc/tmc.sav", "fat:/tmc/tmc.sav" };
+static const char* sSavePath;
+
+const char* DsiSavePath(void) {
+    return sSavePath;
+}
 
 // The USA ROM, as port/README.md.
 static const uint8_t sUsaSha1[20] = {
@@ -49,6 +55,7 @@ static FILE* OpenRom(const char** path) {
         FILE* file = fopen(sRomPaths[i], "rb");
         if (file != NULL) {
             *path = sRomPaths[i];
+            sSavePath = sSavePaths[i];
             DsiLogToFile(sLogPaths[i]);
             return file;
         }

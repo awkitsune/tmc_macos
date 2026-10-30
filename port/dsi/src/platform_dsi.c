@@ -137,6 +137,10 @@ void PlatformVBlank(void) {
     HwRunVBlank();
     work += cpuGetTiming() - t;
     Track(&s->workMin, &s->workMax, &s->workSum, work);
+    if (EepromFlush() < 0) {
+        DsiLog("save: writing %s failed\n", DsiSavePath());
+        DsiLogFlush();
+    }
 
     if (DSI_CHECKS && frame < DSI_FRAME_RECORDS) {
         DsiFrameRecord* r = &gDsiFrames[frame];
