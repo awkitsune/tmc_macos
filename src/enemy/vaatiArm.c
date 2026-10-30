@@ -1170,7 +1170,13 @@ static void sub_08043770(VaatiArmEntity* this) {
             ((VaatiArm_HeapStruct*)entity->myHeap)->parent = NULL;
             gRoomTransition.field_0x39 &= 0xfe;
         } else {
+#ifdef PLATFORM_NATIVE
+            // entity is VaatiWrath: s1 overlays its arms[1]. A u32 store cleared only the low half of the
+            // native pointer, leaving 0x100000000, which sub_0804207C then read (crash after the first arm).
+            *(Entity**)((VaatiArm_HeapStruct*)entity->myHeap)->s1 = NULL;
+#else
             *(u32*)((VaatiArm_HeapStruct*)entity->myHeap)->s1 = 0;
+#endif
             gRoomTransition.field_0x39 &= 0xfd;
         }
         ((VaatiArm_HeapStruct*)super->myHeap)->entities[4]->base.myHeap = NULL;

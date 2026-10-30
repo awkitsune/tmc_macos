@@ -782,3 +782,11 @@ Natively it crashed (read at 0x6) after lighting both candles. Natively a NULL h
 whose byte 3 (0xe5) has the ANIM_DONE bit, so the bars opened at once. Natively `GetNextFrame` does nothing then,
 so after a switch the bars were passable but stayed drawn closed. Natively, with no animation, `JailBars_Action2`
 goes straight to the open state (action 3, animation 1). Checked with `open_doors_not_rendering_open.tmcs`.
+
+## Vaati's final form: an arm clears its slot with a u32 store
+
+`sub_08043770` (src/enemy/vaatiArm.c), when an arm finishes dying, clears its slot in VaatiWrath's heap through the
+arm's heap layout: `->parent` for type2 0 (VaatiWrath `arms[0]`) and `*(u32*)->s1` for the other (`arms[1]`). The
+offsets line up natively too, but the u32 store cleared only the low half of the 8-byte pointer, leaving
+0x100000000; `sub_0804207C` then read `arm->action` from it (crash at 0x100000014 after the first arm died).
+Natively it stores a NULL `Entity*`.
