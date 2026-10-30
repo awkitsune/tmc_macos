@@ -28,6 +28,7 @@
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
+#include "port/performance.h"
 
 // Stand-ins for what the game build provides.
 uint64_t gPlatformFrame;
@@ -393,6 +394,32 @@ static int TestBgObjVram(void) {
     return Report("bgobjvram", bad, 0, 0, 0, 0);
 }
 
+static int TestPerformance(void) {
+    PerformanceSnapshot snap;
+    PerformanceReset();
+    PerformanceSetEnabled(false);
+    PpuRenderFrame(sPlain);
+    PerformanceSetEnabled(true);
+    PerformanceBeginFrame();
+    PpuRenderFrame(sMosaic);
+    uint64_t elapsed = PerformancePpuTotal();
+    PerformanceEndFrame(123, 1000000, elapsed, 100000, 16.74);
+    PerformanceCopy(&snap);
+    int bad = memcmp(sPlain, sMosaic, sizeof(sPlain)) != 0 || snap.count != 1 ||
+              snap.frames[0].frame != 123 || snap.frames[0].stage[PERF_GAME] != 1.0 ||
+              snap.frames[0].total <= 1.0 || elapsed == 0;
+    for (int i = 0; i < PERF_SAMPLES + 1; i++) {
+        PerformanceEndFrame(i, 1000000, elapsed, 0, 16.74);
+    }
+    PerformanceCopy(&snap);
+    bad |= snap.count != PERF_SAMPLES;
+    PerformanceReset();
+    PerformanceCopy(&snap);
+    bad |= snap.count != 0;
+    PerformanceSetEnabled(false);
+    return Report("perf", bad, 0, 0, 0, 0);
+}
+
 int main(void) {
     int failed = 0;
 
@@ -406,5 +433,6 @@ int main(void) {
     failed |= TestObjWindow();
     failed |= TestObj8bpp();
     failed |= TestBgObjVram();
+    failed |= TestPerformance();
     return failed;
 }

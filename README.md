@@ -957,6 +957,18 @@ care: an NPC in Smith's house (area 0x22, around frame 8900) moves differently
 depending on leftover stack contents, so its frames change between builds
 whatever the renderer does; `TMC_PPU_COMPARE` compares within one run.
 
+### Performance window
+
+**Debug → Performance** shows the frame number, game FPS, rolling game-thread
+work and its PPU breakdown, plus separate CPU and GPU presentation timings.
+The stacked bar is scaled to the current frame interval (including fast-forward),
+or to total work if it exceeds that interval. Game-thread times are elapsed wall
+time, not CPU usage: scheduling and instrumentation can affect them. The PPU
+breakdown includes the cost of collecting the samples. Presentation runs
+asynchronously and can overlap game-thread work, so its times are not added to
+the bar. GPU timing is shown only when Metal supplies it. Reset clears the
+samples; collection stops when the window closes.
+
 ## Graphics debugging
 
 The app's Debug menu opens emulator-style viewers, each a resizable window that

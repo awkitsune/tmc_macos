@@ -14,6 +14,7 @@
 
 #include "port/hw.h"
 #include "port/ppu.h"
+#include "port/performance.h"
 
 static uint16_t Reg16(uint32_t offset) {
     return gHwIo[offset] | (gHwIo[offset + 1] << 8);
@@ -323,6 +324,8 @@ void PpuIoWritten(uint32_t offset, uint32_t size) {
 }
 
 static void RenderLine(int line, uint16_t* out) {
+    bool perf = PerformanceEnabled();
+    uint64_t mark = perf ? PerformanceNow() : 0;
     uint16_t dispcnt = Reg16(0x00);
     int mode = dispcnt & 7;
     uint16_t bldcnt = Reg16(0x50);
@@ -352,6 +355,7 @@ static void RenderLine(int line, uint16_t* out) {
         for (int x = 0; x < PPU_WIDTH; x++) {
             out[x] = 0x7FFF;
         }
+        if (perf) PerformanceAddPpu(PERF_PPU_OTHER, mark);
         return;
     }
     for (int bg = 0; bg < 4; bg++) {
@@ -370,6 +374,7 @@ static void RenderLine(int line, uint16_t* out) {
             MosaicLine(&bgs[bg], (mosaic & 0xF) + 1);
         }
     }
+    if (perf) { PerformanceAddPpu(PERF_BG, mark); mark = PerformanceNow(); }
     if (dispcnt & 0x1000) {
         RenderObjs(line, (dispcnt >> 6) & 1, ((mosaic >> 8) & 0xF) + 1, &objs);
         if (!(layerMask & 0x10)) {
@@ -380,6 +385,7 @@ static void RenderLine(int line, uint16_t* out) {
         memset(objs.window, 0, sizeof(objs.window));
     }
 
+    if (perf) { PerformanceAddPpu(PERF_OBJ, mark); mark = PerformanceNow(); }
     for (int x = 0; x < PPU_WIDTH; x++) {
         // Which layers and effects this pixel's window allows (bits 0-5).
         int enable = 0x3F;
@@ -446,9 +452,13 @@ static void RenderLine(int line, uint16_t* out) {
         }
         out[x] = color;
     }
+    if (perf) PerformanceAddPpu(PERF_COMPOSE, mark);
 }
 
 void PpuRenderLine(int line, uint16_t* out) {
+    bool perf = PerformanceEnabled();
+    uint64_t start = perf ? PerformanceNow() : 0;
+    uint64_t before = perf ? PerformancePpuTotal() : 0;
     uint16_t mosaic = Reg16(0x4C);
 
     if (sMosaicBgY == 0) {
@@ -469,6 +479,7 @@ void PpuRenderLine(int line, uint16_t* out) {
     if (++sMosaicObjY > (mosaic >> 12)) {
         sMosaicObjY = 0;
     }
+    if (perf) PerformancePpuLine(start, before);
 }
 
 void PpuRenderFrame(uint16_t* framebuffer) {

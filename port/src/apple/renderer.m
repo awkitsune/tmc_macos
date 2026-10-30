@@ -1,4 +1,5 @@
 #import "renderer.h"
+#include "port/performance.h"
 #import "selftestlog.h"
 
 #include <os/lock.h>
@@ -456,6 +457,8 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         return;
     }
     dispatch_semaphore_wait(_inFlight, DISPATCH_TIME_FOREVER);
+    BOOL measurePerformance = PerformanceEnabled();
+    uint64_t performanceStart = measurePerformance ? PerformanceNow() : 0;
 
     // Upload into the next slot only when the game produced a new frame;
     // otherwise keep drawing the texture that already holds the newest one.
@@ -552,6 +555,8 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         }];
     }
     [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+        if (measurePerformance && buffer.GPUEndTime > buffer.GPUStartTime && buffer.GPUStartTime > 0)
+            PerformancePresentation(-1, (buffer.GPUEndTime - buffer.GPUStartTime) * 1000.0);
         LatencyStage(traced, 3);
         if (captureTexture != nil) {
             WriteTexturePNG(captureTexture, captureURL);
@@ -569,9 +574,11 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         // When the frame went onto the screen: display sync paces the game by it.
         DisplaySyncNotePresented(shown.presentedTime);
         LatencyPresented(presentedSequence, shown.presentedTime);
+        if (measurePerformance) PerformancePresented(shown.presentedTime);
     }];
     [commands presentDrawable:drawable];
     [commands commit];
+    if (measurePerformance) PerformancePresentation((PerformanceNow() - performanceStart) / 1e6, -1);
     LatencyStage(traced, 1);
 }
 

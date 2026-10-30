@@ -18,6 +18,7 @@
 #include "frontend.h"
 #include "latency.h"
 #include "port/hw.h"
+#include "port/performance.h"
 #include "port/platform.h"
 #include "port/state.h"
 
@@ -554,7 +555,11 @@ static void StopIfRequested(void) {
     }
 }
 
+static uint64_t sPerfLogicStart;
+
 void PlatformVBlank(void) {
+    uint64_t perfEntry = PerformanceEnabled() ? PerformanceNow() : 0;
+    uint64_t gameNs = sPerfLogicStart && perfEntry >= sPerfLogicStart ? perfEntry - sPerfLogicStart : 0;
     uint64_t frameStart;
     bool driven;
 
@@ -571,6 +576,9 @@ void PlatformVBlank(void) {
     Pace(driven);
     StopIfRequested();
 
+    bool perf = PerformanceEnabled() && gameNs != 0 && !atomic_load(&sPaused);
+    uint64_t perfStart = perf ? PerformanceNow() : 0;
+    if (perf) PerformanceBeginFrame();
     frameStart = LatencyNowNs();
     if (atomic_load_explicit(&sMapViewers, memory_order_relaxed) > 0) {
         CaptureMap(false);
@@ -586,11 +594,14 @@ void PlatformVBlank(void) {
     } else {
         HwRunFrame(sRaw);
     }
+    uint64_t hardwareNs = perf ? PerformanceNow() - perfStart : 0;
+    uint64_t publishStart = perf ? PerformanceNow() : 0;
     int stall = atomic_exchange(&sStallMs, 0);
     if (stall > 0) {
         usleep((useconds_t)stall * 1000);
     }
     sPublished = PublishFrame(sRaw);
+    if (perf && stall == 0) PerformanceEndFrame(gPlatformFrame, gameNs, hardwareNs, PerformanceNow() - publishStart, 1000.0 / GameFrameRate(driven) / (atomic_load(&sFastForward) ? 4.0 : 1.0));
     LatencyFrameDone(sPublished, frameStart);
     gPlatformFrame++;
     if (sLatchTime != 0) {
@@ -603,6 +614,7 @@ void PlatformVBlank(void) {
     // the audio, whose clock-drift correction then has only the rest to do.
     AudioSetRateScale(GameFrameRate(driven) / FRONTEND_FRAME_RATE);
     LatchInput(driven);
+    sPerfLogicStart = PerformanceEnabled() && !atomic_load(&sPaused) ? PerformanceNow() : 0;
 }
 
 void FrontendStallNextFrameForTesting(int ms) {

@@ -220,6 +220,7 @@ add_library(tmc_port STATIC
     ${TMC_AREA_ROOMS}
     src/entitylistcheck.c
     src/ppu.c
+    src/performance.c
     src/frame.c
     src/gfxdebug.c
     src/romdata.c
@@ -371,13 +372,13 @@ target_link_libraries(tmc_songs PRIVATE tmc_port z)
 
 # Scanline renderer checks (per-line HBlank DMA effects), no game code needed:
 #   cmake --build build/native --target scanline_test && build/native/scanline_test
-add_executable(scanline_test EXCLUDE_FROM_ALL src/tools/scanline_test.c src/frame.c src/hw.c src/ppu.c)
+add_executable(scanline_test EXCLUDE_FROM_ALL src/tools/scanline_test.c src/frame.c src/hw.c src/ppu.c src/performance.c)
 target_include_directories(scanline_test PRIVATE include)
 target_link_libraries(scanline_test PRIVATE z)
 
 # Mosaic and tile-fetch checks of the picture processor without the game:
 #   cmake --build build/native --target ppu_test && build/native/ppu_test
-add_executable(ppu_test EXCLUDE_FROM_ALL src/tools/ppu_test.c src/frame.c src/hw.c src/ppu.c)
+add_executable(ppu_test EXCLUDE_FROM_ALL src/tools/ppu_test.c src/frame.c src/hw.c src/ppu.c src/performance.c)
 target_include_directories(ppu_test PRIVATE include)
 target_link_libraries(ppu_test PRIVATE z)
 

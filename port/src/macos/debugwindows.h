@@ -22,6 +22,7 @@ typedef NS_ENUM(NSInteger, DebugPanelKind) {
     DebugPanelIo,
     DebugPanelShaderBuffers,
     DebugPanelMap,
+    DebugPanelPerformance,
     DebugPanelCount,
 };
 

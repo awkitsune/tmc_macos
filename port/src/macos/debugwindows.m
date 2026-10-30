@@ -5,6 +5,7 @@
 
 #include "frontend.h"
 #include "port/gfxdebug.h"
+#include "port/performance.h"
 #include "port/mapoverview.h"
 #include "port/mapview.h"
 #include "roomname.h"
@@ -2089,6 +2090,128 @@ static NSRect OverviewRect(const MapOverview* o, int x, int y, int width, int he
 
 @end
 
+
+#pragma mark - Performance
+
+@interface PerformanceBar : NSView
+- (void)setValues:(double*)values;
+@property(nonatomic) double budget;
+@end
+
+@implementation PerformanceBar {
+    double _values[4];
+}
+- (void)setValues:(double*)values { memcpy(_values, values, sizeof(_values)); [self setNeedsDisplay:YES]; }
+- (double*)values { return _values; }
+- (void)drawRect:(NSRect)dirtyRect {
+    NSRect bounds = NSInsetRect(self.bounds, 0, 4);
+    [NSColor.separatorColor setFill];
+    NSRectFill(bounds);
+    NSArray<NSColor*>* colors = @[ NSColor.systemBlueColor, NSColor.systemOrangeColor,
+                                    NSColor.systemPurpleColor, NSColor.systemTealColor ];
+    double total = 0;
+    for (int i = 0; i < 4; i++) total += _values[i];
+    double scale = MAX(MAX(total, self.budget), 0.001);
+    CGFloat x = bounds.origin.x;
+    for (int i = 0; i < 4; i++) {
+        CGFloat width = bounds.size.width * _values[i] / scale;
+        [colors[i] setFill];
+        NSRectFill(NSMakeRect(x, bounds.origin.y, width, bounds.size.height));
+        x += width;
+    }
+}
+@end
+
+static int CompareDouble(const void* a, const void* b) {
+    double x = *(const double*)a, y = *(const double*)b;
+    return (x > y) - (x < y);
+}
+
+@interface PerformancePanel : DebugPanel
+@end
+@implementation PerformancePanel {
+    PerformanceBar* _bar;
+    NSTextField* _text;
+}
+- (instancetype)init {
+    if ((self = [super initWithTitle:@"Performance" name:@"Performance" size:NSMakeSize(570, 460) usesSnapshot:NO])) {
+        NSButton* reset = [NSButton buttonWithTitle:@"Reset" target:self action:@selector(reset:)];
+        [self.controls addView:reset inGravity:NSStackViewGravityLeading];
+        NSStackView* body = [NSStackView stackViewWithViews:@[]];
+        body.orientation = NSUserInterfaceLayoutOrientationVertical;
+        body.alignment = NSLayoutAttributeLeading;
+        body.spacing = 10;
+        _bar = [PerformanceBar new];
+        _bar.budget = 1000.0 / FRONTEND_FRAME_RATE;
+        [_bar.heightAnchor constraintEqualToConstant:24].active = YES;
+        [body addArrangedSubview:_bar];
+        [_bar.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
+        _text = [NSTextField wrappingLabelWithString:@"Waiting for frames…"];
+        _text.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];
+        _text.selectable = YES;
+        [body addArrangedSubview:_text];
+        [_text.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
+        [self layoutWithMain:body];
+        self.info.stringValue = @"Game-thread wall time · PPU stages include measurement overhead";
+    }
+    return self;
+}
+- (void)reset:(id)sender { PerformanceReset(); [self tick]; }
+- (void)panelOpened { PerformanceReset(); PerformanceSetEnabled(true); }
+- (void)panelClosed { PerformanceSetEnabled(false); }
+- (void)tick {
+    PerformanceSnapshot snap;
+    PerformanceCopy(&snap);
+    if (!snap.count) {
+        double empty[] = { 0, 0, 0, 0 };
+        [_bar setValues:empty];
+        _text.stringValue = FrontendIsPaused() ? @"Paused — waiting for frames" : @"Waiting for frames…";
+        return;
+    }
+    double stages[PERF_STAGES] = { 0 }, totals[PERF_SAMPLES], sum = 0;
+    uint64_t earliest = UINT64_MAX, latest = 0, frame = 0;
+    double budget = 1000.0 / FRONTEND_FRAME_RATE;
+    for (int n = 0; n < snap.count; n++) {
+        PerformanceFrame* f = &snap.frames[n];
+        for (int i = 0; i < PERF_STAGES; i++) stages[i] += f->stage[i];
+        totals[n] = f->total;
+        sum += f->total;
+        if (f->timeNs < earliest) earliest = f->timeNs;
+        if (f->timeNs > latest) { latest = f->timeNs; frame = f->frame; budget = f->budgetMs; }
+    }
+    for (int i = 0; i < PERF_STAGES; i++) stages[i] /= snap.count;
+    qsort(totals, snap.count, sizeof(double), CompareDouble);
+    double ppu = stages[PERF_BG] + stages[PERF_OBJ] + stages[PERF_COMPOSE] + stages[PERF_PPU_OTHER];
+    double values[] = { stages[PERF_GAME], ppu, stages[PERF_TIMING], stages[PERF_PUBLISH] };
+    _bar.budget = budget;
+    [_bar setValues:values];
+    double fps = latest > earliest ? (snap.count - 1) * 1e9 / (latest - earliest) : 0;
+    NSString* cpu = snap.cpuCount ? [NSString stringWithFormat:@"%.3f ms", snap.cpuMs] : @"unavailable";
+    NSString* gpu = snap.gpuCount ? [NSString stringWithFormat:@"%.3f ms", snap.gpuMs] : @"unavailable";
+    NSString* displayed = snap.displayFps > 0 ? [NSString stringWithFormat:@"%.1f", snap.displayFps] : @"unavailable";
+    _text.stringValue = [NSString stringWithFormat:
+        @"Frame %llu   %@   %.1f game FPS\n\n"
+        "GAME THREAD          average       p95\n"
+        "Total                %7.3f ms  %7.3f ms\n"
+        "Game logic           %7.3f ms\n"
+        "PPU                  %7.3f ms\n"
+        "  Backgrounds        %7.3f ms\n"
+        "  Sprites            %7.3f ms\n"
+        "  Composition        %7.3f ms\n"
+        "  Other PPU          %7.3f ms\n"
+        "Timing & interrupts  %7.3f ms\n"
+        "Publish & other      %7.3f ms\n\n"
+        "PRESENTATION  (separate, may overlap)\n"
+        "CPU upload & encode  %@\nGPU execution        %@\nDisplayed FPS        %@\n(presentation averages are smoothed)\n\n"
+        "Last %d frames · Bar: game / PPU / timing / publish\n"
+        "Bar scale: at least %.2f ms (current frame interval)",
+        (unsigned long long)frame, FrontendIsPaused() ? @"Paused" : @"Live", fps,
+        sum / snap.count, totals[(snap.count * 95 + 99) / 100 - 1], stages[PERF_GAME], ppu,
+        stages[PERF_BG], stages[PERF_OBJ], stages[PERF_COMPOSE], stages[PERF_PPU_OTHER],
+        stages[PERF_TIMING], stages[PERF_PUBLISH], cpu, gpu, displayed, snap.count, budget];
+}
+@end
+
 #pragma mark - Registry
 
 @implementation DebugWindows {
@@ -2105,7 +2228,7 @@ static NSRect OverviewRect(const MapOverview* o, int x, int y, int width, int he
 
 + (NSString*)titleForPanel:(DebugPanelKind)kind {
     static NSString* const titles[DebugPanelCount] = { @"Tiles", @"Sprites", @"Layers", @"Palettes", @"IO Registers",
-                                                       @"Shader Buffers", @"Map" };
+                                                       @"Shader Buffers", @"Map", @"Performance" };
     return titles[kind];
 }
 
@@ -2126,6 +2249,9 @@ static NSRect OverviewRect(const MapOverview* o, int x, int y, int width, int he
                 break;
             case DebugPanelIo:
                 _panels[kind] = [IoPanel new];
+                break;
+            case DebugPanelPerformance:
+                _panels[kind] = [PerformancePanel new];
                 break;
             case DebugPanelMap:
                 _panels[kind] = [MapPanel new];
