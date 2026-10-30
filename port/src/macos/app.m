@@ -176,7 +176,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         kPacingDefault : @(FRONTEND_PACING_DISPLAY_SYNC),
         kDebugMenuDefault : @(TMC_DEBUG_MENU_DEFAULT),
         kDebugToolbarDefault : @NO,
-        kGpuPpuDefault : @NO,
+        kGpuPpuDefault : @YES,
     }];
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(applyPacing)
@@ -305,54 +305,6 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
             [strongSelf toggleGpuPpu:nil];
             NSLog(@"GPU PPU self-test: switch %@", strongSelf->_renderer.gpuPpuEnabled ? @"on" : @"FAILED");
             NSLog(@"GPU PPU self-test: subtitle %@", [strongSelf->_window.subtitle hasSuffix:@"GPU render"] ? @"ok" : @"FAILED");
-            if (getenv("TMC_GPU_COMPACT_SELFTEST")) {
-                [strongSelf toggleCompactGpuCapture:nil];
-                NSLog(@"GPU compact self-test: switch %@", strongSelf->_renderer.compactGpuCaptureEnabled ? @"on" : @"FAILED");
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                    AppDelegate* target = weakSelf;
-                    if (!target) return;
-                    [target toggleCompactGpuCapture:nil];
-                    NSLog(@"GPU compact self-test: switch %@", target->_renderer.compactGpuCaptureEnabled ? @"FAILED" : @"off");
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{
-                        AppDelegate* target = weakSelf;
-                        if (!target) return;
-                        [target toggleCompactGpuCapture:nil];
-                        NSLog(@"GPU compact self-test: switch %@", target->_renderer.compactGpuCaptureEnabled ? @"on" : @"FAILED");
-                    });
-                });
-            }
-            if (getenv("TMC_GPU_BACKGROUND_SELFTEST")) {
-                [strongSelf toggleGpuBackgroundLayers:nil];
-                NSLog(@"GPU background self-test: switch %@", strongSelf->_renderer.gpuBackgroundLayersEnabled ? @"on" : @"FAILED");
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                    AppDelegate* target = weakSelf;
-                    if (!target) return;
-                    [target toggleGpuBackgroundLayers:nil];
-                    NSLog(@"GPU background self-test: switch %@", target->_renderer.gpuBackgroundLayersEnabled ? @"FAILED" : @"off");
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{
-                        AppDelegate* target = weakSelf;
-                        if (!target) return;
-                        [target toggleGpuBackgroundLayers:nil];
-                        NSLog(@"GPU background self-test: switch %@", target->_renderer.gpuBackgroundLayersEnabled ? @"on" : @"FAILED");
-                    });
-                });
-            }
-            if (getenv("TMC_GPU_SPRITE_SELFTEST")) {
-                [strongSelf toggleGpuSpriteQuads:nil];
-                NSLog(@"GPU sprite self-test: switch %@", strongSelf->_renderer.gpuSpriteQuadsEnabled ? @"on" : @"FAILED");
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                    AppDelegate* target = weakSelf;
-                    if (!target) return;
-                    [target toggleGpuSpriteQuads:nil];
-                    NSLog(@"GPU sprite self-test: switch %@", target->_renderer.gpuSpriteQuadsEnabled ? @"FAILED" : @"off");
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{
-                        AppDelegate* target = weakSelf;
-                        if (!target) return;
-                        [target toggleGpuSpriteQuads:nil];
-                        NSLog(@"GPU sprite self-test: switch %@", target->_renderer.gpuSpriteQuadsEnabled ? @"on" : @"FAILED");
-                    });
-                });
-            }
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
                 AppDelegate* strongSelf = weakSelf;
                 if (!strongSelf) return;
@@ -369,21 +321,13 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _window.contentView = _view;
     [_window makeFirstResponder:_view];
     [_window makeKeyAndOrderFront:nil];
-    NSDictionary* rendering = LoadGpuRenderingSettings();
-    if ([rendering[@"enabled"] boolValue] && !getenv("TMC_GPU_PPU_SELFTEST")) {
+    MigrateGpuRenderingSettings();
+    BOOL gpu = [defaults boolForKey:kGpuPpuDefault];
+    if (gpu && !getenv("TMC_GPU_PPU_SELFTEST")) {
         [self toggleGpuPpu:nil];
-        if (_renderer.gpuPpuEnabled) {
-            if ([rendering[@"compact"] boolValue]) [self toggleCompactGpuCapture:nil];
-            if ([rendering[@"sprites"] boolValue]) [self toggleGpuSpriteQuads:nil];
-            if ([rendering[@"backgrounds"] boolValue]) [self toggleGpuBackgroundLayers:nil];
-        }
     }
     if (getenv("TMC_GPU_SETTINGS_SELFTEST")) {
-        NSLog(@"GPU PPU startup preference self-test: %@",
-              _renderer.gpuPpuEnabled == [rendering[@"enabled"] boolValue] &&
-              _renderer.compactGpuCaptureEnabled == [rendering[@"compact"] boolValue] &&
-              _renderer.gpuSpriteQuadsEnabled == [rendering[@"sprites"] boolValue] &&
-              _renderer.gpuBackgroundLayersEnabled == [rendering[@"backgrounds"] boolValue] ? @"ok" : @"FAILED");
+        NSLog(@"GPU PPU startup preference self-test: %@", _renderer.gpuPpuEnabled == gpu ? @"ok" : @"FAILED");
     }
 
     [self startLatencyTools];
@@ -705,49 +649,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     if (![_renderer enableGpuPpu:!_renderer.gpuPpuEnabled]) {
         NSAlert* alert = [NSAlert new];
         alert.messageText = @"GPU PPU unavailable";
-        alert.informativeText = @"The experimental renderer could not be initialized. The software renderer is still in use.";
-        [alert beginSheetModalForWindow:_window completionHandler:nil];
-        return;
-    }
-    _subtitleDirty = YES;
-    [self updateSubtitle];
-    [_settings refresh];
-    [_view setNeedsDisplay:YES];
-}
-
-- (void)toggleGpuSpriteQuads:(id)sender {
-    if (![_renderer enableGpuSpriteQuads:!_renderer.gpuSpriteQuadsEnabled]) {
-        NSAlert* alert = [NSAlert new];
-        alert.messageText = @"GPU sprite quads unavailable";
-        alert.informativeText = @"The existing GPU sprite renderer is still in use.";
-        [alert beginSheetModalForWindow:_window completionHandler:nil];
-        return;
-    }
-    _subtitleDirty = YES;
-    [self updateSubtitle];
-    [_settings refresh];
-    [_view setNeedsDisplay:YES];
-}
-
-- (void)toggleCompactGpuCapture:(id)sender {
-    if (![_renderer enableCompactGpuCapture:!_renderer.compactGpuCaptureEnabled]) {
-        NSAlert* alert = [NSAlert new];
-        alert.messageText = @"Compact GPU capture unavailable";
-        alert.informativeText = @"The existing GPU capture mode is still in use.";
-        [alert beginSheetModalForWindow:_window completionHandler:nil];
-        return;
-    }
-    _subtitleDirty = YES;
-    [self updateSubtitle];
-    [_settings refresh];
-    [_view setNeedsDisplay:YES];
-}
-
-- (void)toggleGpuBackgroundLayers:(id)sender {
-    if (![_renderer enableGpuBackgroundLayers:!_renderer.gpuBackgroundLayersEnabled]) {
-        NSAlert* alert = [NSAlert new];
-        alert.messageText = @"GPU background layers unavailable";
-        alert.informativeText = @"The existing GPU background renderer is still in use.";
+        alert.informativeText = @"The Metal renderer could not be initialized. The software renderer is still in use.";
         [alert beginSheetModalForWindow:_window completionHandler:nil];
         return;
     }

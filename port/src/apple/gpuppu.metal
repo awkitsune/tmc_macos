@@ -1,13 +1,10 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// Must match PpuCaptureLine in port/ppucapture.h.
+// The Metal PPU: draws one frame from a compact scanline capture. Must match
+// PpuCompactLine in port/ppucapture.h; VRAM is read through each line's pages.
 struct Line {
-#if PPU_COMPACT
     uint page[96];
-#else
-    uchar vram[0x18000];
-#endif
     uchar palette[0x400], oam[0x400], regs[0x58];
     int refX[2], refY[2], mosaicRefX[2], mosaicRefY[2];
     uint mosaicBgY, mosaicObjY, layerMask;
@@ -16,11 +13,7 @@ struct Line {
 static uint word(device const uchar* p, uint at) { return p[at] | (uint(p[at + 1]) << 8); }
 static uint reg(device const Line& l, uint at) { return word(l.regs, at); }
 static uint pal(device const Line& l, uint i) { return word(l.palette, i * 2) & 0x7fff; }
-#if PPU_COMPACT
 #define VRAM(l, at) (pool[(l).page[(at) / 1024] * 1024 + (at) % 1024])
-#else
-#define VRAM(l, at) ((l).vram[(at)])
-#endif
 static uint texel(device const Line& l, device const uchar* pool, uint base, int x, int y, bool bpp8, uint limit) {
     uint at = base + y * (bpp8 ? 8 : 4) + (bpp8 ? x : x / 2);
     if (at >= limit) return 0;
@@ -106,56 +99,6 @@ static Obj one_sprite(device const Line& l, device const uchar* pool, int x, int
     return result;
 }
 
-// Keep the original scan path intact as a performance and correctness baseline;
-// routing it through one_sprite measurably changes the compiler's GPU code.
-static Obj sprite(device const Line& l, device const uchar* pool, int x, int line, uint display) {
-    constexpr uchar widths[12] = {8,16,32,64,16,32,32,64,8,8,16,32};
-    constexpr uchar heights[12] = {8,16,32,64,8,8,16,32,16,32,32,64};
-    Obj result = {0xffff, 4, 0, 0};
-    for (int n = 127; n >= 0; n--) {
-        uint at = n * 8, a0 = word(l.oam, at), a1 = word(l.oam, at + 2), a2 = word(l.oam, at + 4);
-        bool affine = a0 & 0x100, doubleOrHidden = a0 & 0x200, bpp8 = a0 & 0x2000;
-        int mode = (a0 >> 10) & 3, shape = a0 >> 14, size = a1 >> 14;
-        if ((!affine && doubleOrHidden) || shape == 3 || mode == 3) continue;
-        int w = widths[shape * 4 + size], h = heights[shape * 4 + size];
-        int bw = w << (affine && doubleOrHidden), bh = h << (affine && doubleOrHidden);
-        int top = a0 & 255; if (top + bh > 256) top -= 256;
-        int left = a1 & 511; if (left >= 240) left -= 512;
-        int bx = x - left, by = line - top;
-        if (bx < 0 || bx >= bw || by < 0 || by >= bh) continue;
-        if (a0 & 0x1000) {
-            by = max(0, by - int(l.mosaicObjY));
-            bx = max(0, bx - x % int(((reg(l, 0x4c) >> 8) & 15) + 1));
-        }
-        int tx, ty;
-        if (affine) {
-            uint p = ((a1 >> 9) & 31) * 32;
-            int pa = short(word(l.oam, p + 6)), pb = short(word(l.oam, p + 14));
-            int pc = short(word(l.oam, p + 22)), pd = short(word(l.oam, p + 30));
-            int cx = bx - bw / 2, cy = by - bh / 2;
-            tx = ((pa * cx + pb * cy) >> 8) + w / 2;
-            ty = ((pc * cx + pd * cy) >> 8) + h / 2;
-            if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
-        } else {
-            tx = (a1 & 0x1000) ? w - 1 - bx : bx;
-            ty = (a1 & 0x2000) ? h - 1 - by : by;
-        }
-        uint tile = a2 & 0x3ff;
-        tile += (display & 0x40) ? ((ty >> 3) * (w >> 3) + (tx >> 3)) * (bpp8 ? 2 : 1)
-                                 : (ty >> 3) * 32 + (tx >> 3) * (bpp8 ? 2 : 1);
-        uint index = texel(l, pool, 0x10000 + (tile & 0x3ff) * 32, tx & 7, ty & 7, bpp8, 0x18000);
-        if (!index) continue;
-        if (mode == 2) { result.window = 1; continue; }
-        uint priority = (a2 >> 10) & 3;
-        if (priority <= result.priority) {
-            result.color = pal(l, 0x100 + (bpp8 ? index : (a2 >> 12) * 16 + index));
-            result.priority = priority;
-            result.semi = mode == 1;
-        }
-    }
-    if (!(l.layerMask & 16)) result.color = 0xffff;
-    return result;
-}
 static uint blend(uint a, uint b, uint eva, uint evb) {
     uint result = 0;
     for (int c = 0; c < 3; c++) result |= min(31u, (((a >> (c*5)) & 31) * eva + ((b >> (c*5)) & 31) * evb) >> 4) << (c*5);
@@ -170,55 +113,8 @@ static uint brightness(uint a, uint y, bool up) {
     }
     return result;
 }
-static ushort gpu_color(device const Line* lines, device const uchar* pool, uint2 pos, Obj obj) {
-    device const Line& l = lines[pos.y];
-    uint display = reg(l, 0), mode = display & 7;
-    if (display & 0x80) return 0x7fff;
-    uint colors[4], priority[4];
-    for (int bg = 0; bg < 4; bg++) {
-        bool enabled = (display & (0x100 << bg)) && (l.layerMask & (1 << bg)) &&
-                       !(mode == 1 && bg == 3) && !(mode == 2 && bg < 2) && mode <= 2;
-        colors[bg] = enabled ? background(l, pool, bg, pos.x, pos.y, mode) : 0xffff;
-        priority[bg] = reg(l, 8 + bg*2) & 3;
-    }
-    uint enable = 0x3f;
-    if (display & 0xe000) {
-        uint in = reg(l, 0x48), out = reg(l, 0x4a);
-        enable = out & 0x3f;
-        if ((display & 0x8000) && obj.window) enable = (out >> 8) & 0x3f;
-        for (int w = 1; w >= 0; w--) if (display & (0x2000 << w)) {
-            uint h = reg(l, 0x40 + w*2), v = reg(l, 0x44 + w*2);
-            int x1 = h >> 8, x2 = h & 255, y1 = v >> 8, y2 = v & 255;
-            bool inX = x1 <= x2 ? (int(pos.x) >= x1 && int(pos.x) < x2) : (int(pos.x) >= x1 || int(pos.x) < x2);
-            bool inY = y1 <= y2 ? (int(pos.y) >= y1 && int(pos.y) < y2) : (int(pos.y) >= y1 || int(pos.y) < y2);
-            if (inX && inY) enable = (in >> (w*8)) & 0x3f;
-        }
-    }
-    uint top = 5, second = 5, topColor = pal(l, 0), secondColor = topColor;
-    for (uint pr = 0; pr < 4 && second == 5; pr++) {
-        if ((enable & 16) && obj.color != 0xffff && obj.priority == pr) {
-            if (top == 5) { top = 4; topColor = obj.color; }
-            else { second = 4; secondColor = obj.color; }
-        }
-        for (uint bg = 0; bg < 4 && second == 5; bg++) {
-            if (!(enable & (1 << bg)) || colors[bg] == 0xffff || priority[bg] != pr) continue;
-            if (top == 5) { top = bg; topColor = colors[bg]; }
-            else { second = bg; secondColor = colors[bg]; }
-        }
-    }
-    uint bld = reg(l, 0x50), alpha = reg(l, 0x52), effect = (bld >> 6) & 3;
-    uint eva = min(alpha & 31, 16u), evb = min((alpha >> 8) & 31, 16u), evy = min(reg(l, 0x54) & 31, 16u);
-    uint color = topColor;
-    if (top == 4 && obj.semi && (bld & (0x100 << second))) color = blend(topColor, secondColor, eva, evb);
-    else if ((enable & 0x20) && (bld & (1 << top))) {
-        if (effect == 1 && (bld & (0x100 << second))) color = blend(topColor, secondColor, eva, evb);
-        else if (effect == 2 || effect == 3) color = brightness(topColor, evy, effect == 2);
-    }
-    return ushort(color);
-}
-
-// Separate-layer compositor, kept independent so the original path stays a fair baseline.
-static ushort gpu_color_layers(device const Line* lines, uint2 pos, Obj obj, texture2d_array<uint, access::read> layers) {
+// Composes the background layers with the sprite pass, windows and effects.
+static ushort gpu_color(device const Line* lines, uint2 pos, Obj obj, texture2d_array<uint, access::read> layers) {
     device const Line& l = lines[pos.y];
     uint display = reg(l, 0);
     if (display & 0x80) return 0x7fff;
@@ -261,32 +157,6 @@ static ushort gpu_color_layers(device const Line* lines, uint2 pos, Obj obj, tex
         else if (effect == 2 || effect == 3) color = brightness(topColor, evy, effect == 2);
     }
     return ushort(color);
-}
-
-
-kernel void gpu_ppu(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]], device const uchar* pool [[buffer(2)]],
-                    uint2 pos [[thread_position_in_grid]]) {
-    if (pos.x < 240 && pos.y < 160) {
-        device const Line& l = lines[pos.y];
-        Obj obj = {0xffff, 4, 0, 0};
-        uint display = reg(l, 0);
-        if (display & 0x1000) obj = sprite(l, pool, pos.x, pos.y, display);
-        output[pos.y * 240 + pos.x] = gpu_color(lines, pool, pos, obj);
-    }
-}
-
-kernel void gpu_ppu_texture(device const Line* lines [[buffer(0)]],
-                            texture2d<float, access::write> output [[texture(0)]], device const uchar* pool [[buffer(2)]],
-                            uint2 pos [[thread_position_in_grid]]) {
-    if (pos.x >= 240 || pos.y >= 160) return;
-    device const Line& l = lines[pos.y];
-    Obj obj = {0xffff, 4, 0, 0};
-    uint display = reg(l, 0);
-    if (display & 0x1000) obj = sprite(l, pool, pos.x, pos.y, display);
-    uint c = gpu_color(lines, pool, pos, obj);
-    uint3 rgb = uint3(c & 31, (c >> 5) & 31, (c >> 10) & 31);
-    rgb = (rgb << 3) | (rgb >> 2);
-    output.write(float4(float3(rgb) / 255.0, 1.0), pos);
 }
 
 // One one-pixel-high quad per sprite and scanline. The captured OAM and tile
@@ -345,25 +215,6 @@ static Obj raster_sprite(uint2 pos, texture2d<float, access::read> colors,
                 windows.read(pos).r > 0.5 ? 1u : 0u };
     return obj;
 }
-kernel void gpu_ppu_raster(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]],
-                           device const uchar* pool [[buffer(2)]],
-                           texture2d<float, access::read> colors [[texture(0)]],
-                           texture2d<float, access::read> windows [[texture(1)]],
-                           uint2 pos [[thread_position_in_grid]]) {
-    if (pos.x < 240 && pos.y < 160)
-        output[pos.y * 240 + pos.x] = gpu_color(lines, pool, pos, raster_sprite(pos, colors, windows));
-}
-kernel void gpu_ppu_texture_raster(device const Line* lines [[buffer(0)]],
-                                   texture2d<float, access::write> output [[texture(0)]], device const uchar* pool [[buffer(2)]],
-                                   texture2d<float, access::read> colors [[texture(1)]],
-                                   texture2d<float, access::read> windows [[texture(2)]],
-                                   uint2 pos [[thread_position_in_grid]]) {
-    if (pos.x >= 240 || pos.y >= 160) return;
-    uint c = gpu_color(lines, pool, pos, raster_sprite(pos, colors, windows));
-    uint3 rgb = uint3(c & 31, (c >> 5) & 31, (c >> 10) & 31);
-    rgb = (rgb << 3) | (rgb >> 2);
-    output.write(float4(float3(rgb) / 255.0, 1.0), pos);
-}
 
 // A separate pass stores each background's 15-bit color (0xffff = transparent).
 kernel void gpu_background_layers(device const Line* lines [[buffer(0)]], device const uchar* pool [[buffer(2)]],
@@ -382,41 +233,12 @@ static float4 frame_color(uint c) {
     rgb = (rgb << 3) | (rgb >> 2);
     return float4(float3(rgb) / 255.0, 1.0);
 }
-kernel void gpu_ppu_layers(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]],
-                           device const uchar* pool [[buffer(2)]], texture2d_array<uint, access::read> layers [[texture(3)]],
-                           uint2 pos [[thread_position_in_grid]]) {
-    if (pos.x >= 240 || pos.y >= 160) return;
-    device const Line& l = lines[pos.y];
-    Obj obj = {0xffff, 4, 0, 0};
-    uint display = reg(l, 0);
-    if (display & 0x1000) obj = sprite(l, pool, pos.x, pos.y, display);
-    output[pos.y * 240 + pos.x] = gpu_color_layers(lines, pos, obj, layers);
-}
-kernel void gpu_ppu_raster_layers(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]],
-                                  device const uchar* pool [[buffer(2)]], texture2d<float, access::read> colors [[texture(0)]],
-                                  texture2d<float, access::read> windows [[texture(1)]],
-                                  texture2d_array<uint, access::read> layers [[texture(3)]],
-                                  uint2 pos [[thread_position_in_grid]]) {
+kernel void gpu_compose(device const Line* lines [[buffer(0)]],
+                        texture2d<float, access::write> output [[texture(0)]],
+                        texture2d<float, access::read> colors [[texture(1)]],
+                        texture2d<float, access::read> windows [[texture(2)]],
+                        texture2d_array<uint, access::read> layers [[texture(3)]],
+                        uint2 pos [[thread_position_in_grid]]) {
     if (pos.x < 240 && pos.y < 160)
-        output[pos.y * 240 + pos.x] = gpu_color_layers(lines, pos, raster_sprite(pos, colors, windows), layers);
-}
-kernel void gpu_ppu_texture_layers(device const Line* lines [[buffer(0)]], device const uchar* pool [[buffer(2)]],
-                                   texture2d<float, access::write> output [[texture(0)]],
-                                   texture2d_array<uint, access::read> layers [[texture(3)]],
-                                   uint2 pos [[thread_position_in_grid]]) {
-    if (pos.x >= 240 || pos.y >= 160) return;
-    device const Line& l = lines[pos.y];
-    Obj obj = {0xffff, 4, 0, 0};
-    uint display = reg(l, 0);
-    if (display & 0x1000) obj = sprite(l, pool, pos.x, pos.y, display);
-    output.write(frame_color(gpu_color_layers(lines, pos, obj, layers)), pos);
-}
-kernel void gpu_ppu_texture_raster_layers(device const Line* lines [[buffer(0)]], device const uchar* pool [[buffer(2)]],
-                                          texture2d<float, access::write> output [[texture(0)]],
-                                          texture2d<float, access::read> colors [[texture(1)]],
-                                          texture2d<float, access::read> windows [[texture(2)]],
-                                          texture2d_array<uint, access::read> layers [[texture(3)]],
-                                          uint2 pos [[thread_position_in_grid]]) {
-    if (pos.x < 240 && pos.y < 160)
-        output.write(frame_color(gpu_color_layers(lines, pos, raster_sprite(pos, colors, windows), layers)), pos);
+        output.write(frame_color(gpu_color(lines, pos, raster_sprite(pos, colors, windows), layers)), pos);
 }

@@ -14,8 +14,8 @@ extern NSString* const kFilterDefault;
 extern NSString* const kIntegerScalingDefault;
 extern NSString* const kGamepadLayoutDefault;
 extern NSString* const kGpuPpuDefault;
-extern NSString* const kGpuRenderingDefault;
-NSDictionary<NSString*, NSNumber*>* LoadGpuRenderingSettings(void);
+// Moves the old per-option GPU rendering dictionary into kGpuPpuDefault.
+void MigrateGpuRenderingSettings(void);
 // LCD response (pixel ghosting) on or off; its times are filter knobs.
 extern NSString* const kLcdResponseDefault;
 // How the game keeps its frame rate: 0 accurate (59.73 Hz timer), 1 display sync.

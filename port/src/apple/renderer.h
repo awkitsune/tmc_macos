@@ -107,16 +107,10 @@ CGRect RendererFitPicture(CGRect area, BOOL integerScaling);
 @property(nonatomic) BOOL testPattern;
 // LCD response (pixel ghosting, all filters); the times are in params.
 @property(nonatomic) BOOL lcdResponse;
-// Experimental GPU PPU; the software renderer remains available as a fallback.
+// The game frame drawn by the Metal PPU (gpuppu.h) instead of the software
+// PPU; returns NO if it cannot start. Software remains the fallback.
 @property(nonatomic, readonly) BOOL gpuPpuEnabled;
 - (BOOL)enableGpuPpu:(BOOL)enabled;
-// Alternative sprite renderer for comparisons while GPU PPU is enabled.
-@property(nonatomic, readonly) BOOL gpuSpriteQuadsEnabled;
-- (BOOL)enableGpuSpriteQuads:(BOOL)enabled;
-@property(nonatomic, readonly) BOOL compactGpuCaptureEnabled;
-- (BOOL)enableCompactGpuCapture:(BOOL)enabled;
-@property(nonatomic, readonly) BOOL gpuBackgroundLayersEnabled;
-- (BOOL)enableGpuBackgroundLayers:(BOOL)enabled;
 // Called on the main thread if GPU execution fails and software is restored.
 @property(nonatomic, copy, nullable) void (^gpuPpuFailed)(NSString* message);
 // Debugging: the buffer to copy back each few refreshes (DebugBufferNone: none,

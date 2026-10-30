@@ -1,8 +1,7 @@
 #import "renderer.h"
 #include "port/performance.h"
 #import "selftestlog.h"
-#import "spritepass.h"
-#import "backgroundpass.h"
+#import "gpuppu.h"
 
 #include <os/lock.h>
 #include <stdatomic.h>
@@ -215,19 +214,12 @@ typedef struct {
     id<MTLCommandQueue> _queue;
     id<MTLRenderPipelineState> _pipeline;
     id<MTLTexture> _textures[IN_FLIGHT];
-    id<MTLLibrary> _gpuPpuLibrary, _gpuCompactLibrary;
-    id<MTLComputePipelineState> _gpuPpuPipeline, _gpuSpritePipeline, _gpuCompactPipeline, _gpuCompactSpritePipeline;
-    SpritePass* _spritePass;
-    SpritePass* _compactSpritePass;
-    BackgroundPass* _backgroundPass;
-    BackgroundPass* _compactBackgroundPass;
-    id<MTLComputePipelineState> _gpuLayerPipeline, _gpuLayerSpritePipeline;
-    id<MTLComputePipelineState> _gpuCompactLayerPipeline, _gpuCompactLayerSpritePipeline;
-    id<MTLBuffer> _gpuPpuInputs[IN_FLIGHT], _gpuCompactInputs[IN_FLIGHT];
-    id<MTLTexture> _gpuPpuTextures[IN_FLIGHT];
-    BOOL _gpuPpuEnabled, _gpuSpriteQuadsEnabled, _compactGpuCaptureEnabled, _gpuBackgroundLayersEnabled;
-    BOOL _lastFrameGpu, _gpuSelfTestChecked, _gpuOnlyTestChecked, _gpuFallbackTestChecked;
+    // The GPU PPU while enabled, and the GPU frame on show (nil when the frame
+    // is a software one in _textures).
+    GpuPpu* _gpuPpu;
+    id<MTLTexture> _gpuFrame;
     NSUInteger _gpuPpuGeneration;
+    BOOL _gpuSelfTest, _gpuSelfTestChecked, _gpuOnlyTestChecked, _gpuFallbackTestChecked;
     // LCD response: what the simulated LCD shows, in linear light (ping-pong,
     // _history[_historySlot] is current), and the same gamma-encoded for the
     // present pass. One queue with tracked resources, so a pass never writes
@@ -272,6 +264,7 @@ typedef struct {
 #endif
     _queue = [_device newCommandQueue];
     _inFlight = dispatch_semaphore_create(IN_FLIGHT);
+    _gpuSelfTest = getenv("TMC_GPU_PPU_SELFTEST") != NULL;
 
     NSError* error = nil;
     NSString* path = [NSBundle.mainBundle pathForResource:@"shaders" ofType:@"metal"];
@@ -444,216 +437,83 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
 - (void)mtkView:(MTKView*)view drawableSizeWillChange:(CGSize)size {
 }
 
-- (BOOL)gpuPpuEnabled { return _gpuPpuEnabled; }
+- (BOOL)gpuPpuEnabled {
+    return _gpuPpu != nil;
+}
 
 - (BOOL)enableGpuPpu:(BOOL)enabled {
-    if (enabled == _gpuPpuEnabled) return YES;
+    if (enabled == self.gpuPpuEnabled) return YES;
     if (enabled) {
         NSError* error = nil;
-        NSString* path = [NSBundle.mainBundle pathForResource:@"gpu_ppu" ofType:@"metal"];
+        NSString* path = [NSBundle.mainBundle pathForResource:@"gpuppu" ofType:@"metal"];
         NSString* source = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error] : nil;
-        MTLCompileOptions* options = [MTLCompileOptions new];
-        options.languageVersion = MTLLanguageVersion2_4;
-        id<MTLLibrary> library = source ? [_device newLibraryWithSource:source options:options error:&error] : nil;
-        _gpuPpuLibrary = library;
-        id<MTLFunction> function = [library newFunctionWithName:@"gpu_ppu_texture"];
-        _gpuPpuPipeline = function ? [_device newComputePipelineStateWithFunction:function error:&error] : nil;
-        if (!_gpuPpuPipeline) {
-            NSLog(@"GPU PPU shader unavailable: %@", error);
+        GpuPpu* ppu = source ? [[GpuPpu alloc] initWithDevice:_device source:source slots:IN_FLIGHT error:&error] : nil;
+        if (ppu == nil || !FrontendSetGpuPpuEnabled(true)) {
+            NSLog(@"GPU PPU unavailable: %@", error);
             return NO;
         }
-        MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                                                                       width:PPU_WIDTH height:PPU_HEIGHT mipmapped:NO];
-        desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
-        desc.storageMode = MTLStorageModePrivate;
-        for (int i = 0; i < IN_FLIGHT; i++) {
-            _gpuPpuInputs[i] = [_device newBufferWithLength:sizeof(PpuCaptureLine) * PPU_HEIGHT
-                                                   options:MTLResourceStorageModeShared];
-            _gpuPpuTextures[i] = [_device newTextureWithDescriptor:desc];
-            if (!_gpuPpuInputs[i] || !_gpuPpuTextures[i]) {
-                NSLog(@"GPU PPU texture or buffer allocation failed");
-                for (int j = 0; j < IN_FLIGHT; j++) { _gpuPpuInputs[j] = nil; _gpuPpuTextures[j] = nil; }
-                _gpuPpuPipeline = nil;
-                return NO;
-            }
-        }
-        if (!FrontendSetGpuPpuEnabled(true)) {
-            for (int i = 0; i < IN_FLIGHT; i++) { _gpuPpuInputs[i] = nil; _gpuPpuTextures[i] = nil; }
-            _gpuPpuPipeline = nil;
-            return NO;
-        }
+        _gpuPpu = ppu;
+        _sequence = 0; // show the latest software frame until a captured frame arrives
     } else {
         FrontendSetGpuPpuEnabled(false);
-        _gpuSpriteQuadsEnabled = NO;
-        _compactGpuCaptureEnabled = NO;
-        _gpuBackgroundLayersEnabled = NO;
-        _backgroundPass = _compactBackgroundPass = nil;
-        _gpuLayerPipeline = _gpuLayerSpritePipeline = nil;
-        _gpuCompactLayerPipeline = _gpuCompactLayerSpritePipeline = nil;
-        _gpuSpritePipeline = _gpuCompactPipeline = _gpuCompactSpritePipeline = nil;
-        _spritePass = _compactSpritePass = nil;
-        _gpuPpuLibrary = _gpuCompactLibrary = nil;
-        for (int i = 0; i < IN_FLIGHT; i++) _gpuCompactInputs[i] = nil;
-        for (int i = 0; i < IN_FLIGHT; i++) _gpuPpuInputs[i] = nil;
-        _gpuPpuPipeline = nil;
-        // Keep the last GPU texture visible until a new software frame arrives.
+        _gpuPpu = nil; // the GPU frame on show stays until a software frame arrives
     }
-    _gpuPpuEnabled = enabled;
     _gpuPpuGeneration++;
-    if (enabled) _sequence = 0; // show the latest software frame until a captured frame arrives
     _historyValid = NO;
     return YES;
 }
 
-- (BOOL)gpuSpriteQuadsEnabled { return _gpuSpriteQuadsEnabled; }
-
-- (BOOL)enableGpuSpriteQuads:(BOOL)enabled {
-    if (enabled == _gpuSpriteQuadsEnabled) return YES;
-    if (enabled) {
-        if (!_gpuPpuEnabled) return NO;
-        NSError* error = nil;
-        SpritePass* sprites = [[SpritePass alloc] initWithDevice:_device library:_gpuPpuLibrary error:&error];
-        id<MTLFunction> function = [_gpuPpuLibrary newFunctionWithName:@"gpu_ppu_texture_raster"];
-        id<MTLComputePipelineState> pipeline = function ? [_device newComputePipelineStateWithFunction:function error:&error] : nil;
-        if (!sprites || !pipeline) {
-            NSLog(@"GPU sprite quads unavailable: %@", error);
-            return NO;
-        }
-        SpritePass* compactSprites = nil;
-        id<MTLComputePipelineState> compactPipeline = nil;
-        if (_compactGpuCaptureEnabled) {
-            compactSprites = [[SpritePass alloc] initWithDevice:_device library:_gpuCompactLibrary error:&error];
-            id<MTLFunction> compactFunction = [_gpuCompactLibrary newFunctionWithName:@"gpu_ppu_texture_raster"];
-            compactPipeline = compactFunction ? [_device newComputePipelineStateWithFunction:compactFunction error:&error] : nil;
-            if (!compactSprites || !compactPipeline) { NSLog(@"Compact sprite quads unavailable: %@", error); return NO; }
-        }
-        _spritePass = sprites;
-        _gpuSpritePipeline = pipeline;
-        _compactSpritePass = compactSprites;
-        _gpuCompactSpritePipeline = compactPipeline;
-    } else {
-        _spritePass = _compactSpritePass = nil;
-        _gpuSpritePipeline = _gpuCompactSpritePipeline = nil;
-    }
-    _gpuSpriteQuadsEnabled = enabled;
-    _gpuPpuGeneration++;
-    _sequence = 0; // redraw the latest captured frame using the selected sprite path
-    _historyValid = NO;
-    return YES;
+// Restores the software renderer if Metal fails to draw the frame.
+- (void)watchGpuFrame:(id<MTLCommandBuffer>)commands {
+    NSUInteger generation = _gpuPpuGeneration;
+    __weak Renderer* weakRenderer = self;
+    [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+        if (buffer.status != MTLCommandBufferStatusError) return;
+        NSString* message = buffer.error.localizedDescription ?: @"Metal could not render the frame.";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            Renderer* strongRenderer = weakRenderer;
+            if (!strongRenderer || strongRenderer->_gpuPpuGeneration != generation) return;
+            [strongRenderer enableGpuPpu:NO];
+            if (strongRenderer.gpuPpuFailed) strongRenderer.gpuPpuFailed(message);
+        });
+    }];
 }
 
-- (BOOL)compactGpuCaptureEnabled { return _compactGpuCaptureEnabled; }
-
-- (BOOL)enableCompactGpuCapture:(BOOL)enabled {
-    if (enabled == _compactGpuCaptureEnabled) return YES;
-    if (enabled) {
-        if (!_gpuPpuEnabled) return NO;
-        NSError* error = nil;
-        NSString* path = [NSBundle.mainBundle pathForResource:@"gpu_ppu" ofType:@"metal"];
-        NSString* source = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error] : nil;
-        MTLCompileOptions* options = [MTLCompileOptions new];
-        options.languageVersion = MTLLanguageVersion2_4;
-        options.preprocessorMacros = @{ @"PPU_COMPACT": @1 };
-        id<MTLLibrary> library = source ? [_device newLibraryWithSource:source options:options error:&error] : nil;
-        id<MTLFunction> function = [library newFunctionWithName:@"gpu_ppu_texture"];
-        id<MTLComputePipelineState> pipeline = function ? [_device newComputePipelineStateWithFunction:function error:&error] : nil;
-        SpritePass* compactSprites = nil;
-        id<MTLComputePipelineState> spritePipeline = nil;
-        if (_gpuSpriteQuadsEnabled && library) {
-            compactSprites = [[SpritePass alloc] initWithDevice:_device library:library error:&error];
-            id<MTLFunction> spriteFunction = [library newFunctionWithName:@"gpu_ppu_texture_raster"];
-            spritePipeline = spriteFunction ? [_device newComputePipelineStateWithFunction:spriteFunction error:&error] : nil;
-        }
-        BackgroundPass* compactBackgrounds = nil;
-        id<MTLComputePipelineState> layerPipeline = nil, layerSpritePipeline = nil;
-        if (_gpuBackgroundLayersEnabled && library) {
-            compactBackgrounds = [[BackgroundPass alloc] initWithDevice:_device library:library error:&error];
-            id<MTLFunction> f = [library newFunctionWithName:@"gpu_ppu_texture_layers"];
-            id<MTLFunction> sf = [library newFunctionWithName:@"gpu_ppu_texture_raster_layers"];
-            layerPipeline = f ? [_device newComputePipelineStateWithFunction:f error:&error] : nil;
-            layerSpritePipeline = sf ? [_device newComputePipelineStateWithFunction:sf error:&error] : nil;
-        }
-        if (!pipeline || (_gpuSpriteQuadsEnabled && (!compactSprites || !spritePipeline)) ||
-            (_gpuBackgroundLayersEnabled && (!compactBackgrounds || !layerPipeline || !layerSpritePipeline))) {
-            NSLog(@"Compact GPU capture shader unavailable: %@", error);
-            return NO;
-        }
-        for (int j = 0; j < IN_FLIGHT; j++) {
-            _gpuCompactInputs[j] = [_device newBufferWithLength:sizeof(PpuCompactCapture) options:MTLResourceStorageModeShared];
-            if (!_gpuCompactInputs[j]) {
-                for (int k = 0; k < IN_FLIGHT; k++) _gpuCompactInputs[k] = nil;
-                return NO;
-            }
-        }
-        if (!FrontendSetCompactGpuCapture(true)) {
-            for (int j = 0; j < IN_FLIGHT; j++) _gpuCompactInputs[j] = nil;
-            return NO;
-        }
-        _gpuCompactLibrary = library;
-        _gpuCompactPipeline = pipeline;
-        _compactSpritePass = compactSprites;
-        _gpuCompactSpritePipeline = spritePipeline;
-        _compactBackgroundPass = compactBackgrounds;
-        _gpuCompactLayerPipeline = layerPipeline;
-        _gpuCompactLayerSpritePipeline = layerSpritePipeline;
-    } else {
-        FrontendSetCompactGpuCapture(false);
-        _compactBackgroundPass = nil;
-        _gpuCompactLayerPipeline = _gpuCompactLayerSpritePipeline = nil;
-        _gpuCompactLibrary = nil;
-        _gpuCompactPipeline = _gpuCompactSpritePipeline = nil;
-        _compactSpritePass = nil;
-        for (int j = 0; j < IN_FLIGHT; j++) _gpuCompactInputs[j] = nil;
+// TMC_GPU_PPU_SELFTEST: compares one live GPU frame with the matching software
+// frame (the game thread draws both for the first frames), then logs the first
+// GPU-only frame.
+- (void)selfTestGpuFrame:(id<MTLCommandBuffer>)commands cpuAvailable:(bool)cpuAvailable {
+    if (!cpuAvailable && !_gpuOnlyTestChecked) {
+        _gpuOnlyTestChecked = YES;
+        [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+            NSLog(@"GPU PPU self-test: GPU-only frame %@", buffer.status == MTLCommandBufferStatusCompleted ? @"ok" : @"FAILED");
+        }];
     }
-    _compactGpuCaptureEnabled = enabled;
-    _gpuPpuGeneration++;
-    _sequence = 0;
-    _historyValid = NO;
-    return YES;
-}
-
-- (BOOL)gpuBackgroundLayersEnabled { return _gpuBackgroundLayersEnabled; }
-
-- (BOOL)enableGpuBackgroundLayers:(BOOL)enabled {
-    if (enabled == _gpuBackgroundLayersEnabled) return YES;
-    if (enabled) {
-        if (!_gpuPpuEnabled) return NO;
-        NSError* error = nil;
-        BackgroundPass* backgrounds = [[BackgroundPass alloc] initWithDevice:_device library:_gpuPpuLibrary error:&error];
-        id<MTLFunction> f = [_gpuPpuLibrary newFunctionWithName:@"gpu_ppu_texture_layers"];
-        id<MTLFunction> sf = [_gpuPpuLibrary newFunctionWithName:@"gpu_ppu_texture_raster_layers"];
-        id<MTLComputePipelineState> pipeline = f ? [_device newComputePipelineStateWithFunction:f error:&error] : nil;
-        id<MTLComputePipelineState> spritePipeline = sf ? [_device newComputePipelineStateWithFunction:sf error:&error] : nil;
-        BackgroundPass* compactBackgrounds = nil;
-        id<MTLComputePipelineState> compactPipeline = nil, compactSpritePipeline = nil;
-        if (_compactGpuCaptureEnabled) {
-            compactBackgrounds = [[BackgroundPass alloc] initWithDevice:_device library:_gpuCompactLibrary error:&error];
-            id<MTLFunction> cf = [_gpuCompactLibrary newFunctionWithName:@"gpu_ppu_texture_layers"];
-            id<MTLFunction> csf = [_gpuCompactLibrary newFunctionWithName:@"gpu_ppu_texture_raster_layers"];
-            compactPipeline = cf ? [_device newComputePipelineStateWithFunction:cf error:&error] : nil;
-            compactSpritePipeline = csf ? [_device newComputePipelineStateWithFunction:csf error:&error] : nil;
+    if (!cpuAvailable || _gpuSelfTestChecked) return;
+    _gpuSelfTestChecked = YES;
+    id<MTLBuffer> readback = [_device newBufferWithLength:PPU_WIDTH * PPU_HEIGHT * 4 options:MTLResourceStorageModeShared];
+    NSData* expected = [NSData dataWithBytes:_pixels length:sizeof(_pixels)];
+    id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+    [blit copyFromTexture:_gpuFrame sourceSlice:0 sourceLevel:0
+             sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(PPU_WIDTH, PPU_HEIGHT, 1)
+                 toBuffer:readback destinationOffset:0 destinationBytesPerRow:PPU_WIDTH * 4
+  destinationBytesPerImage:PPU_WIDTH * PPU_HEIGHT * 4];
+    [blit endEncoding];
+    [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+        int bad = 0;
+        const uint8_t* actual = readback.contents;
+        const uint32_t* reference = expected.bytes;
+        if (buffer.status != MTLCommandBufferStatusCompleted || actual == NULL) {
+            NSLog(@"GPU PPU self-test: FAILED to read the GPU frame");
+            return;
         }
-        if (!backgrounds || !pipeline || !spritePipeline ||
-            (_compactGpuCaptureEnabled && (!compactBackgrounds || !compactPipeline || !compactSpritePipeline))) {
-            NSLog(@"GPU background layers unavailable: %@", error);
-            return NO;
+        for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) {
+            uint32_t rgb = reference[i];
+            if (actual[i * 4] != ((rgb >> 16) & 255) || actual[i * 4 + 1] != ((rgb >> 8) & 255) ||
+                actual[i * 4 + 2] != (rgb & 255) || actual[i * 4 + 3] != 255) bad++;
         }
-        _backgroundPass = backgrounds;
-        _gpuLayerPipeline = pipeline;
-        _gpuLayerSpritePipeline = spritePipeline;
-        _compactBackgroundPass = compactBackgrounds;
-        _gpuCompactLayerPipeline = compactPipeline;
-        _gpuCompactLayerSpritePipeline = compactSpritePipeline;
-    } else {
-        _backgroundPass = _compactBackgroundPass = nil;
-        _gpuLayerPipeline = _gpuLayerSpritePipeline = nil;
-        _gpuCompactLayerPipeline = _gpuCompactLayerSpritePipeline = nil;
-    }
-    _gpuBackgroundLayersEnabled = enabled;
-    _gpuPpuGeneration++;
-    _sequence = 0;
-    _historyValid = NO;
-    return YES;
+        NSLog(@"GPU PPU self-test: %@, %d differing pixels", bad ? @"FAILED" : @"ok", bad);
+    }];
 }
 
 - (void)drawInMTKView:(MTKView*)view {
@@ -692,85 +552,18 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     NSUInteger next = (_slot + 1) % IN_FLIGHT;
     uint64_t previous = _sequence;
     bool cut = false, gpuAvailable = false, cpuAvailable = false;
-    PpuCaptureLine* gpuLines = _gpuPpuEnabled && !_compactGpuCaptureEnabled && !self.testPattern ? _gpuPpuInputs[next].contents : NULL;
-    PpuCompactCapture* compact = _gpuPpuEnabled && _compactGpuCaptureEnabled && !self.testPattern ? _gpuCompactInputs[next].contents : NULL;
-    BOOL fresh = self.testPattern ? [self fillTestPattern] : FrontendCopyFrame(_pixels, &_sequence, &cut, gpuLines, compact, &gpuAvailable, &cpuAvailable);
+    PpuCompactCapture* gpuInput = _gpuPpu != nil && !self.testPattern ? [_gpuPpu input:next] : NULL;
+    BOOL fresh = self.testPattern ? [self fillTestPattern]
+                                  : FrontendCopyFrame(_pixels, &_sequence, &cut, gpuInput, &gpuAvailable, &cpuAvailable);
     id<MTLCommandBuffer> commands = [_queue commandBuffer];
     if (fresh) {
         if (gpuAvailable) {
-            id<MTLBuffer> input = _compactGpuCaptureEnabled ? _gpuCompactInputs[next] : _gpuPpuInputs[next];
-            NSUInteger poolOffset = _compactGpuCaptureEnabled ? offsetof(PpuCompactCapture, pages) : 0;
-            SpritePass* spritePass = _compactGpuCaptureEnabled ? _compactSpritePass : _spritePass;
-            BackgroundPass* backgrounds = _compactGpuCaptureEnabled ? _compactBackgroundPass : _backgroundPass;
-            if (_gpuSpriteQuadsEnabled) [spritePass encode:commands lines:input poolOffset:poolOffset slot:next];
-            if (_gpuBackgroundLayersEnabled) [backgrounds encode:commands lines:input poolOffset:poolOffset slot:next];
-            id<MTLComputeCommandEncoder> encoder = [commands computeCommandEncoder];
-            id<MTLComputePipelineState> pipeline = _gpuBackgroundLayersEnabled
-                ? (_compactGpuCaptureEnabled ? (_gpuSpriteQuadsEnabled ? _gpuCompactLayerSpritePipeline : _gpuCompactLayerPipeline)
-                                             : (_gpuSpriteQuadsEnabled ? _gpuLayerSpritePipeline : _gpuLayerPipeline))
-                : (_compactGpuCaptureEnabled ? (_gpuSpriteQuadsEnabled ? _gpuCompactSpritePipeline : _gpuCompactPipeline)
-                                             : (_gpuSpriteQuadsEnabled ? _gpuSpritePipeline : _gpuPpuPipeline));
-            [encoder setComputePipelineState:pipeline];
-            [encoder setBuffer:input offset:0 atIndex:0];
-            [encoder setBuffer:input offset:poolOffset atIndex:2];
-            [encoder setTexture:_gpuPpuTextures[next] atIndex:0];
-            if (_gpuBackgroundLayersEnabled) [encoder setTexture:[backgrounds layers:next] atIndex:3];
-            if (_gpuSpriteQuadsEnabled) {
-                [encoder setTexture:[spritePass colors:next] atIndex:1];
-                [encoder setTexture:[spritePass windows:next] atIndex:2];
-            }
-            [encoder dispatchThreads:MTLSizeMake(PPU_WIDTH, PPU_HEIGHT, 1)
-                 threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
-            [encoder endEncoding];
-            NSUInteger generation = _gpuPpuGeneration;
-            __weak Renderer* weakRenderer = self;
-            [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
-                if (buffer.status != MTLCommandBufferStatusError) return;
-                NSString* message = buffer.error.localizedDescription ?: @"Metal could not render the frame.";
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    Renderer* strongRenderer = weakRenderer;
-                    if (!strongRenderer || !strongRenderer->_gpuPpuEnabled || strongRenderer->_gpuPpuGeneration != generation) return;
-                    [strongRenderer enableGpuPpu:NO];
-                    if (strongRenderer.gpuPpuFailed) strongRenderer.gpuPpuFailed(message);
-                });
-            }];
-            if (getenv("TMC_GPU_PPU_SELFTEST") && !cpuAvailable && !_gpuOnlyTestChecked) {
-                _gpuOnlyTestChecked = YES;
-                [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
-                    NSLog(@"GPU PPU self-test: GPU-only frame %@", buffer.status == MTLCommandBufferStatusCompleted ? @"ok" : @"FAILED");
-                }];
-            }
-            // One live-frame check for the automated app self-test. Compare the
-            // texture consumed by presentation with the matching software frame.
-            if (getenv("TMC_GPU_PPU_SELFTEST") && !_gpuSelfTestChecked) {
-                _gpuSelfTestChecked = YES;
-                id<MTLBuffer> readback = [_device newBufferWithLength:PPU_WIDTH * PPU_HEIGHT * 4
-                                                               options:MTLResourceStorageModeShared];
-                NSData* expected = [NSData dataWithBytes:_pixels length:sizeof(_pixels)];
-                id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
-                [blit copyFromTexture:_gpuPpuTextures[next] sourceSlice:0 sourceLevel:0
-                         sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(PPU_WIDTH, PPU_HEIGHT, 1)
-                             toBuffer:readback destinationOffset:0 destinationBytesPerRow:PPU_WIDTH * 4
-              destinationBytesPerImage:PPU_WIDTH * PPU_HEIGHT * 4];
-                [blit endEncoding];
-                [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
-                    int bad = 0;
-                    const uint8_t* actual = readback.contents;
-                    const uint32_t* reference = expected.bytes;
-                    if (buffer.status != MTLCommandBufferStatusCompleted || actual == NULL) {
-                        NSLog(@"GPU PPU self-test: FAILED to read the GPU frame");
-                        return;
-                    }
-                    for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) {
-                        uint32_t rgb = reference[i];
-                        if (actual[i * 4] != ((rgb >> 16) & 255) || actual[i * 4 + 1] != ((rgb >> 8) & 255) ||
-                            actual[i * 4 + 2] != (rgb & 255) || actual[i * 4 + 3] != 255) bad++;
-                    }
-                    NSLog(@"GPU PPU self-test: %@, %d differing pixels", bad ? @"FAILED" : @"ok", bad);
-                }];
-            }
+            [_gpuPpu encode:commands slot:next];
+            _gpuFrame = [_gpuPpu output:next];
+            [self watchGpuFrame:commands];
+            if (_gpuSelfTest) [self selfTestGpuFrame:commands cpuAvailable:cpuAvailable];
         } else {
-            if (getenv("TMC_GPU_PPU_SELFTEST") && !_gpuPpuEnabled && _gpuOnlyTestChecked && !_gpuFallbackTestChecked && cpuAvailable) {
+            if (_gpuSelfTest && _gpuPpu == nil && _gpuOnlyTestChecked && !_gpuFallbackTestChecked && cpuAvailable) {
                 _gpuFallbackTestChecked = YES;
                 NSLog(@"GPU PPU self-test: software frame restored");
             }
@@ -778,14 +571,11 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
                                mipmapLevel:0
                                  withBytes:_pixels
                                bytesPerRow:PPU_WIDTH * 4];
+            _gpuFrame = nil;
         }
-        _lastFrameGpu = gpuAvailable;
         _slot = next;
-        if (!_gpuPpuEnabled) {
-            for (int i = 0; i < IN_FLIGHT; i++) _gpuPpuTextures[i] = nil;
-        }
     }
-    id<MTLTexture> texture = _lastFrameGpu ? _gpuPpuTextures[_slot] : _textures[_slot];
+    id<MTLTexture> texture = _gpuFrame ?: _textures[_slot];
     if (LatencyEnabled()) {
         LatencyStageAt(_sequence, 0, drawStart);
     }
@@ -957,7 +747,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     NSUInteger x = 0, y = 0;
     switch (debug) {
         case DebugBufferFrame:
-            source = _lastFrameGpu ? _gpuPpuTextures[_slot] : _textures[_slot];
+            source = _gpuFrame ?: _textures[_slot];
             break;
         case DebugBufferResponseHistory:
             source = _history[_historySlot];

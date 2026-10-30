@@ -8,11 +8,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 /*
  * Settings window, in tabs: Display (filter, integer scaling, LCD response,
- * colour), Filters (the LCD and CRT knobs as sliders), Rendering (GPU PPU
- * experiments), Timing (frame pacing), Controls (the gamepad button layout) and Debug (the Debug menu and its
- * toolbar button). Each tab scrolls, so the window fits short screens; it
- * reopens on the last tab. Changes apply to the running game immediately and
- * are saved; rendering choices are saved when the window closes.
+ * colour), Filters (the LCD and CRT knobs as sliders), Rendering (GPU or CPU
+ * drawing), Timing (frame pacing), Controls (the gamepad button layout) and
+ * Debug (the Debug menu and its toolbar button). Each tab scrolls, so the
+ * window fits short screens; it reopens on the last tab. Changes apply to the
+ * running game immediately and are saved.
  * Each saved setting's control has its NSUserDefaults key as identifier.
  */
 @interface SettingsWindowController : NSWindowController

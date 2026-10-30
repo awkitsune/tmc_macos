@@ -59,18 +59,18 @@ void FrontendSetSavePath(const char* path);
  * than *sequence, updating *sequence. Returns whether a frame was copied. The
  * game frames since the last copy are the change in *sequence; *cut is set when
  * a state load or a reset came in between (the picture does not follow on).
- * If gpuLines is non-NULL, copy matching captured scanlines when available
- * and set *gpuAvailable. A GPU-only frame is not returned to a software-only
- * caller; it waits for the next software-rendered frame.
+ * *cpuAvailable says whether dest holds the frame. If gpu is non-NULL, the
+ * frame's scanline capture is copied there when it has one, setting
+ * *gpuAvailable. A GPU-only frame is not returned to a caller without gpu; it
+ * waits for the next software-drawn frame.
  */
-bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCaptureLine* gpuLines,
-                       PpuCompactCapture* compact, bool* gpuAvailable, bool* cpuAvailable);
-/* Experimental GPU rendering; the game thread keeps hardware timing on the CPU. */
+bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCompactCapture* gpu, bool* gpuAvailable,
+                       bool* cpuAvailable);
+/* GPU PPU: the game thread keeps the hardware timing and captures each line's
+ * state instead of drawing the frame. */
 bool FrontendSetGpuPpuEnabled(bool enabled);
-/* Optional compact GPU capture; enabled only while GPU PPU is active. */
-bool FrontendSetCompactGpuCapture(bool enabled);
-/* Latest published capture size, for the Performance window. */
-bool FrontendGpuCaptureStats(size_t* bytes, unsigned* pages, bool* compact);
+/* The latest published capture's size, for the Performance window. */
+bool FrontendGpuCaptureStats(size_t* bytes, unsigned* pages);
 
 /* Keys to hold in addition to the polled ones (HW_KEY_* bits), read at the next frame boundary. */
 void FrontendSetKeys(uint16_t keys);

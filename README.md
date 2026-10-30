@@ -969,39 +969,15 @@ asynchronously and can overlap game-thread work, so its times are not added to
 the bar. GPU timing is shown only when Metal supplies it. Reset clears the
 samples; collection stops when the window closes.
 
-**Settings → Rendering → GPU PPU (experimental)** switches the displayed game
-picture to the Metal PPU; turn it off to return to software. Rendering choices
-apply immediately and are saved when the Settings window closes. While enabled,
-the GPU draws the game pixels; the CPU still runs display timing and captures
-hardware state for every scanline. The capture uses substantial CPU time
-and memory, so this experiment may not be faster than software rendering. In the
-Performance window, capture time appears under Other PPU; GPU execution includes
-the PPU and display filters. Reset the samples after switching modes to compare.
-Switching to GPU while paused takes effect when the next game frame is drawn;
-switching back to software redraws the paused picture. Details and the offline pixel comparison tool are in
-[GPU PPU prototype](port/notes/gpu-ppu-prototype.md).
-
-With GPU PPU enabled, **Settings → Rendering → Sprite quads** switches sprites
-to an alternative batched-quad renderer. Turn it off to compare the original GPU
-sprite scan. Both use the same per-line capture and background compositor. The
-option may be slower; use GPU execution time and
-reset the Performance samples after switching to compare.
-
-With GPU PPU enabled, **Settings → Rendering → Compact scanline capture** shares
-unchanged VRAM pages between scanlines. Turn it off to compare full snapshots;
-it also works with sprite quads. The Performance
-window shows the most recent GPU capture size. Reset its samples after switching
-and compare both game-thread and GPU time. Compact mode reuses VRAM state when
-no interrupt ran and DMA did not write outside I/O registers between lines; it
-checks for changes otherwise. It
-reserves enough space for a worst-case frame, so smaller transfers do not
-necessarily mean lower CPU time or peak memory.
-
-**Settings → Rendering → Separate background layers** renders BG0–BG3 into
-separate GPU textures before composing them with sprites, windows and effects.
-It is optional and can be combined with
-either capture and sprite mode. It does not extend the game's viewport. Compare
-GPU execution time with the option off; the additional pass can be slower.
+**Settings → Rendering → Draw the game on the GPU** (on by default) has the
+Metal PPU draw the game picture; turn it off to draw it in software. The CPU
+still runs the game and the display timing, and records each scanline's
+hardware state instead of drawing it; the GPU then draws the frame from that
+record. In the Performance window, the recording appears under Other PPU and
+GPU execution includes the PPU and display filters. Switching while paused
+takes effect at the next game frame; switching back to software redraws the
+paused picture. How it works and the offline pixel comparison tool are in
+[GPU PPU](port/notes/gpu-ppu.md).
 
 ## Graphics debugging
 

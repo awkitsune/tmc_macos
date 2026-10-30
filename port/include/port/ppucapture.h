@@ -6,9 +6,10 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-// Experimental GPU reference input. One copy per line preserves writes by HBlank
-// DMA and interrupts, including VRAM, palettes and OAM. These large captures are
-// for correctness testing, not the eventual fast presentation path.
+// The GPU PPU's input: each line's state as the CPU saw it, which preserves
+// writes by HBlank DMA and interrupts to VRAM, palettes and OAM. This full form
+// (15 MiB a frame) is the capture file format for gpu_ppu_test and the tests;
+// the app captures the compact form below.
 typedef struct {
     uint8_t vram[HW_VRAM_SIZE];
     uint8_t palette[HW_PLTT_SIZE];
@@ -23,7 +24,7 @@ typedef struct {
     uint16_t reference[PPU_WIDTH * PPU_HEIGHT];
 } PpuCapture;
 
-// A compact snapshot shares unchanged 1 KiB VRAM pages between scanlines.
+// The compact form shares unchanged 1 KiB VRAM pages between scanlines.
 // The worst case is still bounded by a full copy for every scanline.
 #define PPU_CAPTURE_PAGE_SIZE 1024
 #define PPU_CAPTURE_PAGES (HW_VRAM_SIZE / PPU_CAPTURE_PAGE_SIZE)

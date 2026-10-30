@@ -7,7 +7,7 @@ NSString* const kFilterDefault = @"Filter";
 NSString* const kIntegerScalingDefault = @"IntegerScaling";
 NSString* const kGamepadLayoutDefault = @"GamepadLayout";
 NSString* const kGpuPpuDefault = @"GpuPpu";
-NSString* const kGpuRenderingDefault = @"GpuRendering";
+static NSString* const kGpuRenderingDefault = @"GpuRendering"; // before one switch
 NSString* const kLcdResponseDefault = @"LCDResponse";
 NSString* const kPacingDefault = @"FramePacing";
 NSString* const kPacingChangedNotification = @"TMCPacingChanged";
@@ -58,10 +58,12 @@ NSArray<NSString*>* SettingsKeys(void) {
     return keys;
 }
 
-NSDictionary<NSString*, NSNumber*>* LoadGpuRenderingSettings(void) {
+void MigrateGpuRenderingSettings(void) {
     NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
     NSDictionary* saved = [defaults dictionaryForKey:kGpuRenderingDefault];
-    return saved ?: @{ @"enabled": @([defaults boolForKey:kGpuPpuDefault]) };
+    if (saved == nil) return;
+    [defaults setBool:[saved[@"enabled"] boolValue] forKey:kGpuPpuDefault];
+    [defaults removeObjectForKey:kGpuRenderingDefault];
 }
 
 FilterParams LoadFilterParams(void) {

@@ -62,12 +62,12 @@ static uint64_t sFrameSequence;
 // (after a state load or a reset), so the renderer can drop its LCD history.
 static uint64_t sCutSequence;
 static atomic_bool sCutNext;
-static atomic_bool sGpuPpuEnabled, sGpuCompactEnabled;
+// GPU PPU: the game thread captures each frame's scanlines into sGpuWork and
+// swaps it with sGpuShared under sFrameLock; only the game thread frees them.
+static atomic_bool sGpuPpuEnabled;
 static atomic_bool sGpuPpuRedraw;
-// Both pointers are swapped under sFrameLock; only the game thread writes sGpuWork.
-static PpuCaptureLine *sGpuWork, *sGpuShared;
-static PpuCompactCapture *sGpuCompactWork, *sGpuCompactShared;
-static bool sGpuFrameValid, sGpuFrameCompact, sCpuFrameValid;
+static PpuCompactCapture *sGpuWork, *sGpuShared;
+static bool sGpuFrameValid, sCpuFrameValid;
 
 
 // Graphics debug snapshots: taken by the game thread into sSnapWork while
@@ -176,10 +176,11 @@ bool FrontendRequestState(bool save, const char* path, FrontendStateDone done, v
 bool FrontendSetGpuPpuEnabled(bool enabled) {
     os_unfair_lock_lock(&sFrameLock);
     if (enabled && sGpuWork == NULL) {
-        sGpuWork = malloc(sizeof(PpuCaptureLine) * PPU_HEIGHT);
-        sGpuShared = malloc(sizeof(PpuCaptureLine) * PPU_HEIGHT);
+        sGpuWork = malloc(sizeof(*sGpuWork));
+        sGpuShared = malloc(sizeof(*sGpuShared));
         if (sGpuWork == NULL || sGpuShared == NULL) {
-            free(sGpuWork); free(sGpuShared);
+            free(sGpuWork);
+            free(sGpuShared);
             sGpuWork = sGpuShared = NULL;
             os_unfair_lock_unlock(&sFrameLock);
             return false;
@@ -187,59 +188,35 @@ bool FrontendSetGpuPpuEnabled(bool enabled) {
     }
     atomic_store(&sGpuPpuEnabled, enabled);
     if (!enabled) {
-        atomic_store(&sGpuCompactEnabled, false);
         atomic_store(&sGpuPpuRedraw, true);
     }
     os_unfair_lock_unlock(&sFrameLock);
     return true;
 }
 
-bool FrontendSetCompactGpuCapture(bool enabled) {
-    os_unfair_lock_lock(&sFrameLock);
-    if (enabled && !atomic_load(&sGpuPpuEnabled)) {
-        os_unfair_lock_unlock(&sFrameLock);
-        return false;
-    }
-    if (enabled && sGpuCompactWork == NULL) {
-        sGpuCompactWork = malloc(sizeof(*sGpuCompactWork));
-        sGpuCompactShared = malloc(sizeof(*sGpuCompactShared));
-        if (!sGpuCompactWork || !sGpuCompactShared) {
-            free(sGpuCompactWork); free(sGpuCompactShared);
-            sGpuCompactWork = sGpuCompactShared = NULL;
-            os_unfair_lock_unlock(&sFrameLock);
-            return false;
-        }
-    }
-    atomic_store(&sGpuCompactEnabled, enabled);
-    os_unfair_lock_unlock(&sFrameLock);
-    return true;
-}
-
-bool FrontendGpuCaptureStats(size_t* bytes, unsigned* pages, bool* compact) {
+bool FrontendGpuCaptureStats(size_t* bytes, unsigned* pages) {
     os_unfair_lock_lock(&sFrameLock);
     bool available = atomic_load(&sGpuPpuEnabled) && sGpuFrameValid;
     if (available) {
-        *compact = sGpuFrameCompact;
-        *pages = sGpuFrameCompact ? sGpuCompactShared->pageCount : 0;
-        *bytes = sGpuFrameCompact ? PpuCompactSize(sGpuCompactShared) : sizeof(PpuCaptureLine) * PPU_HEIGHT;
+        *pages = sGpuShared->pageCount;
+        *bytes = PpuCompactSize(sGpuShared);
     }
     os_unfair_lock_unlock(&sFrameLock);
     return available;
 }
 
-bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCaptureLine* gpuLines,
-                       PpuCompactCapture* compact, bool* gpuAvailable, bool* cpuAvailable) {
+bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCompactCapture* gpu, bool* gpuAvailable,
+                       bool* cpuAvailable) {
     bool fresh;
 
     os_unfair_lock_lock(&sFrameLock);
-    bool gpuMatch = sGpuFrameValid && (sGpuFrameCompact ? compact != NULL : gpuLines != NULL);
+    bool gpuMatch = sGpuFrameValid && gpu != NULL;
     fresh = sFrameSequence != *sequence && (sCpuFrameValid || gpuMatch);
     if (fresh) {
         *cpuAvailable = sCpuFrameValid;
         if (sCpuFrameValid) memcpy(dest, sFrame, sizeof(sFrame));
         *gpuAvailable = gpuMatch;
-        if (gpuMatch && sGpuFrameCompact) memcpy(compact, sGpuCompactShared, PpuCompactSize(sGpuCompactShared));
-        else if (gpuMatch) memcpy(gpuLines, sGpuShared, sizeof(PpuCaptureLine) * PPU_HEIGHT);
+        if (gpuMatch) memcpy(gpu, sGpuShared, PpuCompactSize(sGpuShared));
         *cut = sCutSequence > *sequence;
         *sequence = sFrameSequence;
     }
@@ -247,7 +224,8 @@ bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCapture
     return fresh;
 }
 
-static uint64_t PublishFrame(const uint16_t* raw, int gpuCaptureKind) {
+// raw is NULL for a frame only the GPU draws (from the capture, if gpu).
+static uint64_t PublishFrame(const uint16_t* raw, bool gpu) {
     static uint32_t sConverted[PPU_WIDTH * PPU_HEIGHT];
 
     if (raw != NULL) {
@@ -262,17 +240,12 @@ static uint64_t PublishFrame(const uint16_t* raw, int gpuCaptureKind) {
     os_unfair_lock_lock(&sFrameLock);
     sCpuFrameValid = raw != NULL;
     if (sCpuFrameValid) memcpy(sFrame, sConverted, sizeof(sFrame));
-    if (gpuCaptureKind == 1) {
-        PpuCaptureLine* old = sGpuShared;
+    if (gpu) {
+        PpuCompactCapture* old = sGpuShared;
         sGpuShared = sGpuWork;
         sGpuWork = old;
-    } else if (gpuCaptureKind == 2) {
-        PpuCompactCapture* old = sGpuCompactShared;
-        sGpuCompactShared = sGpuCompactWork;
-        sGpuCompactWork = old;
     }
-    sGpuFrameValid = gpuCaptureKind != 0;
-    sGpuFrameCompact = gpuCaptureKind == 2;
+    sGpuFrameValid = gpu;
     sFrameSequence++;
     if (atomic_exchange(&sCutNext, false)) {
         sCutSequence = sFrameSequence;
@@ -666,35 +639,25 @@ void PlatformVBlank(void) {
     if (perf) PerformanceBeginFrame();
     frameStart = LatencyNowNs();
     bool captureGpu = atomic_load(&sGpuPpuEnabled);
-    bool captureCompact = captureGpu && atomic_load(&sGpuCompactEnabled);
-    static unsigned gpuSelfTestFrames;
-    bool reference = captureGpu && getenv("TMC_GPU_PPU_SELFTEST") && gpuSelfTestFrames < 60;
-    if (captureGpu && getenv("TMC_GPU_PPU_SELFTEST") && gpuSelfTestFrames <= 60) {
-        if (gpuSelfTestFrames++ == 60) fprintf(stderr, "GPU PPU self-test: GPU-only frames started\n");
-    }
+    // TMC_GPU_PPU_SELFTEST: the first GPU frames are also drawn in software,
+    // for the renderer to compare.
+    static int gpuSelfTestFrames = -1;
+    if (gpuSelfTestFrames < 0) gpuSelfTestFrames = getenv("TMC_GPU_PPU_SELFTEST") ? 0 : 60;
+    bool reference = captureGpu && gpuSelfTestFrames < 60;
+    if (reference && ++gpuSelfTestFrames == 60) fprintf(stderr, "GPU PPU self-test: GPU-only frames started\n");
     uint16_t* draw = !captureGpu || reference ? sRaw : NULL;
-    if (!captureGpu) {
+    if (captureGpu) {
+        PpuCompactCaptureTo(sGpuWork);
+    } else {
         atomic_store(&sGpuPpuRedraw, false);
         os_unfair_lock_lock(&sFrameLock);
         if (!atomic_load(&sGpuPpuEnabled) && sGpuWork != NULL) {
-            free(sGpuWork); free(sGpuShared);
+            free(sGpuWork);
+            free(sGpuShared);
             sGpuWork = sGpuShared = NULL;
             sGpuFrameValid = false;
         }
         os_unfair_lock_unlock(&sFrameLock);
-    }
-    if (!captureCompact) {
-        os_unfair_lock_lock(&sFrameLock);
-        if (!atomic_load(&sGpuCompactEnabled) && sGpuCompactWork != NULL) {
-            free(sGpuCompactWork); free(sGpuCompactShared);
-            sGpuCompactWork = sGpuCompactShared = NULL;
-            if (sGpuFrameCompact) sGpuFrameValid = false;
-        }
-        os_unfair_lock_unlock(&sFrameLock);
-    }
-    if (captureGpu) {
-        if (captureCompact) PpuCompactCaptureTo(sGpuCompactWork);
-        else PpuCaptureTo(sGpuWork);
     }
     if (atomic_load_explicit(&sMapViewers, memory_order_relaxed) > 0) {
         CaptureMap(false);
@@ -711,8 +674,7 @@ void PlatformVBlank(void) {
         HwRunFrame(draw);
     }
     if (captureGpu) {
-        if (captureCompact) PpuCompactCaptureTo(NULL);
-        else PpuCaptureTo(NULL);
+        PpuCompactCaptureTo(NULL);
     }
     uint64_t hardwareNs = perf ? PerformanceNow() - perfStart : 0;
     uint64_t publishStart = perf ? PerformanceNow() : 0;
@@ -720,7 +682,7 @@ void PlatformVBlank(void) {
     if (stall > 0) {
         usleep((useconds_t)stall * 1000);
     }
-    sPublished = PublishFrame(draw, captureGpu ? (captureCompact ? 2 : 1) : 0);
+    sPublished = PublishFrame(draw, captureGpu);
     if (perf && stall == 0) PerformanceEndFrame(gPlatformFrame, gameNs, hardwareNs, PerformanceNow() - publishStart, 1000.0 / GameFrameRate(driven) / (atomic_load(&sFastForward) ? 4.0 : 1.0));
     LatencyFrameDone(sPublished, frameStart);
     gPlatformFrame++;

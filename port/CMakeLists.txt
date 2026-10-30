@@ -267,12 +267,11 @@ set(TMC_APPLE_SOURCES
     src/apple/input.m
     src/apple/latency.c
     src/apple/renderer.m
-    src/apple/spritepass.m
-    src/apple/backgroundpass.m
+    src/apple/gpuppu.m
     src/apple/roomname.c
     src/apple/settingsstore.m
 )
-set(TMC_APP_SHADERS src/apple/shaders.metal src/tools/gpu_ppu.metal)
+set(TMC_APP_SHADERS src/apple/shaders.metal src/apple/gpuppu.metal)
 # The room the player is in, for the macOS window's subtitle and the iOS settings.
 set(TMC_ROOM_NAMES ${CMAKE_BINARY_DIR}/room_names.c)
 add_custom_command(
@@ -380,10 +379,10 @@ target_include_directories(scanline_test PRIVATE include)
 target_link_libraries(scanline_test PRIVATE z)
 
 # Standalone experimental Metal PPU: compares a headless scanline capture with the CPU.
-add_executable(gpu_ppu_test EXCLUDE_FROM_ALL src/tools/gpu_ppu_test.m src/apple/spritepass.m src/apple/backgroundpass.m src/ppucapture.c)
+add_executable(gpu_ppu_test EXCLUDE_FROM_ALL src/tools/gpu_ppu_test.m src/apple/gpuppu.m src/ppucapture.c)
 target_include_directories(gpu_ppu_test PRIVATE include src/apple)
 target_compile_options(gpu_ppu_test PRIVATE -fobjc-arc)
-target_compile_definitions(gpu_ppu_test PRIVATE GPU_PPU_SHADER="${CMAKE_CURRENT_SOURCE_DIR}/src/tools/gpu_ppu.metal")
+target_compile_definitions(gpu_ppu_test PRIVATE GPU_PPU_SHADER="${CMAKE_CURRENT_SOURCE_DIR}/src/apple/gpuppu.metal")
 target_link_libraries(gpu_ppu_test PRIVATE "-framework Foundation" "-framework Metal")
 
 # Mosaic and tile-fetch checks of the picture processor without the game:
