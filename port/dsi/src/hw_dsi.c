@@ -94,8 +94,9 @@ void HwDmaSet(int channel, const void* src, void* dest, uint32_t control) {
     sDmaChannels[channel] = (HwDmaChannel){ src, dest, dest, control };
 }
 
-static int RunTimed(uint16_t start) {
+static int RunTimed(uint16_t start, bool* mayWriteMemory) {
     int ran = 0;
+    if (mayWriteMemory) *mayWriteMemory = false;
 
     for (int i = 0; i < 4; i++) {
         HwDmaChannel* ch = &sDmaChannels[i];
@@ -107,6 +108,13 @@ static int RunTimed(uint16_t start) {
         }
         if (count == 0) {
             count = i == 3 ? 0x10000 : 0x4000;
+        }
+        if (mayWriteMemory) {
+            // As the Mac's: only a transfer contained in I/O is known not to touch VRAM, palette or OAM.
+            uintptr_t offset = (uintptr_t)ch->dest - (uintptr_t)gHwIo;
+            size_t bytes = (size_t)count * ((cnt & CNT_32BIT) ? 4 : 2);
+            bool ioOnly = (cnt & CNT_DEST_MASK) != CNT_DEST_DEC && offset < HW_IO_SIZE && bytes <= HW_IO_SIZE - offset;
+            *mayWriteMemory |= !ioOnly;
         }
         RunTransfer(ch->src, ch->dest, (ch->control & 0xFFFF0000u) | (count & 0xFFFF));
         if (ch->dest >= gHwIo && ch->dest < gHwIo + HW_IO_SIZE) {
@@ -127,12 +135,12 @@ static int RunTimed(uint16_t start) {
     return ran;
 }
 
-int HwDmaHBlank(void) {
-    return RunTimed(CNT_START_HBLANK);
+int HwDmaHBlank(bool* mayWriteMemory) {
+    return RunTimed(CNT_START_HBLANK, mayWriteMemory);
 }
 
 int HwDmaVBlank(void) {
-    return RunTimed(CNT_START_VBLANK);
+    return RunTimed(CNT_START_VBLANK, NULL);
 }
 
 void HwDmaInfo(int channel, const void** src, void** dest, uint32_t* control) {

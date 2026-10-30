@@ -23,6 +23,7 @@
 
 #include "port/hw.h"
 #include "port/ppu.h"
+#include "port/ppucapture.h"
 
 #include "dsi.h"
 
@@ -101,6 +102,14 @@ void PpuRenderLine(int line, uint16_t* out) {
 void PpuRenderFrame(uint16_t* framebuffer) {
     (void)framebuffer;
     DsiFatal("PpuRenderFrame: no software PPU on the DSi");
+}
+
+// The Mac's GPU line capture; the DSi presents lines without it.
+bool PpuCompactCaptureActive(void) {
+    return false;
+}
+
+void PpuCompactMemoryUnchanged(void) {
 }
 
 // ---- one line's registers -------------------------------------------------------
