@@ -734,3 +734,18 @@ left), loads a MiscManager (type 0xb) and stores its x/y as `*(u16*)&ent->collis
 `&ent->gustJarState`, the GBA's 0x38/0x3a. Natively those Entity fields are elsewhere, so the manager's x/y
 stayed 0 and swimming up into the opening did nothing. Natively it stores through `MiscManager`. Checked with
 `cant_enter.tmcs` (Veil Falls 0a:00): after re-entering the room, swimming up goes to AREA_VEIL_FALLS_CAVES.
+
+## Percy's house: an interactable entity with no hitbox
+
+The disguised Moblin lady in Percy's house (script_MoblinLadyDisguised) calls `sub_08061FB0`, which sets
+`hitbox = NULL` while she is still registered as an interactable object. `sub_080784E4` (src/playerUtils.c) then
+reads `hitbox->width`/`height`, offsets 6/7, which the GBA reads from the BIOS as 0x5e and 0xe5 (of 0xe55ec002).
+Natively it crashed (read at 0x6) after lighting both candles. Natively a NULL hitbox uses those two bytes.
+
+## Dark Hyrule Castle: jail bars with no animation
+
+`JailBars_Init` (src/object/jailBars.c) starts no animation for closed bars, and `JailBars_Action2` waits for
+`GetNextFrame` to set ANIM_DONE. On the GBA, `GetNextFrame` with no animation reads BIOS open bus at address 0,
+whose byte 3 (0xe5) has the ANIM_DONE bit, so the bars opened at once. Natively `GetNextFrame` does nothing then,
+so after a switch the bars were passable but stayed drawn closed. Natively, with no animation, `JailBars_Action2`
+goes straight to the open state (action 3, animation 1). Checked with `open_doors_not_rendering_open.tmcs`.
