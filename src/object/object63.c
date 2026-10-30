@@ -35,7 +35,7 @@ void Object63_Init(Entity* this) {
             if (CreateRandomItemDrop(this, 4) == 0) {
                 this->action = 2;
             }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             // The drop is the child only when it is a ground item; with no drop (or a beetle)
             // the child is NULL and the GBA's write lands in BIOS, where it is lost.
             if (this->child != NULL) {
@@ -60,7 +60,7 @@ void Object63_Action1(Entity* this) {
         this->action = 2;
     }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // No child after a beetle drop (see Object63_Init): the GBA's increment goes to BIOS.
     if ((this->timer & 1) != 0 && this->child != NULL) {
 #else

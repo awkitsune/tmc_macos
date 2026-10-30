@@ -12,7 +12,7 @@
 #include "room.h"
 #include "map.h"
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 // The room data (x, y, paramC) must land in tilePos .. flag (src/room.c RegisterRoomEntity).
 static_assert(offsetof(TileChangeObserveManager, tilePos) == sizeof(Manager) + 0x18);
 static_assert(offsetof(TileChangeObserveManager, field_0x3a) == sizeof(Manager) + 0x1a);

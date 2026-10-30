@@ -78,7 +78,7 @@
 #define static_assert(cond) extern char assertion[(cond) ? 1 : -1]
 #endif
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // The ROM's __divsi3 / __modsi3 (asm/lib/libgcc.s) return 0 for a zero divisor and otherwise use the BIOS
 // Div, which gives INT_MIN / -1 = INT_MIN rem 0. Natively arm64 gives the dividend for % 0 and x86_64 traps
 // on both, so a division whose divisor can be 0 goes through these (see port/notes/native-hazards.md).

@@ -1290,7 +1290,7 @@ InteractableObject* sub_080784E4(void) {
             r4 += (s8)hitbox[1];
             puVar5 = hitbox + 2;
         } else {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             // Percy's house: the disguised Moblin lady clears her hitbox (sub_08061FB0) while still registered.
             // The GBA reads width/height at 6/7 from the BIOS, 0x5e and 0xe5 of 0xe55ec002.
             static const u8 sBiosHitboxSize[2] = { 0x5e, 0xe5 };

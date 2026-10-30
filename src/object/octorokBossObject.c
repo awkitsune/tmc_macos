@@ -248,7 +248,7 @@ void OctorokBossObject_Action1(OctorokBossObjectEntity* this) {
                 this->unk_78.WORD--;
                 return;
             }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
             // Type 4 (the light coming back after the smoke attack) is created without a helper. The GBA
             // reads the tail pointer from BIOS open bus (0xe55ec002) and writes the word at its +0x2c back
             // onto itself, a palette RAM mirror (unaligned, so the rotated read swaps BG colours 0x16 and

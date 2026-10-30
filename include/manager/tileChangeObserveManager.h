@@ -20,7 +20,7 @@ typedef struct {
     u8 field_0x2d;
     u8 field_0x2e;
     u8 field_0x2f;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // The room data lands at the GBA offsets 0x30-0x3f (src/room.c RegisterRoomEntity), which an 8-byte
     // pointer here would push 4 bytes along: observedTile is kept after it.
     u32 field_0x30;
@@ -36,7 +36,7 @@ typedef struct {
     u8 field_0x3c;
     u8 field_0x3d;
     u16 flag;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     uintptr_t paramC; // the room data's paramC as a pointer
     u16* observedTile;
 #endif

@@ -605,7 +605,7 @@ void sub_080882A8(FigurineDeviceEntity* this) {
         206, 79, 3, 2, 0, 208, 0, 6, 0, 13, 0, 2, 0, 0, 0, 0, 128, 240, 208, 139, 2, 0, 1, 0,
     };
 #endif
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // The bytes above are a Font with GBA addresses in it (as in phonograph.c).
 #ifdef EU
 #define FIGURINE_BORDER 3
@@ -628,7 +628,7 @@ void sub_080882A8(FigurineDeviceEntity* this) {
     NumberToAsciiPad3Digits(this->shells, &gUnk_020227E8[0], 0x202020);
     NumberToAsciiPad3Digits(this->chance, &gUnk_020227E8[1], 0x202020);
     ptr = (u8*)gSaveHeader;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     ShowTextBox(gUnk_08120AE4[super->type2], ptr[7] == 0 ? &sFontLeft : &sFontRight);
 #else
     if (ptr[7] == 0) {

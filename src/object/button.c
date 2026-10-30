@@ -175,7 +175,7 @@ Entity* sub_08081D74(ButtonEntity* this) {
     if (GetCollisionDataAtTilePos(this->tilePos, super->collisionLayer) == COLLISION_DATA_15) {
         return NULL;
     }
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // An unused copy slot is NULL (fewer than three copies); the GBA reads BIOS bytes through it.
 #define CLONE_IN_RECT(i) (gPlayerClones[i] != NULL && EntityInRectRadius(super, gPlayerClones[i], 5, 6))
 #else

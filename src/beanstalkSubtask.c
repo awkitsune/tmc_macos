@@ -457,7 +457,7 @@ u32 UpdatePlayerCollision(void) {
             index = 0;
             tmp3 = 0;
             while (index < 3) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
                 // No copies: gPlayerClones[0] is NULL (the GBA reads the BIOS); take it as no copy on a tile.
                 if (gPlayerClones[0] != NULL &&
                     (((*(u32*)(&(((GenericEntity*)gPlayerClones[0]))->field_0x6c)) & (1 << index)) != 0) &&
@@ -1194,7 +1194,7 @@ void sub_0801AD6C(const Data* param_1, u32 tilePos) {
             manager->type = (u8)param_1->type;
             manager->type2 = (u8)param_1->type2;
             // TODO are these fields common for all managers or does this usually create managers of certain types?
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
             // The stores go to 0x38 and 0x3a, the room data's x and y. The tables only make FlameManager
             // (for the top layer's unlit torches); natively its x and y are not at manager[1].timer + 10.
             tmpX2 = ((u16)tilePos & 0x3f) * 0x10 + 8;

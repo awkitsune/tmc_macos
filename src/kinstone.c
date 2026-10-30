@@ -351,7 +351,7 @@ void sub_0801876C(u32 worldEventId, bool32 isKinstoneFused) {
             }
             ent = LoadRoomEntity(&gUnk_080FEE78[ptr->entity_idx]);
             if (ent != 0) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
                 // A MiscManager (type 0xb, swimming into a waterfall cave): the stores go to the GBA's 0x38 and
                 // 0x3a, its x and y, which natively are not at collisionLayer / gustJarState.
                 ((MiscManager*)ent)->x = ptr->x + gRoomControls.origin_x;

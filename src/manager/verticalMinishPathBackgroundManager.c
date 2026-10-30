@@ -10,7 +10,7 @@
 #include "screen.h"
 #include "room.h"
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 // The room data (x, y, paramC) lands in field_0x38 and field_0x3c (src/room.c RegisterRoomEntity).
 static_assert(offsetof(VerticalMinishPathBackgroundManager, field_0x38) == sizeof(Manager) + 0x18);
 static_assert(offsetof(VerticalMinishPathBackgroundManager, field_0x3c) == sizeof(Manager) + 0x1c);
@@ -38,7 +38,7 @@ void sub_0805754C(VerticalMinishPathBackgroundManager* this) {
     bgOffset += bgOffset >> 3;
     gScreen.bg3.yOffset = bgOffset & 0x3f;
     gScreen.bg3.subTileMap = gMapDataTopSpecial + (bgOffset / 0x40) * 0x200;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     if (this->field_0x38 != (u32)(uintptr_t)gScreen.bg3.subTileMap) {
         this->field_0x38 = (u32)(uintptr_t)gScreen.bg3.subTileMap;
         gScreen.bg3.updated = 1;
@@ -53,7 +53,7 @@ void sub_0805754C(VerticalMinishPathBackgroundManager* this) {
     bgOffset += bgOffset >> 2;
     gScreen.bg1.yOffset = bgOffset & 0x3f;
     gScreen.bg1.subTileMap = gMapDataTopSpecial + 0x2000 + (bgOffset / 0x40) * 0x200;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     if (this->field_0x3c != (u32)(uintptr_t)gScreen.bg1.subTileMap) {
         this->field_0x3c = (u32)(uintptr_t)gScreen.bg1.subTileMap;
         gScreen.bg1.updated = 1;
@@ -102,7 +102,7 @@ void sub_08057688(void) {
 
 void VerticalMinishPathBackgroundManager_OnEnterRoom(void* this) {
     LoadGfxGroup(gRoomVars.graphicsGroups[0]);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     ((VerticalMinishPathBackgroundManager*)this)->field_0x38 = 0;
     ((VerticalMinishPathBackgroundManager*)this)->field_0x3c = 0;
 #else

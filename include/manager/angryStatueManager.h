@@ -5,7 +5,7 @@
 
 typedef struct {
     Manager base;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // The room data lands at the GBA offsets 0x30-0x3f (src/room.c RegisterRoomEntity), which 8-byte
     // pointers here would push 16 bytes along: field_0x20 is kept after it.
     u8 unk_20[0x10];
@@ -27,7 +27,7 @@ typedef struct {
     u8 field_0x3c;
     u8 field_0x3d;
     u16 field_0x3e;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     uintptr_t paramC; // the room data's paramC as a pointer
     Entity* field_0x20[4];
 #endif

@@ -11,7 +11,7 @@ typedef struct {
     u8 unk_23; // used
     u16 unk_24;
     u16 unk_26;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     // 4 bytes as on the GBA: the room data lands at the GBA offsets 0x30-0x3f (unk_34 .. localFlag),
     // which an 8-byte pointer here would push 4 bytes along (src/room.c RegisterRoomEntity).
     u32 unk_28;

@@ -118,7 +118,7 @@ static u32 sub_08088938(PressurePlateEntity* this) {
     return num;
 }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // An unused copy slot is NULL (fewer than three copies); the GBA reads BIOS bytes through it.
 #define CLONE_PRESENT(i) (gPlayerClones[i] != NULL)
 #else

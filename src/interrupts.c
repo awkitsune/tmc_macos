@@ -380,7 +380,7 @@ static void sub_080171F0(void) {
     sub_0807B0C8();
 
     if (gPlayerState.flags & PL_CLONING) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
         // With fewer than three copies (the first Crystal Sanctuaries) the unused slots are NULL; the GBA's
         // stores through them go to the BIOS and are lost.
         for (u32 i = 0; i < 3; i++) {

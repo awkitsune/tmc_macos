@@ -373,7 +373,7 @@ void sub_0806AFA0(Entity* this) {
     }
 }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // ShowNPCDialogue calls these with the entity only. sub_0806B004 writes context->condition; on GBA r1 holds its
 // own (ROM) address, so that write is lost. Natively r1 is whatever was there: give it a scratch context instead.
 static void sub_0806B004_FromDialog(Entity* this) {

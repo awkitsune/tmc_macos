@@ -114,7 +114,7 @@ void StalfosProjectile_Action1(Entity* this) {
     }
 }
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
 // Stalfos_SubAction2 (the gust jar pulling a Stalfos's head off) creates the head without a
 // parent. The gust usually catches it at once (OnGrabbed reads no parent); if not, the GBA reads
 // BIOS opcode bytes through the NULL parent here (0xe55ec002 after an interrupt returns): next is
@@ -132,7 +132,7 @@ static void StalfosProjectile_FollowNullParent(Entity* this) {
 #endif
 
 void StalfosProjectile_Action2(Entity* this) {
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     if (this->parent == NULL) {
         StalfosProjectile_FollowNullParent(this);
         return;

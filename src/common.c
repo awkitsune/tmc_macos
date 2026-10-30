@@ -670,7 +670,7 @@ void DrawDungeonFeatures(u32 floor, void* data, u32 size) {
     }
     layout = gDungeonLayouts[gArea.dungeon_idx][floor];
     MemClear(gMapDataBottomSpecial, 0x8000);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_HOSTED
     // On GBA gDungeonMap lies inside those 0x8000 bytes (at +0x1000), so the clear above also erases the
     // previous floor's drawing. Natively it is a separate array.
     MemClear(gDungeonMap, sizeof(gDungeonMap));

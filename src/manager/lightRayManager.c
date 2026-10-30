@@ -15,7 +15,7 @@
 #include "player.h"
 #include "physics.h"
 
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
 // The room data (paramB) lands in unk_34 (src/room.c RegisterRoomEntity).
 static_assert(offsetof(LightRayManager, unk_34) == sizeof(Manager) + 0x14);
 #endif
@@ -58,7 +58,7 @@ static void LightRayManager_OnEnterRoom(LightRayManager* this) {
     u8* pbVar1;
 
     LoadGfxGroup(this->gfxGroup);
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     this->unk_34 = 0;
 #else
     this->unk_34 = NULL;
@@ -142,7 +142,7 @@ void LightRayManager_Action1(LightRayManager* this) {
                         if (this->unk_21 == 0) {
                             super->action = 2;
                             super->timer = 0;
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
                             this->unk_34 = 0;
 #else
                             this->unk_34 = NULL;
@@ -235,7 +235,7 @@ void sub_08057450(LightRayManager* this) {
 
     gScreen.bg3.yOffset = y & 0x3f;
     gScreen.bg3.subTileMap = &gBG3Buffer[(y / 0x40) << 8];
-#ifdef PLATFORM_NATIVE
+#ifdef PORT_LAYOUT_64
     if (this->unk_34 != (u32)(uintptr_t)gScreen.bg3.subTileMap) {
         this->unk_34 = (u32)(uintptr_t)gScreen.bg3.subTileMap;
         gScreen.bg3.updated = 1;
