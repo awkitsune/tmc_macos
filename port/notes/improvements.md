@@ -7,13 +7,6 @@ Things that work today but could be better. Not bugs.
 - Signing with a Developer ID, notarization and a `.dmg`. A shared build is ad-hoc signed today, so the
   recipient has to use Open Anyway.
 
-## Late-game checks
-
-One audit fix (`native-hazards.md`) has no in-game check yet: Zelda following Link (`npc5.c` ZeldaFollowAction),
-which needs a save state from that far in. (Zelda following Link at the start of the game works.) Checked in play:
-the Gleerok death, shell trading, Crystal Sanctuary copies (two), Vaati appearing in North Hyrule Field, the Great
-Fairy, and the Golden Octorok (its hits, rock volleys, death and big rupee).
-
 ## PPU: OBJ cycle limit per line
 
 On hardware, sprites late in OAM are dropped on very crowded lines (1210 cycles per line). Here every sprite is

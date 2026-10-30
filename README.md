@@ -911,8 +911,7 @@ on the same frame hash, and the room smoke test reaches all 576 valid rooms.
 The smoke test does not cover every story state or gameplay interaction; see
 [its coverage limits](port/notes/room-smoke.md#what-the-smoke-test-cannot-see).
 
-Not done yet: the late-game Zelda following Link fix has no in-game check, and
-the shared app is ad-hoc signed. See [improvements](port/notes/improvements.md)
+Not done yet: the shared app is ad-hoc signed. See [improvements](port/notes/improvements.md)
 for this work.
 
 ## Mid-frame effects

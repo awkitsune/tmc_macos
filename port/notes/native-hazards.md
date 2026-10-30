@@ -54,6 +54,7 @@ GBA memory); natively it is a stale stack word, so a wild-pointer read (crash or
   `#ifdef PLATFORM_NATIVE r5 = &gPlayerEntity.base; #endif` is the closest match; the other
   uses of `HEAP->playerJumpedX/Y` in the same branch show the position it should walk to.
   The GBA build must stay unchanged (keep the declaration as is under `#else`).
+- Checked in play: Zelda followed Link through the late game with no crash.
 
 ### H2. `OctorokGolden` calls through an uninitialized table index
 [src/enemy/octorokGolden.c:27-34](../../src/enemy/octorokGolden.c): `u32 index; if (sub_080012DC(this)) { gUnk_080012C8[index](this); }`.
