@@ -265,7 +265,6 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _renderer.gpuPpuFailed = ^(NSString* message) {
         AppDelegate* strongSelf = weakSelf;
         if (!strongSelf) return;
-        [NSUserDefaults.standardUserDefaults setBool:NO forKey:kGpuPpuDefault];
         strongSelf->_subtitleDirty = YES;
         [strongSelf updateSubtitle];
         [strongSelf->_settings refresh];
@@ -370,12 +369,21 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _window.contentView = _view;
     [_window makeFirstResponder:_view];
     [_window makeKeyAndOrderFront:nil];
-    if ([defaults boolForKey:kGpuPpuDefault] && !getenv("TMC_GPU_PPU_SELFTEST")) {
+    NSDictionary* rendering = LoadGpuRenderingSettings();
+    if ([rendering[@"enabled"] boolValue] && !getenv("TMC_GPU_PPU_SELFTEST")) {
         [self toggleGpuPpu:nil];
+        if (_renderer.gpuPpuEnabled) {
+            if ([rendering[@"compact"] boolValue]) [self toggleCompactGpuCapture:nil];
+            if ([rendering[@"sprites"] boolValue]) [self toggleGpuSpriteQuads:nil];
+            if ([rendering[@"backgrounds"] boolValue]) [self toggleGpuBackgroundLayers:nil];
+        }
     }
     if (getenv("TMC_GPU_SETTINGS_SELFTEST")) {
         NSLog(@"GPU PPU startup preference self-test: %@",
-              _renderer.gpuPpuEnabled == [defaults boolForKey:kGpuPpuDefault] ? @"ok" : @"FAILED");
+              _renderer.gpuPpuEnabled == [rendering[@"enabled"] boolValue] &&
+              _renderer.compactGpuCaptureEnabled == [rendering[@"compact"] boolValue] &&
+              _renderer.gpuSpriteQuadsEnabled == [rendering[@"sprites"] boolValue] &&
+              _renderer.gpuBackgroundLayersEnabled == [rendering[@"backgrounds"] boolValue] ? @"ok" : @"FAILED");
     }
 
     [self startLatencyTools];
@@ -695,15 +703,11 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 
 - (void)toggleGpuPpu:(id)sender {
     if (![_renderer enableGpuPpu:!_renderer.gpuPpuEnabled]) {
-        [NSUserDefaults.standardUserDefaults setBool:NO forKey:kGpuPpuDefault];
         NSAlert* alert = [NSAlert new];
         alert.messageText = @"GPU PPU unavailable";
         alert.informativeText = @"The experimental renderer could not be initialized. The software renderer is still in use.";
         [alert beginSheetModalForWindow:_window completionHandler:nil];
         return;
-    }
-    if (!getenv("TMC_GPU_PPU_SELFTEST")) {
-        [NSUserDefaults.standardUserDefaults setBool:_renderer.gpuPpuEnabled forKey:kGpuPpuDefault];
     }
     _subtitleDirty = YES;
     [self updateSubtitle];

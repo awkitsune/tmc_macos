@@ -7,6 +7,7 @@ NSString* const kFilterDefault = @"Filter";
 NSString* const kIntegerScalingDefault = @"IntegerScaling";
 NSString* const kGamepadLayoutDefault = @"GamepadLayout";
 NSString* const kGpuPpuDefault = @"GpuPpu";
+NSString* const kGpuRenderingDefault = @"GpuRendering";
 NSString* const kLcdResponseDefault = @"LCDResponse";
 NSString* const kPacingDefault = @"FramePacing";
 NSString* const kPacingChangedNotification = @"TMCPacingChanged";
@@ -50,11 +51,17 @@ float KnobSnap(const Knob* knob, float value) {
 NSArray<NSString*>* SettingsKeys(void) {
     NSMutableArray* keys = [NSMutableArray arrayWithObjects:kFilterDefault, kIntegerScalingDefault, kLcdResponseDefault,
                                                             kPacingDefault, kGamepadLayoutDefault, kDebugMenuDefault,
-                                                            kDebugToolbarDefault, kGpuPpuDefault, nil];
+                                                            kDebugToolbarDefault, nil];
     for (size_t i = 0; i < KNOB_COUNT; i++) {
         [keys addObject:kKnobs[i].key];
     }
     return keys;
+}
+
+NSDictionary<NSString*, NSNumber*>* LoadGpuRenderingSettings(void) {
+    NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary* saved = [defaults dictionaryForKey:kGpuRenderingDefault];
+    return saved ?: @{ @"enabled": @([defaults boolForKey:kGpuPpuDefault]) };
 }
 
 FilterParams LoadFilterParams(void) {

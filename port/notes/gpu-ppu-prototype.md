@@ -5,7 +5,8 @@ The standalone `gpu_ppu_test` renders a captured frame on Metal and compares all
 experiment. On macOS, **Settings → Rendering → GPU PPU (experimental)** displays the Metal
 picture during gameplay, without also drawing the frame on the CPU. The CPU
 still handles display timing and scanline capture; software rendering remains
-available for fallback and paused redraws. The GPU PPU choice is saved between launches.
+available for fallback and paused redraws. Rendering choices apply immediately
+and are saved when the Settings window closes.
 The shader covers the CPU renderer's modes 0–2, tile and affine backgrounds,
 sprites, mosaic, windows, priorities, blending, brightness and forced blank.
 
@@ -89,7 +90,7 @@ by OBJ priority and OAM index. A separate pass builds the OBJ-window mask, and
 the existing compositor applies backgrounds, windows and blending. Affine OBJ
 sampling still uses the GBA's inverse fixed-point transform in the fragment
 shader, with the original sprite bounding box and mosaic rules. Turn the option
-off to compare the previous GPU sprite path; it starts off each launch.
+off to compare the previous GPU sprite path.
 
 To compare captures with the sprite-quad path, run `gpu_ppu_test` as above with
 `TMC_GPU_SPRITE_QUADS=1`. Its reported GPU time includes both sprite render
@@ -110,7 +111,7 @@ layers using per-line priorities, sprite data and windows, then applies GBA
 blending and brightness. Affine sampling and mosaic remain part of each BG's
 shader. Per-line display state, VRAM and palette changes are preserved. This
 path combines with either sprite path and either full or compact capture. It
-starts off each launch and does not implement widescreen.
+does not implement widescreen.
 
 Set `TMC_GPU_BG_LAYERS=1` with `gpu_ppu_test` to compare against software;
 combine it with `TMC_GPU_COMPACT_CAPTURE=1` and/or `TMC_GPU_SPRITE_QUADS=1`.
@@ -121,7 +122,7 @@ scene-specific samples that exclude display filters and frame capture. The
 extra pass and texture traffic may outweigh its parallelism; use the app's
 Performance window to compare actual workloads. The app's live frame comparison
 accepts `TMC_GPU_PPU_SELFTEST=1 TMC_GPU_BACKGROUND_SELFTEST=1`, optionally with
-`TMC_GPU_COMPACT_SELFTEST=1` and `TMC_GPU_SPRITE_SELFTEST=1`. The session-only
+`TMC_GPU_COMPACT_SELFTEST=1` and `TMC_GPU_SPRITE_SELFTEST=1`. The
 Rendering settings controls can be checked with `TMC_GPU_SETTINGS_SELFTEST=1`.
 
 ## Initial measurement

@@ -78,7 +78,7 @@ static NSTextField* Note(NSString* text) {
 
 static NSString* const kSettingsTabDefault = @"SettingsTab";
 
-@interface SettingsWindowController () <NSTabViewDelegate>
+@interface SettingsWindowController () <NSTabViewDelegate, NSWindowDelegate>
 @end
 
 @implementation SettingsWindowController {
@@ -99,6 +99,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     NSTabView* _tabs;
     NSLayoutConstraint* _tabsHeight;
     CGFloat _fullTabsHeight;
+    BOOL _renderingChanged;
 }
 
 - (instancetype)initWithRenderer:(Renderer*)renderer input:(Input*)input pacingStatus:(NSString* (^)(void))pacingStatus {
@@ -114,6 +115,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
         _renderer = renderer;
         _input = input;
         _pacingStatus = [pacingStatus copy];
+        panel.delegate = self;
         [self buildContent];
         [self refresh];
         [panel center];
@@ -179,7 +181,6 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
 
     [rendering addHeader:@"Game rendering"];
     _gpuPpu = [NSButton checkboxWithTitle:@"GPU PPU (experimental)" target:self action:@selector(renderingChanged:)];
-    _gpuPpu.identifier = kGpuPpuDefault;
     [rendering addRow:@"Renderer" control:_gpuPpu value:nil];
     _gpuCompact = [NSButton checkboxWithTitle:@"Compact scanline capture" target:self action:@selector(renderingChanged:)];
     [rendering addRow:@"Capture" control:_gpuCompact value:nil];
@@ -187,7 +188,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     [rendering addRow:@"Sprites" control:_gpuSprites value:nil];
     _gpuBackgrounds = [NSButton checkboxWithTitle:@"Separate background layers" target:self action:@selector(renderingChanged:)];
     [rendering addRow:@"Backgrounds" control:_gpuBackgrounds value:nil];
-    [rendering addRow:nil control:Note(@"Capture, sprites and background options reset on exit.\nUse Debug → Performance to compare them.") value:nil];
+    [rendering addRow:nil control:Note(@"Rendering changes are saved when Settings closes.\nUse Debug → Performance to compare them.") value:nil];
 
     [timing addHeader:@"Timing"];
     _pacingPopup = [NSPopUpButton new];
@@ -313,6 +314,17 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     [super showWindow:sender];
 }
 
+- (void)windowWillClose:(NSNotification*)notification {
+    if (!_renderingChanged) return;
+    [NSUserDefaults.standardUserDefaults setObject:@{
+        @"enabled": @(_renderer.gpuPpuEnabled),
+        @"compact": @(_renderer.compactGpuCaptureEnabled),
+        @"sprites": @(_renderer.gpuSpriteQuadsEnabled),
+        @"backgrounds": @(_renderer.gpuBackgroundLayersEnabled)
+    } forKey:kGpuRenderingDefault];
+    _renderingChanged = NO;
+}
+
 - (NSTabView*)tabView {
     return _tabs;
 }
@@ -342,34 +354,58 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
 }
 
 - (void)renderingChanged:(NSButton*)sender {
+    BOOL before = sender == _gpuPpu ? _renderer.gpuPpuEnabled : sender == _gpuCompact ? _renderer.compactGpuCaptureEnabled :
+                  sender == _gpuSprites ? _renderer.gpuSpriteQuadsEnabled : _renderer.gpuBackgroundLayersEnabled;
     NSString* action = sender == _gpuPpu ? @"toggleGpuPpu:" : sender == _gpuCompact ? @"toggleCompactGpuCapture:" :
                        sender == _gpuSprites ? @"toggleGpuSpriteQuads:" : @"toggleGpuBackgroundLayers:";
     [NSApp sendAction:NSSelectorFromString(action) to:NSApp.delegate from:sender];
+    BOOL after = sender == _gpuPpu ? _renderer.gpuPpuEnabled : sender == _gpuCompact ? _renderer.compactGpuCaptureEnabled :
+                 sender == _gpuSprites ? _renderer.gpuSpriteQuadsEnabled : _renderer.gpuBackgroundLayersEnabled;
+    _renderingChanged |= before != after;
     [self refresh];
 }
 
 - (BOOL)checkRenderingControls {
     BOOL wasEnabled = _renderer.gpuPpuEnabled;
-    id saved = [NSUserDefaults.standardUserDefaults objectForKey:kGpuPpuDefault];
+    BOOL wasCompact = _renderer.compactGpuCaptureEnabled, wasSprites = _renderer.gpuSpriteQuadsEnabled;
+    BOOL wasBackgrounds = _renderer.gpuBackgroundLayersEnabled;
+    NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+    id saved = [defaults objectForKey:kGpuRenderingDefault];
     if (wasEnabled) [NSApp sendAction:NSSelectorFromString(@"toggleGpuPpu:") to:NSApp.delegate from:nil];
     [self refresh];
     BOOL ok = !_gpuCompact.enabled && !_gpuSprites.enabled && !_gpuBackgrounds.enabled;
     [_gpuPpu performClick:nil];
-    ok &= _renderer.gpuPpuEnabled && [NSUserDefaults.standardUserDefaults boolForKey:kGpuPpuDefault] &&
-          _gpuCompact.enabled && _gpuSprites.enabled && _gpuBackgrounds.enabled;
+    ok &= _renderer.gpuPpuEnabled && _gpuCompact.enabled && _gpuSprites.enabled && _gpuBackgrounds.enabled;
     if (_renderer.gpuPpuEnabled) {
         [_gpuCompact performClick:nil];
         [_gpuSprites performClick:nil];
         [_gpuBackgrounds performClick:nil];
         ok &= _renderer.compactGpuCaptureEnabled && _renderer.gpuSpriteQuadsEnabled && _renderer.gpuBackgroundLayersEnabled;
-        [self resetToDefaults:nil];
     }
-    ok &= !_renderer.gpuPpuEnabled && ![NSUserDefaults.standardUserDefaults boolForKey:kGpuPpuDefault] && !_renderer.compactGpuCaptureEnabled &&
+    id beforeClose = [defaults objectForKey:kGpuRenderingDefault];
+    ok &= saved == beforeClose || [saved isEqual:beforeClose];
+    [self close];
+    NSDictionary* committed = [defaults dictionaryForKey:kGpuRenderingDefault];
+    ok &= [committed[@"enabled"] boolValue] && [committed[@"compact"] boolValue] &&
+          [committed[@"sprites"] boolValue] && [committed[@"backgrounds"] boolValue];
+    ok &= [LoadGpuRenderingSettings() isEqual:committed];
+    [self showWindow:nil];
+    [self resetToDefaults:nil];
+    ok &= !_renderer.gpuPpuEnabled && !_renderer.compactGpuCaptureEnabled &&
           !_renderer.gpuSpriteQuadsEnabled && !_renderer.gpuBackgroundLayersEnabled &&
           !_gpuCompact.enabled && !_gpuSprites.enabled && !_gpuBackgrounds.enabled;
+    ok &= [[defaults dictionaryForKey:kGpuRenderingDefault] isEqual:committed];
+    [self close];
+    committed = [defaults dictionaryForKey:kGpuRenderingDefault];
+    ok &= ![committed[@"enabled"] boolValue] && ![committed[@"compact"] boolValue] &&
+          ![committed[@"sprites"] boolValue] && ![committed[@"backgrounds"] boolValue];
     if (wasEnabled) [NSApp sendAction:NSSelectorFromString(@"toggleGpuPpu:") to:NSApp.delegate from:nil];
-    if (saved) [NSUserDefaults.standardUserDefaults setObject:saved forKey:kGpuPpuDefault];
-    else [NSUserDefaults.standardUserDefaults removeObjectForKey:kGpuPpuDefault];
+    if (wasCompact) [NSApp sendAction:NSSelectorFromString(@"toggleCompactGpuCapture:") to:NSApp.delegate from:nil];
+    if (wasSprites) [NSApp sendAction:NSSelectorFromString(@"toggleGpuSpriteQuads:") to:NSApp.delegate from:nil];
+    if (wasBackgrounds) [NSApp sendAction:NSSelectorFromString(@"toggleGpuBackgroundLayers:") to:NSApp.delegate from:nil];
+    if (saved) [defaults setObject:saved forKey:kGpuRenderingDefault];
+    else [defaults removeObjectForKey:kGpuRenderingDefault];
+    [self showWindow:nil];
     return ok;
 }
 
@@ -427,6 +463,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
 - (void)resetToDefaults:(id)sender {
     if ([_tabs.selectedTabViewItem.identifier isEqual:@"Rendering"]) {
         if (_renderer.gpuPpuEnabled) [NSApp sendAction:NSSelectorFromString(@"toggleGpuPpu:") to:NSApp.delegate from:sender];
+        _renderingChanged = YES;
         [self refresh];
         return;
     }
