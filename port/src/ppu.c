@@ -15,6 +15,7 @@
 #include "port/hw.h"
 #include "port/ppu.h"
 #include "port/performance.h"
+#include "port/ppucapture.h"
 
 static uint16_t Reg16(uint32_t offset) {
     return gHwIo[offset] | (gHwIo[offset + 1] << 8);
@@ -455,6 +456,10 @@ static void RenderLine(int line, uint16_t* out) {
     if (perf) PerformanceAddPpu(PERF_COMPOSE, mark);
 }
 
+static PpuCaptureLine* sCapture;
+
+void PpuCaptureTo(PpuCaptureLine* lines) { sCapture = lines; }
+
 void PpuRenderLine(int line, uint16_t* out) {
     bool perf = PerformanceEnabled();
     uint64_t start = perf ? PerformanceNow() : 0;
@@ -464,6 +469,20 @@ void PpuRenderLine(int line, uint16_t* out) {
     if (sMosaicBgY == 0) {
         memcpy(sMosaicRefX, sRefX, sizeof(sRefX));
         memcpy(sMosaicRefY, sRefY, sizeof(sRefY));
+    }
+    if (sCapture != NULL) {
+        PpuCaptureLine* dst = &sCapture[line];
+        memcpy(dst->vram, gHwVram, sizeof(dst->vram));
+        memcpy(dst->palette, gHwPltt, sizeof(dst->palette));
+        memcpy(dst->oam, gHwOam, sizeof(dst->oam));
+        memcpy(dst->regs, gHwIo, HW_LINE_REGS);
+        memcpy(dst->refX, sRefX, sizeof(sRefX));
+        memcpy(dst->refY, sRefY, sizeof(sRefY));
+        memcpy(dst->mosaicRefX, sMosaicRefX, sizeof(sMosaicRefX));
+        memcpy(dst->mosaicRefY, sMosaicRefY, sizeof(sMosaicRefY));
+        dst->mosaicBgY = sMosaicBgY;
+        dst->mosaicObjY = sMosaicObjY;
+        dst->layerMask = sLayerMask;
     }
     if (out != NULL) {
         RenderLine(line, out);

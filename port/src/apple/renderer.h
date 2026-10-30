@@ -53,7 +53,7 @@ FilterParams FilterParamsDefaults(void);
  */
 typedef NS_ENUM(NSInteger, DebugBuffer) {
     DebugBufferNone = -1,
-    DebugBufferFrame = 0,       // the uploaded game frame (BGRA8, 240x160)
+    DebugBufferFrame = 0,       // the game frame (240x160)
     DebugBufferResponseHistory, // LCD response history (RGBA16F, linear light)
     DebugBufferResponseOutput,  // LCD response output (RGBA16F, gamma-encoded)
     DebugBufferFilterInput,     // what the filter pass sampled (one of the above)
@@ -107,6 +107,11 @@ CGRect RendererFitPicture(CGRect area, BOOL integerScaling);
 @property(nonatomic) BOOL testPattern;
 // LCD response (pixel ghosting, all filters); the times are in params.
 @property(nonatomic) BOOL lcdResponse;
+// Experimental GPU PPU; the software renderer remains available as a fallback.
+@property(nonatomic, readonly) BOOL gpuPpuEnabled;
+- (BOOL)enableGpuPpu:(BOOL)enabled;
+// Called on the main thread if GPU execution fails and software is restored.
+@property(nonatomic, copy, nullable) void (^gpuPpuFailed)(NSString* message);
 // Debugging: the buffer to copy back each few refreshes (DebugBufferNone: none,
 // at no cost), and the newest copy.
 @property(nonatomic) DebugBuffer debugBuffer;

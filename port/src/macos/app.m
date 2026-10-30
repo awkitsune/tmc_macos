@@ -261,6 +261,16 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _renderer.params = LoadFilterParams();
     _renderer.lcdResponse = [defaults boolForKey:kLcdResponseDefault];
     __weak AppDelegate* weakSelf = self;
+    _renderer.gpuPpuFailed = ^(NSString* message) {
+        AppDelegate* strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_subtitleDirty = YES;
+        [strongSelf updateSubtitle];
+        NSAlert* alert = [NSAlert new];
+        alert.messageText = @"GPU PPU stopped";
+        alert.informativeText = [NSString stringWithFormat:@"The software renderer was restored. %@", message];
+        [alert beginSheetModalForWindow:strongSelf->_window completionHandler:nil];
+    };
     _renderer.beforeDraw = ^{
         AppDelegate* strongSelf = weakSelf;
         [strongSelf updateSubtitle];
@@ -270,6 +280,24 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     FrontendSetFrameHandler(FramePublished, (__bridge void*)self);
     _debugWindows = [[DebugWindows alloc] initWithRenderer:_renderer];
     _view.delegate = _renderer;
+    if (getenv("TMC_GPU_PPU_SELFTEST")) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            AppDelegate* strongSelf = weakSelf;
+            if (!strongSelf) return;
+            [strongSelf toggleGpuPpu:nil];
+            NSLog(@"GPU PPU self-test: switch %@", strongSelf->_renderer.gpuPpuEnabled ? @"on" : @"FAILED");
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                AppDelegate* strongSelf = weakSelf;
+                if (!strongSelf) return;
+                if (getenv("TMC_GPU_PPU_SELFTEST_PAUSE")) {
+                    FrontendSetPaused(true);
+                    NSLog(@"GPU PPU self-test: pause %@", FrontendWaitUntilPaused(1000) ? @"ok" : @"FAILED");
+                }
+                [strongSelf toggleGpuPpu:nil];
+                NSLog(@"GPU PPU self-test: switch %@", strongSelf->_renderer.gpuPpuEnabled ? @"FAILED" : @"off");
+            });
+        });
+    }
     _window.contentView = _view;
     [_window makeFirstResponder:_view];
     [_window makeKeyAndOrderFront:nil];
@@ -506,6 +534,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     if (counter) {
         [parts addObject:[NSString stringWithFormat:@"Frame %llu", (unsigned long long)FrontendFrame()]];
     }
+    if (_renderer.gpuPpuEnabled) [parts addObject:@"GPU PPU (experimental)"];
     NSString* text = [parts componentsJoinedByString:@" · "];
     if (![_window.subtitle isEqualToString:text]) {
         _window.subtitle = text;
@@ -588,9 +617,27 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [self updateSubtitle];
 }
 
+- (void)toggleGpuPpu:(id)sender {
+    if (![_renderer enableGpuPpu:!_renderer.gpuPpuEnabled]) {
+        NSAlert* alert = [NSAlert new];
+        alert.messageText = @"GPU PPU unavailable";
+        alert.informativeText = @"The experimental renderer could not be initialized. The software renderer is still in use.";
+        [alert beginSheetModalForWindow:_window completionHandler:nil];
+        return;
+    }
+    _subtitleDirty = YES;
+    [self updateSubtitle];
+    [_view setNeedsDisplay:YES];
+}
+
 - (void)debugMenuChanged:(NSNotification*)note {
     [self buildMenus];
     if (![NSUserDefaults.standardUserDefaults boolForKey:kDebugMenuDefault]) {
+        if (_renderer.gpuPpuEnabled) {
+            [_renderer enableGpuPpu:NO];
+            _subtitleDirty = YES;
+            [self updateSubtitle];
+        }
         [_debugWindows closeAll];
     }
 }
@@ -843,6 +890,8 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     NSString* f8 = [NSString stringWithFormat:@"%C", (unichar)NSF8FunctionKey];
     [menu addItemWithTitle:@"Step Frame" action:@selector(stepFrame:) keyEquivalent:f8].keyEquivalentModifierMask = 0;
     [menu addItemWithTitle:@"Show Frame Counter" action:@selector(toggleFrameCounter:) keyEquivalent:@""];
+    NSMenuItem* gpuPpu = [menu addItemWithTitle:@"GPU PPU (Experimental)" action:@selector(toggleGpuPpu:) keyEquivalent:@""];
+    gpuPpu.toolTip = @"Render gameplay on the GPU; scanline state capture still uses CPU time and memory.";
     [menu addItem:NSMenuItem.separatorItem];
     NSMenu* checkpoints = [[NSMenu alloc] initWithTitle:@"Load Checkpoint"];
     checkpoints.delegate = self; // filled when opened (menuNeedsUpdate:)
@@ -878,6 +927,8 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     } else if (item.action == @selector(toggleFrameCounter:)) {
         item.state = [NSUserDefaults.standardUserDefaults boolForKey:kFrameCounterDefault] ? NSControlStateValueOn
                                                                                            : NSControlStateValueOff;
+    } else if (item.action == @selector(toggleGpuPpu:)) {
+        item.state = _renderer.gpuPpuEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     } else if (item.action == @selector(togglePause:)) {
         item.title = FrontendIsPaused() ? @"Resume" : @"Pause";
     } else if (item.action == @selector(changeRom:) || item.action == @selector(reextractGameData:)) {

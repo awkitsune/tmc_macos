@@ -82,6 +82,8 @@
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
+#include "port/ppucapture.h"
+#include "port/performance.h"
 #include "port/romdata.h"
 #include "port/sound.h"
 #include "port/state.h"
@@ -916,7 +918,41 @@ void PlatformVBlank(void) {
         if (dump) {
             GfxSnapshotBegin(&sSnap, gPlatformFrame);
         }
-        HwRunFrame(shot || sHashFile != NULL ? sFrame : NULL);
+        // TMC_GPU_CAPTURE=frame:path: capture one actual scanline-timed frame
+        // for the standalone Metal comparison tool.
+        const char* captureEnv = getenv("TMC_GPU_CAPTURE");
+        char* capturePath = NULL;
+        uint64_t captureFrame = captureEnv ? strtoull(captureEnv, &capturePath, 10) : 0;
+        int captureRequested = captureEnv && capturePath != captureEnv && *capturePath == ':' &&
+                               capturePath[1] && captureFrame == gPlatformFrame;
+        PpuCapture* capture = captureRequested ? calloc(1, sizeof(*capture)) : NULL;
+        if (captureRequested && capture == NULL) {
+            fprintf(stderr, "could not allocate GPU capture\n");
+            exit(1);
+        }
+        const char* benchEnv = getenv("TMC_GPU_PROFILE_FRAME");
+        char* benchEnd = NULL;
+        uint64_t benchFrame = benchEnv ? strtoull(benchEnv, &benchEnd, 10) : 0;
+        int bench = benchEnv && benchEnd != benchEnv && *benchEnd == 0 && benchFrame == gPlatformFrame;
+        if (bench) { PerformanceSetEnabled(true); PerformanceBeginFrame(); }
+        if (capture != NULL) PpuCaptureTo(capture->lines);
+        HwRunFrame(shot || sHashFile != NULL || capture != NULL || bench ? sFrame : NULL);
+        if (bench) {
+            printf("frame %llu CPU PPU %.3f ms%s (includes timer overhead)\n", (unsigned long long)gPlatformFrame,
+                   PerformancePpuTotal() / 1e6, capture ? " with capture" : "");
+            PerformanceSetEnabled(false);
+        }
+        if (capture != NULL) {
+            PpuCaptureTo(NULL);
+            memcpy(capture->reference, sFrame, sizeof(capture->reference));
+            FILE* file = fopen(capturePath + 1, "wb");
+            if (file == NULL || fwrite(capture, sizeof(*capture), 1, file) != 1) {
+                fprintf(stderr, "could not write GPU capture %s\n", capturePath + 1);
+                exit(1);
+            }
+            fclose(file);
+            free(capture);
+        }
         if (dump) {
             GfxSnapshotEnd(&sSnap);
             WriteDumps(&sSnap);

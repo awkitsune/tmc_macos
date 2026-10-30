@@ -16,6 +16,7 @@
 #include "port/gfxdebug.h"
 #include "port/mapview.h"
 #include "port/ppu.h"
+#include "port/ppucapture.h"
 
 /* The GBA's refresh rate: 16.78 MHz / 280896 cycles per frame. */
 #define FRONTEND_FRAME_RATE (16777216.0 / 280896.0)
@@ -58,8 +59,14 @@ void FrontendSetSavePath(const char* path);
  * than *sequence, updating *sequence. Returns whether a frame was copied. The
  * game frames since the last copy are the change in *sequence; *cut is set when
  * a state load or a reset came in between (the picture does not follow on).
+ * If gpuLines is non-NULL, copy matching captured scanlines when available
+ * and set *gpuAvailable. A GPU-only frame is not returned to a software-only
+ * caller; it waits for the next software-rendered frame.
  */
-bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut);
+bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCaptureLine* gpuLines, bool* gpuAvailable,
+                       bool* cpuAvailable);
+/* Experimental GPU rendering; the game thread keeps hardware timing on the CPU. */
+bool FrontendSetGpuPpuEnabled(bool enabled);
 
 /* Keys to hold in addition to the polled ones (HW_KEY_* bits), read at the next frame boundary. */
 void FrontendSetKeys(uint16_t keys);

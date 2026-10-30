@@ -81,7 +81,7 @@ typedef struct {
 NSString* DebugBufferName(DebugBuffer buffer) {
     switch (buffer) {
         case DebugBufferFrame:
-            return @"Game frame (uploaded)";
+            return @"Game frame";
         case DebugBufferResponseHistory:
             return @"LCD response: history (linear)";
         case DebugBufferResponseOutput:
@@ -213,6 +213,11 @@ typedef struct {
     id<MTLCommandQueue> _queue;
     id<MTLRenderPipelineState> _pipeline;
     id<MTLTexture> _textures[IN_FLIGHT];
+    id<MTLComputePipelineState> _gpuPpuPipeline;
+    id<MTLBuffer> _gpuPpuInputs[IN_FLIGHT];
+    id<MTLTexture> _gpuPpuTextures[IN_FLIGHT];
+    BOOL _gpuPpuEnabled, _lastFrameGpu, _gpuSelfTestChecked, _gpuOnlyTestChecked, _gpuFallbackTestChecked;
+    NSUInteger _gpuPpuGeneration;
     // LCD response: what the simulated LCD shows, in linear light (ping-pong,
     // _history[_historySlot] is current), and the same gamma-encoded for the
     // present pass. One queue with tracked resources, so a pass never writes
@@ -429,6 +434,56 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
 - (void)mtkView:(MTKView*)view drawableSizeWillChange:(CGSize)size {
 }
 
+- (BOOL)gpuPpuEnabled { return _gpuPpuEnabled; }
+
+- (BOOL)enableGpuPpu:(BOOL)enabled {
+    if (enabled == _gpuPpuEnabled) return YES;
+    if (enabled) {
+        NSError* error = nil;
+        NSString* path = [NSBundle.mainBundle pathForResource:@"gpu_ppu" ofType:@"metal"];
+        NSString* source = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error] : nil;
+        MTLCompileOptions* options = [MTLCompileOptions new];
+        options.languageVersion = MTLLanguageVersion2_4;
+        id<MTLLibrary> library = source ? [_device newLibraryWithSource:source options:options error:&error] : nil;
+        id<MTLFunction> function = [library newFunctionWithName:@"gpu_ppu_texture"];
+        _gpuPpuPipeline = function ? [_device newComputePipelineStateWithFunction:function error:&error] : nil;
+        if (!_gpuPpuPipeline) {
+            NSLog(@"GPU PPU shader unavailable: %@", error);
+            return NO;
+        }
+        MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                                       width:PPU_WIDTH height:PPU_HEIGHT mipmapped:NO];
+        desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+        desc.storageMode = MTLStorageModePrivate;
+        for (int i = 0; i < IN_FLIGHT; i++) {
+            _gpuPpuInputs[i] = [_device newBufferWithLength:sizeof(PpuCaptureLine) * PPU_HEIGHT
+                                                   options:MTLResourceStorageModeShared];
+            _gpuPpuTextures[i] = [_device newTextureWithDescriptor:desc];
+            if (!_gpuPpuInputs[i] || !_gpuPpuTextures[i]) {
+                NSLog(@"GPU PPU texture or buffer allocation failed");
+                for (int j = 0; j < IN_FLIGHT; j++) { _gpuPpuInputs[j] = nil; _gpuPpuTextures[j] = nil; }
+                _gpuPpuPipeline = nil;
+                return NO;
+            }
+        }
+        if (!FrontendSetGpuPpuEnabled(true)) {
+            for (int i = 0; i < IN_FLIGHT; i++) { _gpuPpuInputs[i] = nil; _gpuPpuTextures[i] = nil; }
+            _gpuPpuPipeline = nil;
+            return NO;
+        }
+    } else {
+        FrontendSetGpuPpuEnabled(false);
+        for (int i = 0; i < IN_FLIGHT; i++) _gpuPpuInputs[i] = nil;
+        _gpuPpuPipeline = nil;
+        // Keep the last GPU texture visible until a new software frame arrives.
+    }
+    _gpuPpuEnabled = enabled;
+    _gpuPpuGeneration++;
+    if (enabled) _sequence = 0; // show the latest software frame until a captured frame arrives
+    _historyValid = NO;
+    return YES;
+}
+
 - (void)drawInMTKView:(MTKView*)view {
     if (self.beforeDraw) {
         self.beforeDraw();
@@ -464,21 +519,86 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     // otherwise keep drawing the texture that already holds the newest one.
     NSUInteger next = (_slot + 1) % IN_FLIGHT;
     uint64_t previous = _sequence;
-    bool cut = false;
-    BOOL fresh = self.testPattern ? [self fillTestPattern] : FrontendCopyFrame(_pixels, &_sequence, &cut);
+    bool cut = false, gpuAvailable = false, cpuAvailable = false;
+    PpuCaptureLine* gpuLines = _gpuPpuEnabled && !self.testPattern ? _gpuPpuInputs[next].contents : NULL;
+    BOOL fresh = self.testPattern ? [self fillTestPattern] : FrontendCopyFrame(_pixels, &_sequence, &cut, gpuLines, &gpuAvailable, &cpuAvailable);
+    id<MTLCommandBuffer> commands = [_queue commandBuffer];
     if (fresh) {
-        [_textures[next] replaceRegion:MTLRegionMake2D(0, 0, PPU_WIDTH, PPU_HEIGHT)
-                           mipmapLevel:0
-                             withBytes:_pixels
-                           bytesPerRow:PPU_WIDTH * 4];
+        if (gpuAvailable) {
+            id<MTLComputeCommandEncoder> encoder = [commands computeCommandEncoder];
+            [encoder setComputePipelineState:_gpuPpuPipeline];
+            [encoder setBuffer:_gpuPpuInputs[next] offset:0 atIndex:0];
+            [encoder setTexture:_gpuPpuTextures[next] atIndex:0];
+            [encoder dispatchThreads:MTLSizeMake(PPU_WIDTH, PPU_HEIGHT, 1)
+                 threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
+            [encoder endEncoding];
+            NSUInteger generation = _gpuPpuGeneration;
+            __weak Renderer* weakRenderer = self;
+            [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+                if (buffer.status != MTLCommandBufferStatusError) return;
+                NSString* message = buffer.error.localizedDescription ?: @"Metal could not render the frame.";
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    Renderer* strongRenderer = weakRenderer;
+                    if (!strongRenderer || !strongRenderer->_gpuPpuEnabled || strongRenderer->_gpuPpuGeneration != generation) return;
+                    [strongRenderer enableGpuPpu:NO];
+                    if (strongRenderer.gpuPpuFailed) strongRenderer.gpuPpuFailed(message);
+                });
+            }];
+            if (getenv("TMC_GPU_PPU_SELFTEST") && !cpuAvailable && !_gpuOnlyTestChecked) {
+                _gpuOnlyTestChecked = YES;
+                [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+                    NSLog(@"GPU PPU self-test: GPU-only frame %@", buffer.status == MTLCommandBufferStatusCompleted ? @"ok" : @"FAILED");
+                }];
+            }
+            // One live-frame check for the automated app self-test. Compare the
+            // texture consumed by presentation with the matching software frame.
+            if (getenv("TMC_GPU_PPU_SELFTEST") && !_gpuSelfTestChecked) {
+                _gpuSelfTestChecked = YES;
+                id<MTLBuffer> readback = [_device newBufferWithLength:PPU_WIDTH * PPU_HEIGHT * 4
+                                                               options:MTLResourceStorageModeShared];
+                NSData* expected = [NSData dataWithBytes:_pixels length:sizeof(_pixels)];
+                id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+                [blit copyFromTexture:_gpuPpuTextures[next] sourceSlice:0 sourceLevel:0
+                         sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(PPU_WIDTH, PPU_HEIGHT, 1)
+                             toBuffer:readback destinationOffset:0 destinationBytesPerRow:PPU_WIDTH * 4
+              destinationBytesPerImage:PPU_WIDTH * PPU_HEIGHT * 4];
+                [blit endEncoding];
+                [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+                    int bad = 0;
+                    const uint8_t* actual = readback.contents;
+                    const uint32_t* reference = expected.bytes;
+                    if (buffer.status != MTLCommandBufferStatusCompleted || actual == NULL) {
+                        NSLog(@"GPU PPU self-test: FAILED to read the GPU frame");
+                        return;
+                    }
+                    for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) {
+                        uint32_t rgb = reference[i];
+                        if (actual[i * 4] != ((rgb >> 16) & 255) || actual[i * 4 + 1] != ((rgb >> 8) & 255) ||
+                            actual[i * 4 + 2] != (rgb & 255) || actual[i * 4 + 3] != 255) bad++;
+                    }
+                    NSLog(@"GPU PPU self-test: %@, %d differing pixels", bad ? @"FAILED" : @"ok", bad);
+                }];
+            }
+        } else {
+            if (getenv("TMC_GPU_PPU_SELFTEST") && !_gpuPpuEnabled && _gpuOnlyTestChecked && !_gpuFallbackTestChecked && cpuAvailable) {
+                _gpuFallbackTestChecked = YES;
+                NSLog(@"GPU PPU self-test: software frame restored");
+            }
+            [_textures[next] replaceRegion:MTLRegionMake2D(0, 0, PPU_WIDTH, PPU_HEIGHT)
+                               mipmapLevel:0
+                                 withBytes:_pixels
+                               bytesPerRow:PPU_WIDTH * 4];
+        }
+        _lastFrameGpu = gpuAvailable;
         _slot = next;
+        if (!_gpuPpuEnabled) {
+            for (int i = 0; i < IN_FLIGHT; i++) _gpuPpuTextures[i] = nil;
+        }
     }
-    id<MTLTexture> texture = _textures[_slot];
+    id<MTLTexture> texture = _lastFrameGpu ? _gpuPpuTextures[_slot] : _textures[_slot];
     if (LatencyEnabled()) {
         LatencyStageAt(_sequence, 0, drawStart);
     }
-
-    id<MTLCommandBuffer> commands = [_queue commandBuffer];
 
     // LCD response: one step per new game frame, never per display refresh (so
     // it looks the same at 60 and 120 Hz); paused, nothing new arrives and the
@@ -647,7 +767,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     NSUInteger x = 0, y = 0;
     switch (debug) {
         case DebugBufferFrame:
-            source = _textures[_slot];
+            source = _lastFrameGpu ? _gpuPpuTextures[_slot] : _textures[_slot];
             break;
         case DebugBufferResponseHistory:
             source = _history[_historySlot];
@@ -713,7 +833,8 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         default:
             break;
     }
-    if (source == nil || (source.pixelFormat != MTLPixelFormatBGRA8Unorm && source.pixelFormat != MTLPixelFormatRGBA16Float)) {
+    if (source == nil || (source.pixelFormat != MTLPixelFormatBGRA8Unorm &&
+                          source.pixelFormat != MTLPixelFormatRGBA8Unorm && source.pixelFormat != MTLPixelFormatRGBA16Float)) {
         os_unfair_lock_lock(&_readbackLock);
         _readbackBusy = NO;
         os_unfair_lock_unlock(&_readbackLock);
@@ -725,6 +846,8 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         height = MIN(height, (NSUInteger)viewport.height);
     }
     BOOL isFloat = source.pixelFormat == MTLPixelFormatRGBA16Float;
+    BOOL isRGBA = source.pixelFormat == MTLPixelFormatRGBA8Unorm;
+    if (isRGBA) format = @"RGBA8Unorm, gamma-encoded";
     id<MTLTexture> readback = [self texture:_readbackTexture
                                      format:source.pixelFormat
                                       width:width
@@ -762,6 +885,14 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
                bytesPerRow:width * bytesPerPixel
                 fromRegion:MTLRegionMake2D(0, 0, width, height)
                mipmapLevel:0];
+        if (isRGBA) {
+            uint8_t* pixels = bytes.mutableBytes;
+            for (NSUInteger i = 0; i < width * height; i++) {
+                uint8_t red = pixels[i * 4];
+                pixels[i * 4] = pixels[i * 4 + 2];
+                pixels[i * 4 + 2] = red;
+            }
+        }
         DebugReadback* result = [[DebugReadback alloc] initWithBuffer:debug
                                                                 width:width
                                                                height:height

@@ -7,16 +7,19 @@
  *   affine: per-line BG2PA..BG2Y, the rolling barrel (rollingBarrelManager); each
  *           write of BG2X/BG2Y must reload the reference point
  *   window: per-line WIN0H, the iris / spotlight (sub_0801E1EC in src/common.c)
+ *   palette: per-line palette RAM writes
  *
  * Prints one line per check and exits nonzero on a mismatch.
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
+#include "port/ppucapture.h"
 
 // Stand-ins for what the game build provides.
 uint64_t gPlatformFrame;
@@ -30,13 +33,15 @@ const uint32_t gHwRamMapCount = 0;
 
 static const uint16_t* sTable;
 static uint32_t sTableDest, sTableCount;
+static int sTablePalette;
 
 // The game's VBlank handler: stop DMA 0, copy line 0's entry, re-arm the table.
 static void ArmTable(void) {
     HwDmaStop(0);
     if (sTable != NULL) {
-        memcpy(gHwIo + sTableDest, sTable, sTableCount * 2);
-        HwDmaSet(0, sTable, gHwIo + sTableDest, DMA_HBLANK_REPEAT | sTableCount);
+        uint8_t* dest = (sTablePalette ? gHwPltt : gHwIo) + sTableDest;
+        memcpy(dest, sTable, sTableCount * 2);
+        HwDmaSet(0, sTable, dest, DMA_HBLANK_REPEAT | sTableCount);
     }
 }
 
@@ -55,6 +60,7 @@ static uint16_t Color(int index) {
 }
 
 static void ClearHardware(void) {
+    sTablePalette = 0;
     memset(gHwIo, 0, sizeof(gHwIo));
     memset(gHwVram, 0, sizeof(gHwVram));
     memset(gHwPltt, 0, sizeof(gHwPltt));
@@ -68,11 +74,22 @@ static void ClearHardware(void) {
     Reg16(0x04, 0x0008); // VBlank interrupt on, no VCOUNT match
 }
 
+static PpuCapture* sGpuCapture;
+
 // Runs two frames (the first arms the table at its VBlank) and keeps the second.
 static void RunFrames(uint16_t* frame) {
     ArmTable();
     HwRunFrame(frame);
-    HwRunFrame(frame);
+    if (getenv("TMC_GPU_CASE_DIR") != NULL) {
+        sGpuCapture = calloc(1, sizeof(*sGpuCapture));
+        if (sGpuCapture == NULL) exit(1);
+        PpuCaptureTo(sGpuCapture->lines);
+    }
+    HwRunFrame(sGpuCapture != NULL && getenv("TMC_GPU_CASE_SKIP_CPU") ? NULL : frame);
+    if (sGpuCapture != NULL) {
+        PpuCaptureTo(NULL);
+        memcpy(sGpuCapture->reference, frame, sizeof(sGpuCapture->reference));
+    }
 }
 
 // The entry a line is drawn with: line 0 gets the copy made at VBlank, and each
@@ -83,6 +100,17 @@ static int EntryForLine(int line) {
 
 static int Check(const char* name, const uint16_t* frame, uint16_t (*expect)(int x, int line)) {
     int bad = 0, firstX = 0, firstLine = 0;
+    if (sGpuCapture != NULL) {
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/scanline-%s.bin", getenv("TMC_GPU_CASE_DIR"), name);
+        FILE* file = fopen(path, "wb");
+        if (file == NULL || fwrite(sGpuCapture, sizeof(*sGpuCapture), 1, file) != 1 || fclose(file) != 0) {
+            fprintf(stderr, "could not write GPU case %s\n", path);
+            exit(1);
+        }
+        free(sGpuCapture);
+        sGpuCapture = NULL;
+    }
 
     for (int line = 0; line < PPU_HEIGHT; line++) {
         for (int x = 0; x < PPU_WIDTH; x++) {
@@ -204,6 +232,23 @@ static int TestWindow(uint16_t* frame) {
     return Check("window", frame, ExpectWindow);
 }
 
+// A DMA to palette RAM proves the captured memory, not just registers, changes per line.
+static uint16_t sPalette[PPU_HEIGHT];
+static uint16_t ExpectPalette(int x, int line) {
+    (void)x;
+    return sPalette[EntryForLine(line)];
+}
+static int TestPalette(uint16_t* frame) {
+    ClearHardware();
+    for (int i = 0; i < PPU_HEIGHT; i++) sPalette[i] = Color(i) & 0x7fff;
+    sTable = sPalette;
+    sTableDest = 0;
+    sTableCount = 1;
+    sTablePalette = 1;
+    RunFrames(frame);
+    return Check("palette", frame, ExpectPalette);
+}
+
 int main(void) {
     static uint16_t frame[PPU_WIDTH * PPU_HEIGHT];
     int failed = 0;
@@ -211,5 +256,6 @@ int main(void) {
     failed |= TestScroll(frame);
     failed |= TestAffine(frame);
     failed |= TestWindow(frame);
+    failed |= TestPalette(frame);
     return failed;
 }

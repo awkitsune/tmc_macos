@@ -969,6 +969,18 @@ asynchronously and can overlap game-thread work, so its times are not added to
 the bar. GPU timing is shown only when Metal supplies it. Reset clears the
 samples; collection stops when the window closes.
 
+**Debug → GPU PPU (Experimental)** switches the displayed game picture to the
+Metal PPU; select it again to return to software. If the Debug menu is hidden,
+enable it in Settings → Debug. The option starts off each launch. While enabled,
+the GPU draws the game pixels; the CPU still runs display timing and captures a
+full hardware state for every scanline. The capture uses substantial CPU time
+and memory, so this experiment may not be faster than software rendering. In the
+Performance window, capture time appears under Other PPU; GPU execution includes
+the PPU and display filters. Reset the samples after switching modes to compare.
+Switching to GPU while paused takes effect when the next game frame is drawn;
+switching back to software redraws the paused picture. Details and the offline pixel comparison tool are in
+[GPU PPU prototype](port/notes/gpu-ppu-prototype.md).
+
 ## Graphics debugging
 
 The app's Debug menu opens emulator-style viewers, each a resizable window that

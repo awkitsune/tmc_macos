@@ -23,12 +23,14 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
 #include "port/performance.h"
+#include "port/ppucapture.h"
 
 // Stand-ins for what the game build provides.
 uint64_t gPlatformFrame;
@@ -108,6 +110,29 @@ static void SetAffine(int group, int16_t pa, int16_t pb, int16_t pc, int16_t pd)
 }
 
 static int Report(const char* name, int bad, int x, int y, uint16_t got, uint16_t want) {
+    const char* dir = getenv("TMC_GPU_CASE_DIR");
+    if (dir != NULL) {
+        PpuCapture* capture = calloc(1, sizeof(*capture));
+        if (capture == NULL) exit(1);
+        if (getenv("TMC_GPU_CASE_SKIP_CPU")) {
+            PpuRenderFrame(capture->reference);
+            PpuCaptureTo(capture->lines);
+            PpuBeginFrame();
+            for (int line = 0; line < PPU_HEIGHT; line++) PpuRenderLine(line, NULL);
+        } else {
+            PpuCaptureTo(capture->lines);
+            PpuRenderFrame(capture->reference);
+        }
+        PpuCaptureTo(NULL);
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s.bin", dir, name);
+        FILE* file = fopen(path, "wb");
+        if (file == NULL || fwrite(capture, sizeof(*capture), 1, file) != 1 || fclose(file) != 0) {
+            fprintf(stderr, "could not write GPU case %s\n", path);
+            exit(1);
+        }
+        free(capture);
+    }
     if (bad) {
         printf("%-9s FAIL: %d pixels, first at line %d x %d (got %04x, want %04x)\n", name, bad, y, x, got, want);
     } else {
@@ -394,6 +419,28 @@ static int TestBgObjVram(void) {
     return Report("bgobjvram", bad, 0, 0, 0, 0);
 }
 
+static int TestEffects(void) {
+    int failed = 0, bad;
+    ClearHardware();
+    Reg16(0x50, 0x00a0); // backdrop as first target, brighten
+    Reg16(0x54, 16);
+    PpuRenderFrame(sMosaic);
+    bad = 0;
+    for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) bad += sMosaic[i] != 0x7fff;
+    failed |= Report("brighten", bad, 0, 0, 0, 0);
+    Reg16(0x50, 0x00e0); // darken
+    PpuRenderFrame(sMosaic);
+    bad = 0;
+    for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) bad += sMosaic[i] != 0;
+    failed |= Report("darken", bad, 0, 0, 0, 0);
+    Reg16(0x00, 0x0080); // forced blank
+    PpuRenderFrame(sMosaic);
+    bad = 0;
+    for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) bad += sMosaic[i] != 0x7fff;
+    failed |= Report("blank", bad, 0, 0, 0, 0);
+    return failed;
+}
+
 static int TestPerformance(void) {
     PerformanceSnapshot snap;
     PerformanceReset();
@@ -433,6 +480,7 @@ int main(void) {
     failed |= TestObjWindow();
     failed |= TestObj8bpp();
     failed |= TestBgObjVram();
+    failed |= TestEffects();
     failed |= TestPerformance();
     return failed;
 }
