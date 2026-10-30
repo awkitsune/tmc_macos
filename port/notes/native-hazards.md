@@ -710,8 +710,41 @@ returned FALSE reads through NULL, and the GBA reads BIOS open bus (see the sect
 
 | [mandiblesProjectile.c](../../src/projectile/mandiblesProjectile.c) `MandiblesProjectile` | (a `child`/`parent` case) a thrown mandible whose Scissors Beetle (antlion) died: Action4 clears `child`, and `parent` is NULL too, so the entry reads `confusedTime` (GBA 0x43) through NULL. Natively SIGSEGV at 0x4b (Flippers mini-dungeon) | the GBA byte is 0xe5 of 0xe55ec002, nonzero, so the `COLLISION_ON` is skipped and the frame goes on; natively skip it the same way when both are NULL |
 
-Armos also passes `gEnemyTarget`, but only after `sub_08049FDC` succeeded. Other uses of `gEnemyTarget` are not
-swept yet.
+Sweep of every `gEnemyTarget` user in `src/` and `port/src/asm/`. "Guarded" means every read is preceded, on that
+path, by a target search that returned success in the same entity's update: `sub_08049FDC`, `PlayerInRange`,
+`sub_08049DF4(n) != NULL`, or an explicit `gEnemyTarget != NULL`. Each of those sets `gEnemyTarget` before succeeding
+and nothing clears it again until the next entity. A search can fail because the target is *out of range* (then
+`gEnemyTarget` is set) or because there is *no target* (then it is NULL); only the second kind matters here.
+
+| User | Status | Why |
+|---|---|---|
+| [code_08049DF4.c](../../src/code_08049DF4.c) `sub_08049DF4`, `sub_08049E18`..`sub_08049EB0` | safe | the search itself: reads only for `!= NULL`, otherwise writes it |
+| [octorok.c](../../src/enemy/octorok.c) `Octorok_Turn` | **fixed** | type 2: when `sub_08049FDC` fails, `sub_08049FA0` fails (off its home area) and `Random() & 3` is 0, it calls `GetFacingDirection(this, gEnemyTarget)`; with no target that is NULL. Fixed in the port's `GetFacingDirection` ([code_080043E8.c](../src/asm/code_080043E8.c)): a NULL `target` uses the GBA's `ldrsh` bytes, x and y (s16)0xe55e, so the Octorok turns up-left |
+| [leever.c](../../src/enemy/leever.c) `Leever_Move` | fixed | the case above, in `sub_0800132C` |
+| leever.c `Leever_Idle`, `Leever_PlayerInRange`, `sub_0801FDE4` | safe | `Leever_PlayerInRange` returns 1 only after `sub_08049FDC`; `sub_0801FDE4` is called only from it |
+| [armos.c](../../src/enemy/armos.c) `sub_08030650`, `sub_080306C4` | safe | `sub_08049FDC` first (short-circuit `\|\|` / `&&`) |
+| [acroBandits.c](../../src/enemy/acroBandits.c) `AcroBandit_Type0Action3`, `AcroBandit_Type1Action4` | safe | `sub_08031E04` returns FALSE when `sub_08049DF4(1)` is NULL; `sub_08049FDC` |
+| [ballChainSoldier.c](../../src/enemy/ballChainSoldier.c) `sub_0803E86C`, `sub_0803E9D4`, `sub_0803EA64`, `sub_0803EAD0` | safe | `sub_08049FDC` first; `sub_0803EAD0` is called only after it |
+| [chuchu.c](../../src/enemy/chuchu.c) `sub_0801F8C0` | safe | else-branch of `sub_08049FDC(...) == 0` |
+| [crow.c](../../src/enemy/crow.c) `sub_0803298C`, [takkuri.c](../../src/enemy/takkuri.c) | safe | `sub_08049DF4(1)` non-NULL first |
+| [darkNut.c](../../src/enemy/darkNut.c) `sub_08020E98`, `sub_08020F48`, `sub_08021424`, `sub_080214FC` | safe | `PlayerInRange`, or `gEnemyTarget == NULL` checked; `sub_08021424` is called only inside `PlayerInRange` branches |
+| [enemy4D.c](../../src/enemy/enemy4D.c) `Enemy4D_Action1`, `sub_0803EEA4`, `sub_0803EF04` | safe | `sub_08049DF4(1)` / `sub_08049FDC`; `sub_0803EF04` called only after it |
+| [enemy50.c](../../src/enemy/enemy50.c), [ghini.c](../../src/enemy/ghini.c) | safe | `sub_08049DF4(1)` non-NULL or `sub_08049FDC` first |
+| [eyegore.c](../../src/enemy/eyegore.c) `Eyegore_Action2`, `sub_08031024` | safe | `sub_08049FDC` result checked |
+| [gibdo.c](../../src/enemy/gibdo.c) `sub_08037810`, `sub_080378B0`, `sub_08037914` | safe | `sub_08049FDC` / `sub_08049DF4(1)` first |
+| [keaton.c](../../src/enemy/keaton.c) `sub_080325E8` | safe | `sub_08049FDC` first |
+| [mulldozer.c](../../src/enemy/mulldozer.c) | safe | `sub_08049DF4(1)` non-NULL first |
+| [octorok.c](../../src/enemy/octorok.c) `Octorok_Turn` type 1, type 2 in range | safe | `sub_08049FDC` succeeded |
+| [peahat.c](../../src/enemy/peahat.c) `Peahat_Fly`, `Peahat_ChargeStart`, `Peahat_ChargeTarget` | safe | `sub_08049FDC` first |
+| [pesto.c](../../src/enemy/pesto.c) `sub_080242A0`, `sub_080243B8`, `sub_08024A14`, `sub_08024B38`, `sub_08024CC0` | safe | `sub_08024C48(this, TRUE)` is `sub_08049DF4(3) != NULL`; `sub_080242A0` reads only after `sub_08024CC0` |
+| [rope.c](../../src/enemy/rope.c), [sluggula.c](../../src/enemy/sluggula.c), [spikedBeetle.c](../../src/enemy/spikedBeetle.c), [spinyChuchu.c](../../src/enemy/spinyChuchu.c), [wallMaster2.c](../../src/enemy/wallMaster2.c) | safe | `sub_08049FDC` first |
+| [stalfos.c](../../src/enemy/stalfos.c) `sub_08039758`, `sub_080398C0` | safe | `sub_08049FDC` first |
+| [torchTrap.c](../../src/enemy/torchTrap.c) `sub_0803CF38`, `TorchTrap_CreateProjectile` | safe | `sub_08049FDC`; the projectile is created only from that branch |
+| [vaatiProjectile.c](../../src/enemy/vaatiProjectile.c) | safe | `gEnemyTarget != NULL` checked |
+| [intr.c](../src/asm/intr.c) `ram_UpdateEntities` | safe | only clears it |
+
+The `GetFacingDirection` fix covers any NULL `target`, not only the Octorok's: every NULL `Entity*` reads the same
+0xe55e at 0x2e and 0x32 on the GBA.
 
 ## Gyorg: a store through the dead phase-1 male
 

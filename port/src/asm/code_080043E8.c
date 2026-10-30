@@ -175,6 +175,12 @@ u32 sub_080045B4(Entity* this, u32 x, u32 y) {
 }
 
 u32 GetFacingDirection(Entity* origin, Entity* target) {
+    if (target == NULL) {
+        // Octorok_Turn (type 2, off its home area) passes gEnemyTarget unchecked, NULL while Link
+        // cannot be targeted. The GBA's ldrsh at 0x2e and 0x32 read BIOS open bus (0xe55ec002 after
+        // an interrupt returns): x and y halves 0xe55e, signed, a point far up-left of any room.
+        return CalcCollisionDirection(origin->x.HALF.HI, origin->y.HALF.HI, (s16)0xe55e, (s16)0xe55e);
+    }
     return CalcCollisionDirection(origin->x.HALF.HI, origin->y.HALF.HI, target->x.HALF.HI, target->y.HALF.HI);
 }
 
