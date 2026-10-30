@@ -519,8 +519,16 @@ static SettingsPage* DisplayPage(id<SettingsHost> host) {
                                                        weakHost.renderer.integerScaling = on;
                                                        [NSUserDefaults.standardUserDefaults setBool:on forKey:kIntegerScalingDefault];
                                                    }),
+                                               Toggle(
+                                                   @"Draw on the GPU", ^BOOL { return weakHost.renderer.gpuPpuEnabled; },
+                                                   ^(BOOL on) {
+                                                       [weakHost.renderer enableGpuPpu:on];
+                                                       [NSUserDefaults.standardUserDefaults setBool:weakHost.renderer.gpuPpuEnabled
+                                                                                             forKey:kGpuPpuDefault];
+                                                   }),
                                            ]
-                                         footer:@"Integer scaling keeps every GBA pixel the same size."]];
+                                         footer:@"Integer scaling keeps every GBA pixel the same size. "
+                                                 @"Off draws the game on the CPU."]];
     // The knobs, in their sections (as the macOS Display and Filters tabs).
     NSMutableArray<SettingsRow*>* rows = nil;
     for (size_t i = 0; i < KNOB_COUNT; i++) {

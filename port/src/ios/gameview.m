@@ -124,6 +124,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         kPacingDefault : @(FRONTEND_PACING_DISPLAY_SYNC),
         kTouchControlsDefault : @NO,
         kTouchHapticsDefault : @YES,
+        kGpuPpuDefault : @YES,
     }];
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(applyPacing)
@@ -192,6 +193,11 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _renderer.integerScaling = [defaults boolForKey:kIntegerScalingDefault];
     _renderer.params = LoadFilterParams();
     _renderer.lcdResponse = [defaults boolForKey:kLcdResponseDefault];
+    // Without the GPU PPU (or if Metal later fails to draw a frame) the
+    // software renderer draws the game.
+    if ([defaults boolForKey:kGpuPpuDefault]) {
+        [_renderer enableGpuPpu:YES];
+    }
     _renderer.beforeDraw = ^{
         GameViewController* strongSelf = weakSelf;
         if (strongSelf != nil) {
