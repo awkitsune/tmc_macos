@@ -190,14 +190,14 @@ void HwRunFrame(uint16_t* framebuffer) {
     // registers once, and the HBlank steps are a few compares when nothing is armed.
     PpuBeginFrame();
     bool compactCapture = PpuCompactCaptureActive();
-    bool vramUnchanged = false;
+    bool memoryUnchanged = false;
     for (int line = 0; line < PPU_HEIGHT; line++) {
         REG_VCOUNT = line;
         if (line == lyc) {
             REG_DISPSTAT |= DISPSTAT_VCOUNT;
             if (REG_DISPSTAT & DISPSTAT_VCOUNT_INTR) {
                 HwRaiseInterrupt(INTR_VCOUNT);
-                vramUnchanged = false;
+                memoryUnchanged = false;
             }
         } else {
             REG_DISPSTAT &= ~DISPSTAT_VCOUNT;
@@ -208,7 +208,7 @@ void HwRunFrame(uint16_t* framebuffer) {
         if (gHwLineCapture != NULL) {
             memcpy(gHwLineCapture[line], gHwIo, HW_LINE_REGS);
         }
-        if (compactCapture && vramUnchanged) PpuCompactVramUnchanged();
+        if (compactCapture && memoryUnchanged) PpuCompactMemoryUnchanged();
         PpuRenderLine(line, draw != NULL ? &draw[line * PPU_WIDTH] : NULL);
 
         REG_DISPSTAT |= DISPSTAT_HBLANK;
@@ -216,12 +216,13 @@ void HwRunFrame(uint16_t* framebuffer) {
         if (hblankInterrupt) {
             HwRaiseInterrupt(INTR_HBLANK);
         }
-        bool dmaMayWriteVram = false;
-        HwDmaHBlank(compactCapture ? &dmaMayWriteVram : NULL);
+        bool dmaMayWriteMemory = false;
+        HwDmaHBlank(compactCapture ? &dmaMayWriteMemory : NULL);
         // No game code runs between lines unless one of these occurs. On the
-        // game thread VRAM must therefore be unchanged; a VCOUNT interrupt at
-        // the next line invalidates this proof before its state is captured.
-        vramUnchanged = !hblankInterrupt && !dmaMayWriteVram;
+        // game thread VRAM, palette and OAM must therefore be unchanged; a
+        // VCOUNT interrupt at the next line invalidates this proof before its
+        // state is captured.
+        memoryUnchanged = !hblankInterrupt && !dmaMayWriteMemory;
         REG_DISPSTAT &= ~DISPSTAT_HBLANK;
     }
     if (watch.stats) {

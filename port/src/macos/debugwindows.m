@@ -2211,7 +2211,7 @@ static int CompareDouble(const void* a, const void* b) {
     size_t captureBytes = 0;
     unsigned capturePages = 0;
     NSString* capture = FrontendGpuCaptureStats(&captureBytes, &capturePages)
-        ? [NSString stringWithFormat:@"%.2f MiB (%u VRAM pages)", captureBytes / 1048576.0, capturePages]
+        ? [NSString stringWithFormat:@"%.2f MiB (%u pages)", captureBytes / 1048576.0, capturePages]
         : @"off or waiting";
     _text.stringValue = [NSString stringWithFormat:
         @"Frame %llu   %@   %.1f game FPS\n\n"

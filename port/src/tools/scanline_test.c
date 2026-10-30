@@ -103,12 +103,12 @@ static void RunFrames(uint16_t* frame) {
     for (int line = 0; line < PPU_HEIGHT; line++) {
         PpuCompactLine* packed = &compact->lines[line];
         PpuCaptureLine* full = &sGpuCapture->lines[line];
-        sCompactBad += memcmp(&packed->meta, (uint8_t*)full + offsetof(PpuCaptureLine, palette), sizeof(packed->meta)) != 0;
+        sCompactBad += memcmp(&packed->meta, full->regs, sizeof(packed->meta)) != 0;
         for (int page = 0; page < PPU_CAPTURE_PAGES; page++) {
             uint32_t index = packed->page[page];
             if (index >= compact->pageCount ||
                 memcmp(compact->pages + index * PPU_CAPTURE_PAGE_SIZE,
-                       full->vram + page * PPU_CAPTURE_PAGE_SIZE, PPU_CAPTURE_PAGE_SIZE) != 0) sCompactBad++;
+                       (const uint8_t*)full + page * PPU_CAPTURE_PAGE_SIZE, PPU_CAPTURE_PAGE_SIZE) != 0) sCompactBad++;
         }
     }
     free(compact);

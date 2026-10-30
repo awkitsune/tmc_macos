@@ -96,9 +96,9 @@ void HwDmaSet(int channel, const void* src, void* dest, uint32_t control) {
 }
 
 // Run the channels waiting for one start timing (HBlank or VBlank).
-static int RunTimed(uint16_t start, bool* mayWriteVram) {
+static int RunTimed(uint16_t start, bool* mayWriteMemory) {
     int ran = 0;
-    if (mayWriteVram) *mayWriteVram = false;
+    if (mayWriteMemory) *mayWriteMemory = false;
 
     for (int i = 0; i < 4; i++) {
         HwDmaChannel* ch = &sDmaChannels[i];
@@ -111,13 +111,13 @@ static int RunTimed(uint16_t start, bool* mayWriteVram) {
         if (count == 0) {
             count = i == 3 ? 0x10000 : 0x4000;
         }
-        if (mayWriteVram) {
-            // Only a transfer contained in I/O is known not to touch VRAM.
+        if (mayWriteMemory) {
+            // Only a transfer contained in I/O is known not to touch VRAM, palette or OAM.
             // Other destinations and decrementing transfers stay conservative.
             uintptr_t offset = (uintptr_t)ch->dest - (uintptr_t)gHwIo;
             size_t bytes = (size_t)count * ((cnt & CNT_32BIT) ? 4 : 2);
             bool ioOnly = (cnt & CNT_DEST_MASK) != CNT_DEST_DEC && offset < HW_IO_SIZE && bytes <= HW_IO_SIZE - offset;
-            *mayWriteVram |= !ioOnly;
+            *mayWriteMemory |= !ioOnly;
         }
         RunTransfer(ch->src, ch->dest, (ch->control & 0xFFFF0000u) | (count & 0xFFFF));
         if (ch->dest >= gHwIo && ch->dest < gHwIo + HW_IO_SIZE) {
@@ -138,8 +138,8 @@ static int RunTimed(uint16_t start, bool* mayWriteVram) {
     return ran;
 }
 
-int HwDmaHBlank(bool* mayWriteVram) {
-    return RunTimed(CNT_START_HBLANK, mayWriteVram);
+int HwDmaHBlank(bool* mayWriteMemory) {
+    return RunTimed(CNT_START_HBLANK, mayWriteMemory);
 }
 
 int HwDmaVBlank(void) {

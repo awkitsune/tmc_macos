@@ -9,10 +9,12 @@ fallback if Metal fails to start or to draw a frame.
 
 1. **Capture (game thread, `ppu.c`, `ppucapture.c`).** `HwRunFrame` still
    steps every scanline with its HBlank DMA and interrupts, but records each
-   line's state instead of drawing it: registers, palette, OAM, affine
-   reference points, mosaic counters, the debug layer mask, and VRAM as 1 KiB
-   pages shared between lines. A typical frame is about 0.5 MiB: 96 pages plus
-   about 2 KiB of other state per line.
+   line's state instead of drawing it. Memory is recorded as 1 KiB pages
+   shared between lines: VRAM's 96 pages, then palette RAM and OAM, which
+   are one page each. The rest is recorded in full for every line: registers,
+   affine reference points, mosaic counters and the debug layer mask. A
+   typical frame is about 0.18 MiB: 98 pages, plus 524 bytes of page indices
+   and state per line.
 2. **Publish (`game.c`).** The finished capture is swapped into the shared slot
    under `sFrameLock`. The renderer copies it into the Metal buffer of the next
    frame in flight.
@@ -26,13 +28,13 @@ fallback if Metal fails to start or to draw a frame.
      brightness and forced blank, and writes an RGBA8 frame. That frame feeds
      the usual LCD-response and filter passes.
 
-**When pages are shared.** VRAM pages are reused without comparison when no game
+**When pages are shared.** All pages are reused without comparison when no game
 code could have run since the previous line: no HBlank or VCOUNT interrupt ran,
-and any HBlank DMA wrote only to I/O registers (`HwDmaHBlank`). Otherwise the CPU
-compares VRAM with its previous copy (first all of it, then page by page) and
-copies the pages that changed. Every visible line still records its palette,
-OAM and registers in full. The pool reserves space for every page of every line
-changing, so a frame can never run out.
+and any HBlank DMA wrote only to I/O registers (`HwDmaHBlank`). Otherwise the
+CPU compares VRAM, the palette and OAM with their previous copies (each region
+whole first, then page by page) and copies the pages that changed. The pool
+reserves space for every page of every line changing, so a frame can never run
+out.
 
 The shader is compiled from source when the GPU PPU starts, like
 `shaders.metal`. Its `Line` struct must match `PpuCompactLine`; `ppucapture.c`
@@ -61,8 +63,9 @@ for f in /tmp/gpu-ppu-cases/*.bin; do build/native/gpu_ppu_test "$f"; done
   them as the game thread does. They are raw and specific to one build, so
   recreate them after changing `PpuCaptureLine`.
 - **`ppu_test` and `scanline_test`** also check that the compact capture holds
-  the same data as the full one, including HBlank DMA and interrupt writes to
-  VRAM, palette and OAM, and the worst case where every page changes.
+  the same data as the full one. They cover direct and HBlank DMA writes to
+  VRAM, palette and OAM, writes from interrupts, and the worst case where
+  every page changes on every line.
 - **`TMC_GPU_PROFILE_FRAME=N`** (headless) prints frame N's software PPU time.
 
 In the app:
@@ -80,6 +83,7 @@ On an Apple M4 on 2026-10-30, 3 replay frames (1000, 5475 with the iris
 wipe, and 9000) and 34 synthetic cases matched the software PPU with zero
 differing pixels. This does not cover the whole game or other GPUs.
 
-The isolated GPU time for one frame was about 0.87 ms, measured with the
-readback that `gpu_ppu_test` adds. In play, the game thread's PPU work drops
+The isolated GPU time for one frame was 0.86–1.1 ms, including the readback
+that `gpu_ppu_test` adds. Sharing palette and OAM pages cut the input from
+0.48 MiB to 0.18 MiB and made no measurable difference to GPU time. In play, the game thread's PPU work drops
 from drawing every pixel to recording state; see Debug → Performance.

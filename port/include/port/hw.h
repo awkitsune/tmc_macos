@@ -38,9 +38,9 @@ void HwDmaStop(int channel);
 /*
  * Service the latched transfers at an HBlank (after each visible line) or at the
  * start of VBlank. Return nonzero if any channel ran. HBlank also reports
- * whether a transfer might have written VRAM (NULL skips that check).
+ * whether a transfer might have written VRAM, palette or OAM (NULL skips that check).
  */
-int HwDmaHBlank(bool* mayWriteVram);
+int HwDmaHBlank(bool* mayWriteMemory);
 int HwDmaVBlank(void);
 
 /* A timed channel's latched transfer (for debug viewers); control is 0 if idle. */

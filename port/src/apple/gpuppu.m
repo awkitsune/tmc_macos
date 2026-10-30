@@ -107,6 +107,7 @@ static id<MTLTexture> NewTexture(id<MTLDevice> device, MTLPixelFormat format, MT
         if (!window) [encoder setDepthStencilState:_depth];
         [encoder setVertexBuffer:lines offset:0 atIndex:0];
         [encoder setVertexBytes:&window length:sizeof(window) atIndex:1];
+        [encoder setVertexBuffer:lines offset:pool atIndex:2];
         [encoder setFragmentBuffer:lines offset:0 atIndex:0];
         [encoder setFragmentBuffer:lines offset:pool atIndex:2];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4 instanceCount:PPU_HEIGHT * 128];

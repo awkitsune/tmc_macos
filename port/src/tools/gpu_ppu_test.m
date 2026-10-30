@@ -40,9 +40,10 @@ int main(int argc, const char** argv) {
         compact->pageCount = 0;
         double start = NowMs();
         for (int i = 0; i < PPU_HEIGHT; i++) {
+            const PpuCaptureLine* line = &capture->lines[i];
             PpuCaptureMeta meta;
-            memcpy(&meta, (const uint8_t*)&capture->lines[i] + offsetof(PpuCaptureLine, palette), sizeof(meta));
-            PpuCompactAppend(compact, i, capture->lines[i].vram, &meta);
+            memcpy(&meta, line->regs, sizeof(meta));
+            PpuCompactAppend(compact, i, line->vram, line->palette, line->oam, &meta);
         }
         double packMs = NowMs() - start;
 
@@ -83,7 +84,7 @@ int main(int argc, const char** argv) {
             printf("; first (%d,%d): GPU %04x CPU %04x", first % PPU_WIDTH, first / PPU_WIDTH,
                    (p[0] >> 3) | (p[1] >> 3) << 5 | (p[2] >> 3) << 10, capture->reference[first]);
         }
-        printf("\ninput %.2f MiB (%u VRAM pages, packed in %.3f ms), GPU %.3f ms, submit/wait %.3f ms (mean of %d warm runs)\n",
+        printf("\ninput %.2f MiB (%u pages, packed in %.3f ms), GPU %.3f ms, submit/wait %.3f ms (mean of %d warm runs)\n",
                PpuCompactSize(compact) / 1048576.0, compact->pageCount, packMs, gpuMs / (runs - 1), wallMs / (runs - 1), runs - 1);
         free(capture);
         return bad != 0;

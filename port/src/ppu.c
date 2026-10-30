@@ -458,16 +458,16 @@ static void RenderLine(int line, uint16_t* out) {
 
 static PpuCaptureLine* sCapture;
 static PpuCompactCapture* sCompactCapture;
-static bool sCompactVramStable;
+static bool sCompactMemoryStable;
 
 void PpuCaptureTo(PpuCaptureLine* lines) { sCapture = lines; }
 void PpuCompactCaptureTo(PpuCompactCapture* capture) {
     sCompactCapture = capture;
-    sCompactVramStable = false;
+    sCompactMemoryStable = false;
     if (capture) capture->pageCount = 0;
 }
 bool PpuCompactCaptureActive(void) { return sCompactCapture != NULL; }
-void PpuCompactVramUnchanged(void) { sCompactVramStable = true; }
+void PpuCompactMemoryUnchanged(void) { sCompactMemoryStable = true; }
 
 static void CaptureLine(int line) {
     if (sCapture != NULL) {
@@ -486,8 +486,6 @@ static void CaptureLine(int line) {
     }
     if (sCompactCapture != NULL) {
         PpuCaptureMeta meta;
-        memcpy(meta.palette, gHwPltt, sizeof(meta.palette));
-        memcpy(meta.oam, gHwOam, sizeof(meta.oam));
         memcpy(meta.regs, gHwIo, HW_LINE_REGS);
         memset(meta.regs + HW_LINE_REGS, 0, sizeof(meta.regs) - HW_LINE_REGS);
         memcpy(meta.refX, sRefX, sizeof(sRefX));
@@ -497,9 +495,9 @@ static void CaptureLine(int line) {
         meta.mosaicBgY = sMosaicBgY;
         meta.mosaicObjY = sMosaicObjY;
         meta.layerMask = sLayerMask;
-        if (sCompactVramStable && line > 0) PpuCompactReuse(sCompactCapture, line, &meta);
-        else PpuCompactAppend(sCompactCapture, line, gHwVram, &meta);
-        sCompactVramStable = false;
+        if (sCompactMemoryStable && line > 0) PpuCompactReuse(sCompactCapture, line, &meta);
+        else PpuCompactAppend(sCompactCapture, line, gHwVram, gHwPltt, gHwOam, &meta);
+        sCompactMemoryStable = false;
     }
 }
 

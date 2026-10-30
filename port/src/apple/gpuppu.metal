@@ -2,17 +2,20 @@
 using namespace metal;
 
 // The Metal PPU: draws one frame from a compact scanline capture. Must match
-// PpuCompactLine in port/ppucapture.h; VRAM is read through each line's pages.
+// PpuCompactLine in port/ppucapture.h. Memory is read through each line's
+// 1 KiB pages in the pool: VRAM's 96, then palette RAM and OAM.
 struct Line {
-    uint page[96];
-    uchar palette[0x400], oam[0x400], regs[0x58];
+    uint page[98];
+    uchar regs[0x58];
     int refX[2], refY[2], mosaicRefX[2], mosaicRefY[2];
     uint mosaicBgY, mosaicObjY, layerMask;
 };
 
 static uint word(device const uchar* p, uint at) { return p[at] | (uint(p[at + 1]) << 8); }
 static uint reg(device const Line& l, uint at) { return word(l.regs, at); }
-static uint pal(device const Line& l, uint i) { return word(l.palette, i * 2) & 0x7fff; }
+static device const uchar* page_of(device const Line& l, device const uchar* pool, uint n) { return pool + l.page[n] * 1024; }
+static device const uchar* oam_of(device const Line& l, device const uchar* pool) { return page_of(l, pool, 97); }
+static uint pal(device const Line& l, device const uchar* pool, uint i) { return word(page_of(l, pool, 96), i * 2) & 0x7fff; }
 #define VRAM(l, at) (pool[(l).page[(at) / 1024] * 1024 + (at) % 1024])
 static uint texel(device const Line& l, device const uchar* pool, uint base, int x, int y, bool bpp8, uint limit) {
     uint at = base + y * (bpp8 ? 8 : 4) + (bpp8 ? x : x / 2);
@@ -36,7 +39,7 @@ static uint background(device const Line& l, device const uchar* pool, int bg, i
         else if (x < 0 || y < 0 || x >= size || y >= size) return 0xffff;
         uint tile = VRAM(l, (screenBase + (y >> 3) * (size >> 3) + (x >> 3)) & 0xffff);
         uint index = texel(l, pool, charBase + tile * 64, x & 7, y & 7, true, 0x10000);
-        return index ? pal(l, index) : 0xffff;
+        return index ? pal(l, pool, index) : 0xffff;
     }
     int w = (cnt & 0x4000) ? 512 : 256, h = (cnt & 0x8000) ? 512 : 256;
     int x = (sx + (reg(l, 0x10 + bg * 4) & 511)) & (w - 1);
@@ -49,7 +52,7 @@ static uint background(device const Line& l, device const uchar* pool, int bg, i
     if (entry & 0x800) ty = 7 - ty;
     bool bpp8 = cnt & 0x80;
     uint index = texel(l, pool, charBase + (entry & 0x3ff) * (bpp8 ? 64 : 32), tx, ty, bpp8, 0x10000);
-    return index ? pal(l, bpp8 ? index : ((entry >> 12) * 16 + index)) : 0xffff;
+    return index ? pal(l, pool, bpp8 ? index : ((entry >> 12) * 16 + index)) : 0xffff;
 }
 
 struct Obj { uint color, priority, semi, window; };
@@ -57,7 +60,8 @@ static Obj one_sprite(device const Line& l, device const uchar* pool, int x, int
     constexpr uchar widths[12] = {8,16,32,64,16,32,32,64,8,8,16,32};
     constexpr uchar heights[12] = {8,16,32,64,8,8,16,32,16,32,32,64};
     Obj result = {0xffff, 4, 0, 0};
-    uint at = n * 8, a0 = word(l.oam, at), a1 = word(l.oam, at + 2), a2 = word(l.oam, at + 4);
+    device const uchar* oam = oam_of(l, pool);
+    uint at = n * 8, a0 = word(oam, at), a1 = word(oam, at + 2), a2 = word(oam, at + 4);
     bool affine = a0 & 0x100, doubleOrHidden = a0 & 0x200, bpp8 = a0 & 0x2000;
     int mode = (a0 >> 10) & 3, shape = a0 >> 14, size = a1 >> 14;
     if ((!affine && doubleOrHidden) || shape == 3 || mode == 3) return result;
@@ -74,8 +78,8 @@ static Obj one_sprite(device const Line& l, device const uchar* pool, int x, int
     int tx, ty;
     if (affine) {
         uint p = ((a1 >> 9) & 31) * 32;
-        int pa = short(word(l.oam, p + 6)), pb = short(word(l.oam, p + 14));
-        int pc = short(word(l.oam, p + 22)), pd = short(word(l.oam, p + 30));
+        int pa = short(word(oam, p + 6)), pb = short(word(oam, p + 14));
+        int pc = short(word(oam, p + 22)), pd = short(word(oam, p + 30));
         int cx = bx - bw / 2, cy = by - bh / 2;
         tx = ((pa * cx + pb * cy) >> 8) + w / 2;
         ty = ((pc * cx + pd * cy) >> 8) + h / 2;
@@ -92,7 +96,7 @@ static Obj one_sprite(device const Line& l, device const uchar* pool, int x, int
     if (mode == 2) { result.window = 1; return result; }
     uint priority = (a2 >> 10) & 3;
     if (priority <= result.priority) {
-        result.color = pal(l, 0x100 + (bpp8 ? index : (a2 >> 12) * 16 + index));
+        result.color = pal(l, pool, 0x100 + (bpp8 ? index : (a2 >> 12) * 16 + index));
         result.priority = priority;
         result.semi = mode == 1;
     }
@@ -114,7 +118,7 @@ static uint brightness(uint a, uint y, bool up) {
     return result;
 }
 // Composes the background layers with the sprite pass, windows and effects.
-static ushort gpu_color(device const Line* lines, uint2 pos, Obj obj, texture2d_array<uint, access::read> layers) {
+static ushort gpu_color(device const Line* lines, device const uchar* pool, uint2 pos, Obj obj, texture2d_array<uint, access::read> layers) {
     device const Line& l = lines[pos.y];
     uint display = reg(l, 0);
     if (display & 0x80) return 0x7fff;
@@ -136,7 +140,7 @@ static ushort gpu_color(device const Line* lines, uint2 pos, Obj obj, texture2d_
             if (inX && inY) enable = (in >> (w*8)) & 0x3f;
         }
     }
-    uint top = 5, second = 5, topColor = pal(l, 0), secondColor = topColor;
+    uint top = 5, second = 5, topColor = pal(l, pool, 0), secondColor = topColor;
     for (uint pr = 0; pr < 4 && second == 5; pr++) {
         if ((enable & 16) && obj.color != 0xffff && obj.priority == pr) {
             if (top == 5) { top = 4; topColor = obj.color; }
@@ -167,10 +171,12 @@ struct SpriteVertex {
     uint index [[flat]];
 };
 vertex SpriteVertex sprite_vertex(uint vid [[vertex_id]], uint instance [[instance_id]],
-                                  device const Line* lines [[buffer(0)]], constant uint& windowPass [[buffer(1)]]) {
+                                  device const Line* lines [[buffer(0)]], constant uint& windowPass [[buffer(1)]],
+                                  device const uchar* pool [[buffer(2)]]) {
     uint line = instance / 128, index = instance % 128;
     device const Line& l = lines[line];
-    uint at = index * 8, a0 = word(l.oam, at), a1 = word(l.oam, at + 2), a2 = word(l.oam, at + 4);
+    device const uchar* oam = oam_of(l, pool);
+    uint at = index * 8, a0 = word(oam, at), a1 = word(oam, at + 2), a2 = word(oam, at + 4);
     constexpr uchar widths[12] = {8,16,32,64,16,32,32,64,8,8,16,32};
     constexpr uchar heights[12] = {8,16,32,64,8,8,16,32,16,32,32,64};
     bool affine = a0 & 0x100, doubled = a0 & 0x200;
@@ -233,12 +239,12 @@ static float4 frame_color(uint c) {
     rgb = (rgb << 3) | (rgb >> 2);
     return float4(float3(rgb) / 255.0, 1.0);
 }
-kernel void gpu_compose(device const Line* lines [[buffer(0)]],
+kernel void gpu_compose(device const Line* lines [[buffer(0)]], device const uchar* pool [[buffer(2)]],
                         texture2d<float, access::write> output [[texture(0)]],
                         texture2d<float, access::read> colors [[texture(1)]],
                         texture2d<float, access::read> windows [[texture(2)]],
                         texture2d_array<uint, access::read> layers [[texture(3)]],
                         uint2 pos [[thread_position_in_grid]]) {
     if (pos.x < 240 && pos.y < 160)
-        output.write(frame_color(gpu_color(lines, pos, raster_sprite(pos, colors, windows), layers)), pos);
+        output.write(frame_color(gpu_color(lines, pool, pos, raster_sprite(pos, colors, windows), layers)), pos);
 }

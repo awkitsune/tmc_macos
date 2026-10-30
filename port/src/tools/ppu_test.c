@@ -577,12 +577,12 @@ static int TestCompactCapture(void) {
     for (int line = 0; line < PPU_HEIGHT; line++) {
         PpuCompactLine* packed = &compact->lines[line];
         PpuCaptureLine* reference = &full->lines[line];
-        bad |= memcmp(&packed->meta, (const uint8_t*)reference + offsetof(PpuCaptureLine, palette), sizeof(packed->meta)) != 0;
+        bad |= memcmp(&packed->meta, reference->regs, sizeof(packed->meta)) != 0;
         for (int page = 0; page < PPU_CAPTURE_PAGES; page++) {
             uint32_t index = packed->page[page];
             if (index >= compact->pageCount ||
                 memcmp(compact->pages + index * PPU_CAPTURE_PAGE_SIZE,
-                       reference->vram + page * PPU_CAPTURE_PAGE_SIZE, PPU_CAPTURE_PAGE_SIZE) != 0) bad++;
+                       (const uint8_t*)reference + page * PPU_CAPTURE_PAGE_SIZE, PPU_CAPTURE_PAGE_SIZE) != 0) bad++;
         }
     }
     const char* dir = getenv("TMC_GPU_CASE_DIR");
@@ -600,10 +600,12 @@ static int TestCompactCapture(void) {
     PpuBeginFrame();
     for (int line = 0; line < PPU_HEIGHT; line++) {
         memset(gHwVram, line, sizeof(gHwVram));
+        memset(gHwPltt, line, sizeof(gHwPltt));
+        memset(gHwOam, line, sizeof(gHwOam));
         PpuRenderLine(line, NULL);
     }
     PpuCompactCaptureTo(NULL);
-    bad |= compact->pageCount != PPU_CAPTURE_MAX_PAGES || PpuCompactSize(compact) != offsetof(PpuCompactCapture, previousVram);
+    bad |= compact->pageCount != PPU_CAPTURE_MAX_PAGES || PpuCompactSize(compact) != offsetof(PpuCompactCapture, previous);
     free(compact);
     free(full);
     return Report("compact", bad, 0, 0, 0, 0);
