@@ -19,6 +19,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)quickSave;
 - (void)quickLoad;
 - (void)resetGame;
+// Pick a ROM (or, reextract, use the one chosen before) and extract the data again.
+- (void)changeRom:(BOOL)reextract;
 - (void)closeSettings;
 @end
 
@@ -26,8 +28,8 @@ NS_ASSUME_NONNULL_BEGIN
  * The settings: a sheet (medium and large detents on iPhone, a card on iPad)
  * with an inset-grouped list in pages as the macOS Settings tabs: Display,
  * Controls, Timing, Game and About. It works by touch and by controller: the
- * D-pad (or arrow keys) moves, left and right change a value, A selects, B goes
- * back and closes. Changes apply at once and are saved.
+ * D-pad (or arrow keys) moves, left and right change a value (a held one speeds
+ * up a slider), L and R jump between sections, A selects, B goes back and closes. Changes apply at once and are saved.
  */
 @interface SettingsController : UINavigationController
 - (instancetype)initWithHost:(id<SettingsHost>)host;

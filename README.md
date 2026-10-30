@@ -475,9 +475,12 @@ Xcode > Settings > Components; the Simulator is not needed) and this repository 
 5. **Trust the developer** the first time: the app will not open until you go to Settings > General > VPN & Device
    Management, tap your Apple ID under Developer App and tap **Trust**.
 6. **Give it the ROM.** Put your `.gba` in the Files app (AirDrop, iCloud Drive, or Finder with the device
-   connected), open The Minish Cap and tap **Choose ROM…**. The data is extracted once.
+   connected), open The Minish Cap and tap **Choose ROM…**. The data is extracted once; Settings > Game > **Change
+   ROM…** (or **Re-extract Game Data**) does it again later.
 7. **Connect a controller** (Settings > Bluetooth on the device) or a keyboard, or turn on the touch controls. Press
-   Home or hold ☰ on the controller, press Escape, or tap the screen for the settings.
+   Home or hold ☰ on the controller, press Escape, or tap the screen for the settings. A short press of ☰ is Start,
+   given when it is let go, so holding it for the settings never pauses the game too. On iOS 27, if Home still opens
+   the system's Game overlay, Settings > Controls > **Home Button…** lets apps handle it.
 
 #### Touch controls
 
@@ -539,10 +542,14 @@ an installable one. `TMC_IOS_BUNDLE_ID` changes the bundle ID
 - **Settings.** A sheet (medium and large on iPhone, a card on iPad) with the
   Mac's settings in pages: Display (filter, integer scaling, LCD response,
   the knobs), Controls, Timing (frame pacing), Game (quick save slots, reset,
-  fast-forward, sound) and About; no Debug tools. It opens from the
-  controller's Home button, by holding ☰ (a press is Start), with Escape, or
-  with a tap anywhere; the D-pad moves, left and right change a value, A
-  selects, B goes back and closes. The game pauses while it is open.
+  fast-forward, sound, Change ROM…) and About; no Debug tools. It opens from the
+  controller's Home button (claimed from the system with
+  `preferredSystemGestureState`), by holding ☰ (a press is Start, sent on
+  release), with Escape, or with a tap anywhere. With a controller it is driven
+  by its own polling, not UIKit focus: the D-pad moves, L and R jump between
+  sections, left and right change a value (a slider by 1/100 of its range,
+  faster while held), A selects, B goes back and closes. The game pauses while
+  it is open.
 - **Life cycle.** The game pauses when the app resigns active (and the save
   file is synced to disk) and in the background, and goes on when it returns.
   Sound is an `AVAudioSession` (playback) with RemoteIO, stopped during

@@ -7,6 +7,7 @@
 
 #import "audiosession.h"
 #import "displaysync.h"
+#import "romimport.h"
 #import "selftest.h"
 #import "settingsstore.h"
 #import "settingsview.h"
@@ -638,6 +639,10 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [self closeSettings];
 }
 
+- (void)changeRom:(BOOL)reextract {
+    [RomImport changeRomOver:self reextract:reextract];
+}
+
 #pragma mark Save states
 
 - (void)requestState:(BOOL)save path:(NSString*)path what:(NSString*)what {
@@ -692,6 +697,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 
 - (void)sceneDidBecomeActive {
     [self setPause:PauseReasonInactive on:NO];
+    [_input claimHomeButtons];
 }
 
 - (void)sceneDidEnterBackground {
