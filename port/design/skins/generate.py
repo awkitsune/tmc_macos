@@ -111,21 +111,6 @@ DESIGNS = {
         dpad="#2b2b35", face="#3c3c4b", face_hi="#5b5b70", small="#2b2b35", menu="#3b3289",
         print_="#d5d0f6", cap_text="#9e9db4", grille="#271f66",
     ),
-    "glacier": dict(
-        title="Glacier", note="Clear ice-blue plastic; the parts inside show through.",
-        shell=("#d7ecfb", "#a9cdee", "#86b2df"), edge="#5f8fc0", highlight="#ffffff", well="#7fa8d6",
-        lens=("#2a3442", "#1a212b"), cutout_mark="#7fd3ff", led="#3ad07a",
-        dpad="#e9f4fd", face="#f4f9fe", face_hi="#ffffff", small="#d4e7f8", menu="#bfdaf2",
-        print_="#23466e", cap_text="#5f86ad", grille="#4d7cae",
-        shell_opacity=0.72, internals="#4f7fae",
-    ),
-    "onyx": dict(
-        title="Onyx", note="Matte black with a copper print and copper face buttons.",
-        shell=("#34343a", "#222227", "#151518"), edge="#08080a", highlight="#4b4b53", well="#0f0f12",
-        lens=("#121214", "#060607"), cutout_mark="#d39a6a", led="#d39a6a",
-        dpad="#0b0b0d", face="#b9744a", face_hi="#dc9a6c", small="#0b0b0d", menu="#1b1b1f",
-        print_="#d39a6a", cap_text="#6b5546", grille="#0a0a0c",
-    ),
     "outline": dict(
         title="Outline", note="No plastic: a single-weight line drawing over the black screen.",
         outline="#8f88d8",
@@ -242,18 +227,7 @@ def svg(design_key, portrait):
         if portrait:
             o.append(f'  <path d="M8 {f(L["split"])} H{bw - 8}" fill="none" stroke="{line}" stroke-width="0.75"/>')
     else:
-        op = d.get("shell_opacity", 1)
-        o.append("  " + rect(Rect(0, 0, bw, bh), 55, fill=f"url(#{p}shell)", fill_opacity=op))
-        if d.get("internals"):
-            o.append(f'  <g id="internals" fill="none" stroke="{d["internals"]}" stroke-opacity="0.35" stroke-width="1.2">')
-            board = Rect(16, L["split"] + 6, bw - 32, bh - L["split"] - 40) if portrait else Rect(18, 30, bw - 36, bh - 50)
-            o.append("    " + rect(board, 20))
-            for k, r in (("Dpad", c["Dpad"]), ("A", A), ("B", B)):
-                o.append("    " + circ(r.cx, r.cy, r.w / 2 + 14))
-            tx, ty = c["Dpad"].cx, c["Dpad"].cy
-            o.append(f'    <path d="M{f(tx + 80)} {f(ty)} H{f(B.cx - 50)} M{f(c["Select"].cx)} {f(c["Select"].y - 10)} '
-                     f'V{f(ty + 90 if portrait else ty + 70)}"/>')
-            o.append("  </g>")
+        o.append("  " + rect(Rect(0, 0, bw, bh), 55, fill=f"url(#{p}shell)"))
         o.append("  " + rect(Rect(1, 1, bw - 2, bh - 2), 54, fill="none", stroke=d["edge"], stroke_width=2))
         o.append("  " + rect(Rect(7, 7, bw - 14, bh - 14), 49, fill="none", stroke=d["highlight"],
                              stroke_opacity=0.35, stroke_width=1))

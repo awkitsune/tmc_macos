@@ -6,13 +6,11 @@ Prototypes of an optional skin drawn around the iOS touch controls, in the spiri
 | Design    | Look                                                          |
 |-----------|---------------------------------------------------------------|
 | `indigo`  | purple plastic, dark caps, lavender print                     |
-| `glacier` | translucent ice-blue plastic with the parts inside showing    |
-| `onyx`    | matte black, copper print and copper A and B                  |
 | `outline` | strokes only, one colour, over the black screen               |
 
 Each comes as `<design>-portrait.svg` (393 × 852 pt) and `<design>-landscape.svg` (852 × 393 pt): an iPhone 15
 with its safe area, 3 pixels per point. Every cap sits on the touch target `port/src/ios/touchlayout.m` gives that
-control for that screen. `generate.py` holds a copy of that layout and writes all eight files; run it again
+control for that screen. `generate.py` holds a copy of that layout and writes all four files; run it again
 (`python3 port/design/skins/generate.py`) when the layout changes.
 
 ## Layers
@@ -22,11 +20,11 @@ Core Graphics, or export each group as a PDF asset, and place them from the live
 
 | Group           | What it is                                                                                     | Placed from                    |
 |-----------------|------------------------------------------------------------------------------------------------|--------------------------------|
-| `shell`         | the plastic over the whole screen: body, edge, seam, the hinge in portrait (`internals` in glacier) | the view's bounds          |
+| `shell`         | the plastic over the whole screen: body, edge, seam, the hinge in portrait | the view's bounds          |
 | `grille`        | the speaker holes                                                                              | the free space under A and B   |
 | `lens`          | the dark glass around the picture, with the power light                                        | `picture`'s fitted image, + 14 pt |
 | `cutout`        | the game picture's area (240 × 160 at a whole scale); drawn black here, left clear in the app  | the fitted image rect          |
-| `wells`         | recesses under the D-pad, A + B (one tilted pill), Start and Select                            | the controls' rects            |
+| `wells`         | recesses under the D-pad, A + B (a pill in portrait, rings in landscape), Start and Select                     | the controls' rects            |
 | `caps`          | one group per control: `cap-dpad`, `cap-a`, `cap-b`, `cap-l`, `cap-r`, `cap-start`, `cap-select`, `cap-menu` | `controls[...]`  |
 | `labels`        | the print: START, SELECT, L, R                                                                 | the controls' rects            |
 | `touch-targets` | hidden (`display="none"`); the layout's touch targets, to check the caps against               | —                              |

@@ -19,7 +19,7 @@
   </filter>
 </defs>
 <g id="shell">
-  <rect x="0" y="0" width="393" height="852" rx="55" fill="url(#indigo-portrait-shell)" fill-opacity="1"/>
+  <rect x="0" y="0" width="393" height="852" rx="55" fill="url(#indigo-portrait-shell)"/>
   <rect x="1" y="1" width="391" height="850" rx="54" fill="none" stroke="#2a226a" stroke-width="2"/>
   <rect x="7" y="7" width="379" height="838" rx="49" fill="none" stroke="#8e84dc" stroke-opacity="0.35" stroke-width="1"/>
   <rect x="0" y="422" width="393" height="8" rx="0" fill="#2a226a" fill-opacity="0.55"/>

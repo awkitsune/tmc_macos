@@ -19,7 +19,7 @@
   </filter>
 </defs>
 <g id="shell">
-  <rect x="0" y="0" width="852" height="393" rx="55" fill="url(#indigo-landscape-shell)" fill-opacity="1"/>
+  <rect x="0" y="0" width="852" height="393" rx="55" fill="url(#indigo-landscape-shell)"/>
   <rect x="1" y="1" width="850" height="391" rx="54" fill="none" stroke="#2a226a" stroke-width="2"/>
   <rect x="7" y="7" width="838" height="379" rx="49" fill="none" stroke="#8e84dc" stroke-opacity="0.35" stroke-width="1"/>
 </g>
