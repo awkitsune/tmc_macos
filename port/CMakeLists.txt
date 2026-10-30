@@ -220,6 +220,7 @@ add_library(tmc_port STATIC
     ${TMC_AREA_ROOMS}
     src/entitylistcheck.c
     src/ppu.c
+    src/ppucapture.c
     src/performance.c
     src/frame.c
     src/gfxdebug.c
@@ -373,12 +374,12 @@ target_link_libraries(tmc_songs PRIVATE tmc_port z)
 
 # Scanline renderer checks (per-line HBlank DMA effects), no game code needed:
 #   cmake --build build/native --target scanline_test && build/native/scanline_test
-add_executable(scanline_test EXCLUDE_FROM_ALL src/tools/scanline_test.c src/frame.c src/hw.c src/ppu.c src/performance.c)
+add_executable(scanline_test EXCLUDE_FROM_ALL src/tools/scanline_test.c src/frame.c src/hw.c src/ppu.c src/performance.c src/ppucapture.c)
 target_include_directories(scanline_test PRIVATE include)
 target_link_libraries(scanline_test PRIVATE z)
 
 # Standalone experimental Metal PPU: compares a headless scanline capture with the CPU.
-add_executable(gpu_ppu_test EXCLUDE_FROM_ALL src/tools/gpu_ppu_test.m src/apple/spritepass.m)
+add_executable(gpu_ppu_test EXCLUDE_FROM_ALL src/tools/gpu_ppu_test.m src/apple/spritepass.m src/ppucapture.c)
 target_include_directories(gpu_ppu_test PRIVATE include src/apple)
 target_compile_options(gpu_ppu_test PRIVATE -fobjc-arc)
 target_compile_definitions(gpu_ppu_test PRIVATE GPU_PPU_SHADER="${CMAKE_CURRENT_SOURCE_DIR}/src/tools/gpu_ppu.metal")
@@ -386,7 +387,7 @@ target_link_libraries(gpu_ppu_test PRIVATE "-framework Foundation" "-framework M
 
 # Mosaic and tile-fetch checks of the picture processor without the game:
 #   cmake --build build/native --target ppu_test && build/native/ppu_test
-add_executable(ppu_test EXCLUDE_FROM_ALL src/tools/ppu_test.c src/frame.c src/hw.c src/ppu.c src/performance.c)
+add_executable(ppu_test EXCLUDE_FROM_ALL src/tools/ppu_test.c src/frame.c src/hw.c src/ppu.c src/performance.c src/ppucapture.c)
 target_include_directories(ppu_test PRIVATE include)
 target_link_libraries(ppu_test PRIVATE z)
 

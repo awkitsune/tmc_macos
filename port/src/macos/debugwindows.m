@@ -2189,6 +2189,13 @@ static int CompareDouble(const void* a, const void* b) {
     NSString* cpu = snap.cpuCount ? [NSString stringWithFormat:@"%.3f ms", snap.cpuMs] : @"unavailable";
     NSString* gpu = snap.gpuCount ? [NSString stringWithFormat:@"%.3f ms", snap.gpuMs] : @"unavailable";
     NSString* displayed = snap.displayFps > 0 ? [NSString stringWithFormat:@"%.1f", snap.displayFps] : @"unavailable";
+    size_t captureBytes = 0;
+    unsigned capturePages = 0;
+    bool compact = false;
+    NSString* capture = FrontendGpuCaptureStats(&captureBytes, &capturePages, &compact)
+        ? compact ? [NSString stringWithFormat:@"%.2f MiB (%u VRAM pages)", captureBytes / 1048576.0, capturePages]
+                  : [NSString stringWithFormat:@"%.2f MiB (full)", captureBytes / 1048576.0]
+        : @"off or waiting";
     _text.stringValue = [NSString stringWithFormat:
         @"Frame %llu   %@   %.1f game FPS\n\n"
         "GAME THREAD          average       p95\n"
@@ -2200,7 +2207,8 @@ static int CompareDouble(const void* a, const void* b) {
         "  Composition        %7.3f ms\n"
         "  Other PPU          %7.3f ms\n"
         "Timing & interrupts  %7.3f ms\n"
-        "Publish & other      %7.3f ms\n\n"
+        "Publish & other      %7.3f ms\n"
+        "GPU capture          %@\n\n"
         "PRESENTATION  (separate, may overlap)\n"
         "CPU upload & encode  %@\nGPU execution        %@\nDisplayed FPS        %@\n(presentation averages are smoothed)\n\n"
         "Last %d frames · Bar: game / PPU / timing / publish\n"
@@ -2208,7 +2216,7 @@ static int CompareDouble(const void* a, const void* b) {
         (unsigned long long)frame, FrontendIsPaused() ? @"Paused" : @"Live", fps,
         sum / snap.count, totals[(snap.count * 95 + 99) / 100 - 1], stages[PERF_GAME], ppu,
         stages[PERF_BG], stages[PERF_OBJ], stages[PERF_COMPOSE], stages[PERF_PPU_OTHER],
-        stages[PERF_TIMING], stages[PERF_PUBLISH], cpu, gpu, displayed, snap.count, budget];
+        stages[PERF_TIMING], stages[PERF_PUBLISH], capture, cpu, gpu, displayed, snap.count, budget];
 }
 @end
 

@@ -9,6 +9,7 @@
  *   window: per-line WIN0H, the iris / spotlight (sub_0801E1EC in src/common.c)
  *   palette: per-line palette RAM writes
  *   oam: per-line sprite attributes and positions
+ *   vram: per-line tile graphics writes
  *
  * Prints one line per check and exits nonzero on a mismatch.
  */
@@ -34,13 +35,14 @@ const uint32_t gHwRamMapCount = 0;
 
 static const uint16_t* sTable;
 static uint32_t sTableDest, sTableCount;
-static int sTablePalette, sTableOam;
+static int sTablePalette, sTableOam, sTableVram;
+static int sInterruptWrite, sInterruptLine;
 
 // The game's VBlank handler: stop DMA 0, copy line 0's entry, re-arm the table.
 static void ArmTable(void) {
     HwDmaStop(0);
     if (sTable != NULL) {
-        uint8_t* dest = (sTableOam ? gHwOam : sTablePalette ? gHwPltt : gHwIo) + sTableDest;
+        uint8_t* dest = (sTableVram ? gHwVram : sTableOam ? gHwOam : sTablePalette ? gHwPltt : gHwIo) + sTableDest;
         memcpy(dest, sTable, sTableCount * 2);
         HwDmaSet(0, sTable, dest, DMA_HBLANK_REPEAT | sTableCount);
     }
@@ -49,6 +51,11 @@ static void ArmTable(void) {
 void HwRaiseInterrupt(uint16_t flag) {
     if (flag == 0x0001) {
         ArmTable();
+        if (sInterruptWrite) { gHwVram[32] = 0x11; sInterruptLine = 0; }
+    } else if (flag == 0x0002 && sInterruptWrite == 1) {
+        gHwVram[32] = (sInterruptLine++ % 15 + 1) * 0x11;
+    } else if (flag == 0x0004 && sInterruptWrite == 2) {
+        gHwVram[32] = 0x22;
     }
 }
 
@@ -61,7 +68,8 @@ static uint16_t Color(int index) {
 }
 
 static void ClearHardware(void) {
-    sTablePalette = sTableOam = 0;
+    sTablePalette = sTableOam = sTableVram = 0;
+    sInterruptWrite = sInterruptLine = 0;
     memset(gHwIo, 0, sizeof(gHwIo));
     memset(gHwVram, 0, sizeof(gHwVram));
     memset(gHwPltt, 0, sizeof(gHwPltt));
@@ -76,21 +84,34 @@ static void ClearHardware(void) {
 }
 
 static PpuCapture* sGpuCapture;
+static int sCompactBad;
 
 // Runs two frames (the first arms the table at its VBlank) and keeps the second.
 static void RunFrames(uint16_t* frame) {
     ArmTable();
     HwRunFrame(frame);
-    if (getenv("TMC_GPU_CASE_DIR") != NULL) {
-        sGpuCapture = calloc(1, sizeof(*sGpuCapture));
-        if (sGpuCapture == NULL) exit(1);
-        PpuCaptureTo(sGpuCapture->lines);
+    sGpuCapture = calloc(1, sizeof(*sGpuCapture));
+    PpuCompactCapture* compact = malloc(sizeof(*compact));
+    if (!sGpuCapture || !compact) exit(1);
+    PpuCaptureTo(sGpuCapture->lines);
+    PpuCompactCaptureTo(compact);
+    HwRunFrame(getenv("TMC_GPU_CASE_DIR") && getenv("TMC_GPU_CASE_SKIP_CPU") ? NULL : frame);
+    PpuCaptureTo(NULL);
+    PpuCompactCaptureTo(NULL);
+    memcpy(sGpuCapture->reference, frame, sizeof(sGpuCapture->reference));
+    sCompactBad = 0;
+    for (int line = 0; line < PPU_HEIGHT; line++) {
+        PpuCompactLine* packed = &compact->lines[line];
+        PpuCaptureLine* full = &sGpuCapture->lines[line];
+        sCompactBad += memcmp(&packed->meta, (uint8_t*)full + offsetof(PpuCaptureLine, palette), sizeof(packed->meta)) != 0;
+        for (int page = 0; page < PPU_CAPTURE_PAGES; page++) {
+            uint32_t index = packed->page[page];
+            if (index >= compact->pageCount ||
+                memcmp(compact->pages + index * PPU_CAPTURE_PAGE_SIZE,
+                       full->vram + page * PPU_CAPTURE_PAGE_SIZE, PPU_CAPTURE_PAGE_SIZE) != 0) sCompactBad++;
+        }
     }
-    HwRunFrame(sGpuCapture != NULL && getenv("TMC_GPU_CASE_SKIP_CPU") ? NULL : frame);
-    if (sGpuCapture != NULL) {
-        PpuCaptureTo(NULL);
-        memcpy(sGpuCapture->reference, frame, sizeof(sGpuCapture->reference));
-    }
+    free(compact);
 }
 
 // The entry a line is drawn with: line 0 gets the copy made at VBlank, and each
@@ -102,16 +123,20 @@ static int EntryForLine(int line) {
 static int Check(const char* name, const uint16_t* frame, uint16_t (*expect)(int x, int line)) {
     int bad = 0, firstX = 0, firstLine = 0;
     if (sGpuCapture != NULL) {
-        char path[1024];
-        snprintf(path, sizeof(path), "%s/scanline-%s.bin", getenv("TMC_GPU_CASE_DIR"), name);
-        FILE* file = fopen(path, "wb");
-        if (file == NULL || fwrite(sGpuCapture, sizeof(*sGpuCapture), 1, file) != 1 || fclose(file) != 0) {
-            fprintf(stderr, "could not write GPU case %s\n", path);
-            exit(1);
+        const char* dir = getenv("TMC_GPU_CASE_DIR");
+        if (dir != NULL) {
+            char path[1024];
+            snprintf(path, sizeof(path), "%s/scanline-%s.bin", dir, name);
+            FILE* file = fopen(path, "wb");
+            if (file == NULL || fwrite(sGpuCapture, sizeof(*sGpuCapture), 1, file) != 1 || fclose(file) != 0) {
+                fprintf(stderr, "could not write GPU case %s\n", path);
+                exit(1);
+            }
         }
         free(sGpuCapture);
         sGpuCapture = NULL;
     }
+    if (sCompactBad) fprintf(stderr, "%s: compact capture differs at %d pages or lines\n", name, sCompactBad);
 
     for (int line = 0; line < PPU_HEIGHT; line++) {
         for (int x = 0; x < PPU_WIDTH; x++) {
@@ -126,7 +151,7 @@ static int Check(const char* name, const uint16_t* frame, uint16_t (*expect)(int
     } else {
         printf("%-7s ok\n", name);
     }
-    return bad != 0;
+    return bad != 0 || sCompactBad != 0;
 }
 
 // ---- scroll ---------------------------------------------------------------------
@@ -273,14 +298,64 @@ static int TestObj(uint16_t* frame) {
     return Check("oam", frame, ExpectObj);
 }
 
+// Repeated HBlank DMA writes into tile data, not just display registers.
+static uint16_t sTileData[PPU_HEIGHT];
+static uint16_t ExpectVram(int x, int line) {
+    return (line % 8 == 0 && x % 8 < 4) ? Color(EntryForLine(line) % 15 + 1) : Color(0);
+}
+static int TestVram(uint16_t* frame) {
+    ClearHardware();
+    for (int i = 0; i < 32 * 32; i++) gHwVram[0xF800 + i * 2] = 1;
+    Reg16(0x08, 0x1F00);
+    Reg16(0x00, 0x0100);
+    for (int i = 0; i < PPU_HEIGHT; i++) sTileData[i] = (i % 15 + 1) * 0x1111;
+    sTable = sTileData;
+    sTableDest = 32;
+    sTableCount = 1;
+    sTableVram = 1;
+    RunFrames(frame);
+    return Check("vram", frame, ExpectVram);
+}
+
+static uint16_t ExpectStable(int x, int line) { (void)x; (void)line; return Color(0); }
+static int TestStable(uint16_t* frame) {
+    ClearHardware();
+    sTable = NULL;
+    RunFrames(frame);
+    return Check("stable", frame, ExpectStable);
+}
+
+static uint16_t ExpectInterrupt(int x, int line) {
+    int index = sInterruptWrite == 1 ? EntryForLine(line) % 15 + 1 : (line >= 80 ? 2 : 1);
+    return line % 8 == 0 && x % 8 < 2 ? Color(index) : Color(0);
+}
+static int TestInterrupt(uint16_t* frame, int mode) {
+    ClearHardware();
+    for (int i = 0; i < 32 * 32; i++) gHwVram[0xF800 + i * 2] = 1;
+    gHwVram[32] = 0x11;
+    Reg16(0x08, 0x1F00);
+    Reg16(0x00, 0x0100);
+    Reg16(0x04, mode == 1 ? 0x0018 : (80 << 8) | 0x0028);
+    sTable = NULL;
+    sInterruptWrite = mode;
+    RunFrames(frame);
+    int failed = Check(mode == 1 ? "hblank-irq" : "vcount-irq", frame, ExpectInterrupt);
+    sInterruptWrite = 0;
+    return failed;
+}
+
 int main(void) {
     static uint16_t frame[PPU_WIDTH * PPU_HEIGHT];
     int failed = 0;
 
+    failed |= TestStable(frame);
     failed |= TestScroll(frame);
     failed |= TestAffine(frame);
     failed |= TestWindow(frame);
     failed |= TestPalette(frame);
     failed |= TestObj(frame);
+    failed |= TestVram(frame);
+    failed |= TestInterrupt(frame, 1);
+    failed |= TestInterrupt(frame, 2);
     return failed;
 }

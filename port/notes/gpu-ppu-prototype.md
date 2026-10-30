@@ -11,9 +11,9 @@ sprites, mosaic, windows, priorities, blending, brightness and forced blank.
 
 Each captured line contains the registers, VRAM, palettes, OAM, affine reference
 points, mosaic counters and debug layer mask as the CPU saw them. This preserves
-HBlank writes, including changes to memory, but costs 15.33 MiB per frame. That
-is intentionally a simple reference representation, not a proposed upload
-format. Capture is off unless requested. Capture files are raw, build-specific
+HBlank writes, including changes to memory. The original full capture costs
+15.33 MiB per frame; the optional compact capture below shares unchanged pages.
+Capture is off unless requested. Capture files are raw, build-specific
 internal data; recreate them after changing `PpuCaptureLine`.
 
 ## Reproduce
@@ -46,6 +46,39 @@ with `TMC_GPU_PROFILE_FRAME=5475`. Add `TMC_GPU_CAPTURE=5475:/tmp/gpu-iris.bin`
 to include the cost of recording every line. These timers themselves add some
 overhead; the sample is one frame, so repeat runs and compare like builds.
 
+## Compact scanline capture experiment
+
+With GPU PPU enabled, **Debug → Compact GPU Capture (Experimental)** shares
+unchanged 1 KiB VRAM pages between scanlines. If no HBlank DMA, HBlank interrupt
+or VCOUNT interrupt ran since the previous line, the game thread cannot have
+changed VRAM and the page indices are reused directly. After any such event, the
+CPU compares VRAM with a contiguous previous snapshot, then compares individual
+pages only if it changed; changed pages are copied into the frame's pool. This
+catches ordinary writes by interrupt handlers as well as DMA without modifying
+game code. Outside the frame loop, capture conservatively compares VRAM on each
+line because callers may write memory directly. Registers, palette RAM, OAM,
+affine references, mosaic counters and layer masks are still recorded per
+line. Metal shaders read the page pool directly. The full capture remains the
+default and both sprite renderers work with either mode.
+
+The Performance window reports the latest capture size. Three captured replay
+frames on an M4 had no mid-frame VRAM changes and used 96 pages, reducing each
+input from 15.33 MiB to about 0.48 MiB. In a separate synthetic test with direct
+VRAM writes between lines, the compact input was 0.79 MiB and matched the
+software frame. These are input sizes, not proof of a full-app speedup. The CPU still compares VRAM after possible writes. To handle arbitrary changes
+safely, compact mode reserves worst-case capacity; it can use slightly more space than
+the full input when every page changes on every line, and the experimental app
+keeps full-mode buffers for switching. Compare game-thread and GPU timings in
+actual play before drawing conclusions about speed or memory.
+
+The standalone check accepts `TMC_GPU_COMPACT_CAPTURE=1`; combine it with
+`TMC_GPU_SPRITE_QUADS=1` for the quad path. `ppu_test` checks direct per-line
+writes, metadata and the full-capacity worst case. `scanline_test` compares full
+and compact capture and checks HBlank VRAM, palette and OAM DMA writes plus
+VRAM writes from HBlank and VCOUNT interrupt handlers. The app's live comparison can be run with
+`TMC_GPU_PPU_SELFTEST=1 TMC_GPU_COMPACT_SELFTEST=1`; add
+`TMC_GPU_SPRITE_SELFTEST=1` to exercise both options together.
+
 ## Sprite quad experiment
 
 With GPU PPU enabled, **Debug → GPU Sprite Quads (Experimental)** replaces the
@@ -66,7 +99,7 @@ GPU time was roughly 0.82–0.84 ms for quads versus 0.65–0.75 ms for the orig
 sprite scan. These are small, scene-specific samples, not a full-app benchmark.
 The one-line quads preserve timing simply but still submit 128 instances for
 each line in each pass; preparing fewer instances is a possible next experiment.
-The full scanline capture is unchanged. The live app check can be run with both
+The sprite pass works with full or compact scanline capture. The live app check can be run with both
 `TMC_GPU_PPU_SELFTEST=1` and `TMC_GPU_SPRITE_SELFTEST=1`.
 
 ## Initial measurement
@@ -93,9 +126,8 @@ software reference; later frames skip CPU pixel drawing. The results are logged
 as `GPU PPU self-test`. Add `TMC_GPU_PPU_SELFTEST_PAUSE=1` to test switching back
 while paused.
 
-A more efficient GPU path would use a smaller representation of memory
-changes, preserve per-line semantics, and compare complete frame pacing,
-latency and power against the software path. The software renderer remains the
+Future work can reduce comparison and worst-case buffer costs and should compare
+complete frame pacing, latency and power against the software path. The software renderer remains the
 reference and the renderer for headless tools. The prototype needs 15.33 MiB per
 captured frame plus buffers for frames in flight; its first Metal compute encoder
 can also increase driver memory (see `memory-profile.md`).

@@ -457,19 +457,19 @@ static void RenderLine(int line, uint16_t* out) {
 }
 
 static PpuCaptureLine* sCapture;
+static PpuCompactCapture* sCompactCapture;
+static bool sCompactVramStable;
 
 void PpuCaptureTo(PpuCaptureLine* lines) { sCapture = lines; }
+void PpuCompactCaptureTo(PpuCompactCapture* capture) {
+    sCompactCapture = capture;
+    sCompactVramStable = false;
+    if (capture) capture->pageCount = 0;
+}
+bool PpuCompactCaptureActive(void) { return sCompactCapture != NULL; }
+void PpuCompactVramUnchanged(void) { sCompactVramStable = true; }
 
-void PpuRenderLine(int line, uint16_t* out) {
-    bool perf = PerformanceEnabled();
-    uint64_t start = perf ? PerformanceNow() : 0;
-    uint64_t before = perf ? PerformancePpuTotal() : 0;
-    uint16_t mosaic = Reg16(0x4C);
-
-    if (sMosaicBgY == 0) {
-        memcpy(sMosaicRefX, sRefX, sizeof(sRefX));
-        memcpy(sMosaicRefY, sRefY, sizeof(sRefY));
-    }
+static void CaptureLine(int line) {
     if (sCapture != NULL) {
         PpuCaptureLine* dst = &sCapture[line];
         memcpy(dst->vram, gHwVram, sizeof(dst->vram));
@@ -484,6 +484,36 @@ void PpuRenderLine(int line, uint16_t* out) {
         dst->mosaicObjY = sMosaicObjY;
         dst->layerMask = sLayerMask;
     }
+    if (sCompactCapture != NULL) {
+        PpuCaptureMeta meta;
+        memcpy(meta.palette, gHwPltt, sizeof(meta.palette));
+        memcpy(meta.oam, gHwOam, sizeof(meta.oam));
+        memcpy(meta.regs, gHwIo, HW_LINE_REGS);
+        memset(meta.regs + HW_LINE_REGS, 0, sizeof(meta.regs) - HW_LINE_REGS);
+        memcpy(meta.refX, sRefX, sizeof(sRefX));
+        memcpy(meta.refY, sRefY, sizeof(sRefY));
+        memcpy(meta.mosaicRefX, sMosaicRefX, sizeof(sMosaicRefX));
+        memcpy(meta.mosaicRefY, sMosaicRefY, sizeof(sMosaicRefY));
+        meta.mosaicBgY = sMosaicBgY;
+        meta.mosaicObjY = sMosaicObjY;
+        meta.layerMask = sLayerMask;
+        if (sCompactVramStable && line > 0) PpuCompactReuse(sCompactCapture, line, &meta);
+        else PpuCompactAppend(sCompactCapture, line, gHwVram, &meta);
+        sCompactVramStable = false;
+    }
+}
+
+void PpuRenderLine(int line, uint16_t* out) {
+    bool perf = PerformanceEnabled();
+    uint64_t start = perf ? PerformanceNow() : 0;
+    uint64_t before = perf ? PerformancePpuTotal() : 0;
+    uint16_t mosaic = Reg16(0x4C);
+
+    if (sMosaicBgY == 0) {
+        memcpy(sMosaicRefX, sRefX, sizeof(sRefX));
+        memcpy(sMosaicRefY, sRefY, sizeof(sRefY));
+    }
+    if (sCapture != NULL || sCompactCapture != NULL) CaptureLine(line);
     if (out != NULL) {
         RenderLine(line, out);
     }

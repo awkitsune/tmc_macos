@@ -3,7 +3,12 @@ using namespace metal;
 
 // Must match PpuCaptureLine in port/ppucapture.h.
 struct Line {
-    uchar vram[0x18000], palette[0x400], oam[0x400], regs[0x58];
+#if PPU_COMPACT
+    uint page[96];
+#else
+    uchar vram[0x18000];
+#endif
+    uchar palette[0x400], oam[0x400], regs[0x58];
     int refX[2], refY[2], mosaicRefX[2], mosaicRefY[2];
     uint mosaicBgY, mosaicObjY, layerMask;
 };
@@ -11,13 +16,18 @@ struct Line {
 static uint word(device const uchar* p, uint at) { return p[at] | (uint(p[at + 1]) << 8); }
 static uint reg(device const Line& l, uint at) { return word(l.regs, at); }
 static uint pal(device const Line& l, uint i) { return word(l.palette, i * 2) & 0x7fff; }
-static uint texel(device const Line& l, uint base, int x, int y, bool bpp8, uint limit) {
+#if PPU_COMPACT
+#define VRAM(l, at) (pool[(l).page[(at) / 1024] * 1024 + (at) % 1024])
+#else
+#define VRAM(l, at) ((l).vram[(at)])
+#endif
+static uint texel(device const Line& l, device const uchar* pool, uint base, int x, int y, bool bpp8, uint limit) {
     uint at = base + y * (bpp8 ? 8 : 4) + (bpp8 ? x : x / 2);
     if (at >= limit) return 0;
-    uint v = l.vram[at];
+    uint v = VRAM(l, at);
     return bpp8 ? v : ((x & 1) ? v >> 4 : v & 15);
 }
-static uint background(device const Line& l, int bg, int sx, int line, int mode) {
+static uint background(device const Line& l, device const uchar* pool, int bg, int sx, int line, int mode) {
     uint cnt = reg(l, 8 + bg * 2), charBase = ((cnt >> 2) & 3) * 0x4000;
     uint screenBase = ((cnt >> 8) & 31) * 0x800;
     bool mosaic = cnt & 0x40;
@@ -31,25 +41,26 @@ static uint background(device const Line& l, int bg, int sx, int line, int mode)
         int y = (ry + int(short(reg(l, r + 4))) * sx) >> 8;
         if (cnt & 0x2000) { x &= size - 1; y &= size - 1; }
         else if (x < 0 || y < 0 || x >= size || y >= size) return 0xffff;
-        uint tile = l.vram[(screenBase + (y >> 3) * (size >> 3) + (x >> 3)) & 0xffff];
-        uint index = texel(l, charBase + tile * 64, x & 7, y & 7, true, 0x10000);
+        uint tile = VRAM(l, (screenBase + (y >> 3) * (size >> 3) + (x >> 3)) & 0xffff);
+        uint index = texel(l, pool, charBase + tile * 64, x & 7, y & 7, true, 0x10000);
         return index ? pal(l, index) : 0xffff;
     }
     int w = (cnt & 0x4000) ? 512 : 256, h = (cnt & 0x8000) ? 512 : 256;
     int x = (sx + (reg(l, 0x10 + bg * 4) & 511)) & (w - 1);
     int y = (line - (mosaic ? int(l.mosaicBgY) : 0) + (reg(l, 0x12 + bg * 4) & 511)) & (h - 1);
     uint block = (x >= 256 ? 1 : 0) + (y >= 256 ? (w == 512 ? 2 : 1) : 0);
-    uint entry = word(l.vram, screenBase + block * 0x800 + (((y & 255) >> 3) * 32 + ((x & 255) >> 3)) * 2);
+    uint entryAt = screenBase + block * 0x800 + (((y & 255) >> 3) * 32 + ((x & 255) >> 3)) * 2;
+    uint entry = VRAM(l, entryAt) | (uint(VRAM(l, entryAt + 1)) << 8);
     int tx = x & 7, ty = y & 7;
     if (entry & 0x400) tx = 7 - tx;
     if (entry & 0x800) ty = 7 - ty;
     bool bpp8 = cnt & 0x80;
-    uint index = texel(l, charBase + (entry & 0x3ff) * (bpp8 ? 64 : 32), tx, ty, bpp8, 0x10000);
+    uint index = texel(l, pool, charBase + (entry & 0x3ff) * (bpp8 ? 64 : 32), tx, ty, bpp8, 0x10000);
     return index ? pal(l, bpp8 ? index : ((entry >> 12) * 16 + index)) : 0xffff;
 }
 
 struct Obj { uint color, priority, semi, window; };
-static Obj one_sprite(device const Line& l, int x, int line, uint display, int n) {
+static Obj one_sprite(device const Line& l, device const uchar* pool, int x, int line, uint display, int n) {
     constexpr uchar widths[12] = {8,16,32,64,16,32,32,64,8,8,16,32};
     constexpr uchar heights[12] = {8,16,32,64,8,8,16,32,16,32,32,64};
     Obj result = {0xffff, 4, 0, 0};
@@ -83,7 +94,7 @@ static Obj one_sprite(device const Line& l, int x, int line, uint display, int n
     uint tile = a2 & 0x3ff;
     tile += (display & 0x40) ? ((ty >> 3) * (w >> 3) + (tx >> 3)) * (bpp8 ? 2 : 1)
                              : (ty >> 3) * 32 + (tx >> 3) * (bpp8 ? 2 : 1);
-    uint index = texel(l, 0x10000 + (tile & 0x3ff) * 32, tx & 7, ty & 7, bpp8, 0x18000);
+    uint index = texel(l, pool, 0x10000 + (tile & 0x3ff) * 32, tx & 7, ty & 7, bpp8, 0x18000);
     if (!index) return result;
     if (mode == 2) { result.window = 1; return result; }
     uint priority = (a2 >> 10) & 3;
@@ -97,7 +108,7 @@ static Obj one_sprite(device const Line& l, int x, int line, uint display, int n
 
 // Keep the original scan path intact as a performance and correctness baseline;
 // routing it through one_sprite measurably changes the compiler's GPU code.
-static Obj sprite(device const Line& l, int x, int line, uint display) {
+static Obj sprite(device const Line& l, device const uchar* pool, int x, int line, uint display) {
     constexpr uchar widths[12] = {8,16,32,64,16,32,32,64,8,8,16,32};
     constexpr uchar heights[12] = {8,16,32,64,8,8,16,32,16,32,32,64};
     Obj result = {0xffff, 4, 0, 0};
@@ -132,7 +143,7 @@ static Obj sprite(device const Line& l, int x, int line, uint display) {
         uint tile = a2 & 0x3ff;
         tile += (display & 0x40) ? ((ty >> 3) * (w >> 3) + (tx >> 3)) * (bpp8 ? 2 : 1)
                                  : (ty >> 3) * 32 + (tx >> 3) * (bpp8 ? 2 : 1);
-        uint index = texel(l, 0x10000 + (tile & 0x3ff) * 32, tx & 7, ty & 7, bpp8, 0x18000);
+        uint index = texel(l, pool, 0x10000 + (tile & 0x3ff) * 32, tx & 7, ty & 7, bpp8, 0x18000);
         if (!index) continue;
         if (mode == 2) { result.window = 1; continue; }
         uint priority = (a2 >> 10) & 3;
@@ -159,7 +170,7 @@ static uint brightness(uint a, uint y, bool up) {
     }
     return result;
 }
-static ushort gpu_color(device const Line* lines, uint2 pos, Obj obj) {
+static ushort gpu_color(device const Line* lines, device const uchar* pool, uint2 pos, Obj obj) {
     device const Line& l = lines[pos.y];
     uint display = reg(l, 0), mode = display & 7;
     if (display & 0x80) return 0x7fff;
@@ -167,7 +178,7 @@ static ushort gpu_color(device const Line* lines, uint2 pos, Obj obj) {
     for (int bg = 0; bg < 4; bg++) {
         bool enabled = (display & (0x100 << bg)) && (l.layerMask & (1 << bg)) &&
                        !(mode == 1 && bg == 3) && !(mode == 2 && bg < 2) && mode <= 2;
-        colors[bg] = enabled ? background(l, bg, pos.x, pos.y, mode) : 0xffff;
+        colors[bg] = enabled ? background(l, pool, bg, pos.x, pos.y, mode) : 0xffff;
         priority[bg] = reg(l, 8 + bg*2) & 3;
     }
     uint enable = 0x3f;
@@ -206,26 +217,26 @@ static ushort gpu_color(device const Line* lines, uint2 pos, Obj obj) {
     return ushort(color);
 }
 
-kernel void gpu_ppu(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]],
+kernel void gpu_ppu(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]], device const uchar* pool [[buffer(2)]],
                     uint2 pos [[thread_position_in_grid]]) {
     if (pos.x < 240 && pos.y < 160) {
         device const Line& l = lines[pos.y];
         Obj obj = {0xffff, 4, 0, 0};
         uint display = reg(l, 0);
-        if (display & 0x1000) obj = sprite(l, pos.x, pos.y, display);
-        output[pos.y * 240 + pos.x] = gpu_color(lines, pos, obj);
+        if (display & 0x1000) obj = sprite(l, pool, pos.x, pos.y, display);
+        output[pos.y * 240 + pos.x] = gpu_color(lines, pool, pos, obj);
     }
 }
 
 kernel void gpu_ppu_texture(device const Line* lines [[buffer(0)]],
-                            texture2d<float, access::write> output [[texture(0)]],
+                            texture2d<float, access::write> output [[texture(0)]], device const uchar* pool [[buffer(2)]],
                             uint2 pos [[thread_position_in_grid]]) {
     if (pos.x >= 240 || pos.y >= 160) return;
     device const Line& l = lines[pos.y];
     Obj obj = {0xffff, 4, 0, 0};
     uint display = reg(l, 0);
-    if (display & 0x1000) obj = sprite(l, pos.x, pos.y, display);
-    uint c = gpu_color(lines, pos, obj);
+    if (display & 0x1000) obj = sprite(l, pool, pos.x, pos.y, display);
+    uint c = gpu_color(lines, pool, pos, obj);
     uint3 rgb = uint3(c & 31, (c >> 5) & 31, (c >> 10) & 31);
     rgb = (rgb << 3) | (rgb >> 2);
     output.write(float4(float3(rgb) / 255.0, 1.0), pos);
@@ -266,15 +277,17 @@ vertex SpriteVertex sprite_vertex(uint vid [[vertex_id]], uint instance [[instan
     out.position = float4(x / 120.0 - 1.0, 1.0 - y / 80.0, depth, 1.0);
     return out;
 }
-fragment float4 sprite_fragment(SpriteVertex in [[stage_in]], device const Line* lines [[buffer(0)]]) {
+fragment float4 sprite_fragment(SpriteVertex in [[stage_in]], device const Line* lines [[buffer(0)]],
+                                device const uchar* pool [[buffer(2)]]) {
     device const Line& l = lines[in.line];
-    Obj obj = one_sprite(l, int(in.position.x), int(in.line), reg(l, 0), int(in.index));
+    Obj obj = one_sprite(l, pool, int(in.position.x), int(in.line), reg(l, 0), int(in.index));
     if (obj.color == 0xffff || !(l.layerMask & 16)) discard_fragment();
     return float4(float(obj.color & 255), float(obj.color >> 8), float(obj.priority), float(obj.semi + 1)) / 255.0;
 }
-fragment float4 sprite_window_fragment(SpriteVertex in [[stage_in]], device const Line* lines [[buffer(0)]]) {
+fragment float4 sprite_window_fragment(SpriteVertex in [[stage_in]], device const Line* lines [[buffer(0)]],
+                                       device const uchar* pool [[buffer(2)]]) {
     device const Line& l = lines[in.line];
-    Obj obj = one_sprite(l, int(in.position.x), int(in.line), reg(l, 0), int(in.index));
+    Obj obj = one_sprite(l, pool, int(in.position.x), int(in.line), reg(l, 0), int(in.index));
     if (!obj.window) discard_fragment();
     return float4(1.0);
 }
@@ -286,19 +299,20 @@ static Obj raster_sprite(uint2 pos, texture2d<float, access::read> colors,
     return obj;
 }
 kernel void gpu_ppu_raster(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]],
+                           device const uchar* pool [[buffer(2)]],
                            texture2d<float, access::read> colors [[texture(0)]],
                            texture2d<float, access::read> windows [[texture(1)]],
                            uint2 pos [[thread_position_in_grid]]) {
     if (pos.x < 240 && pos.y < 160)
-        output[pos.y * 240 + pos.x] = gpu_color(lines, pos, raster_sprite(pos, colors, windows));
+        output[pos.y * 240 + pos.x] = gpu_color(lines, pool, pos, raster_sprite(pos, colors, windows));
 }
 kernel void gpu_ppu_texture_raster(device const Line* lines [[buffer(0)]],
-                                   texture2d<float, access::write> output [[texture(0)]],
+                                   texture2d<float, access::write> output [[texture(0)]], device const uchar* pool [[buffer(2)]],
                                    texture2d<float, access::read> colors [[texture(1)]],
                                    texture2d<float, access::read> windows [[texture(2)]],
                                    uint2 pos [[thread_position_in_grid]]) {
     if (pos.x >= 240 || pos.y >= 160) return;
-    uint c = gpu_color(lines, pos, raster_sprite(pos, colors, windows));
+    uint c = gpu_color(lines, pool, pos, raster_sprite(pos, colors, windows));
     uint3 rgb = uint3(c & 31, (c >> 5) & 31, (c >> 10) & 31);
     rgb = (rgb << 3) | (rgb >> 2);
     output.write(float4(float3(rgb) / 255.0, 1.0), pos);

@@ -23,6 +23,7 @@
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
+#include "port/ppucapture.h"
 
 #define REG16(offset) (*(volatile uint16_t*)(gHwIo + (offset)))
 #define REG_DISPSTAT REG16(0x004)
@@ -188,12 +189,15 @@ void HwRunFrame(uint16_t* framebuffer) {
     // Drawing line by line costs no more than a whole frame: each line reads its
     // registers once, and the HBlank steps are a few compares when nothing is armed.
     PpuBeginFrame();
+    bool compactCapture = PpuCompactCaptureActive();
+    bool vramUnchanged = false;
     for (int line = 0; line < PPU_HEIGHT; line++) {
         REG_VCOUNT = line;
         if (line == lyc) {
             REG_DISPSTAT |= DISPSTAT_VCOUNT;
             if (REG_DISPSTAT & DISPSTAT_VCOUNT_INTR) {
                 HwRaiseInterrupt(INTR_VCOUNT);
+                vramUnchanged = false;
             }
         } else {
             REG_DISPSTAT &= ~DISPSTAT_VCOUNT;
@@ -204,13 +208,19 @@ void HwRunFrame(uint16_t* framebuffer) {
         if (gHwLineCapture != NULL) {
             memcpy(gHwLineCapture[line], gHwIo, HW_LINE_REGS);
         }
+        if (compactCapture && vramUnchanged) PpuCompactVramUnchanged();
         PpuRenderLine(line, draw != NULL ? &draw[line * PPU_WIDTH] : NULL);
 
         REG_DISPSTAT |= DISPSTAT_HBLANK;
-        if (REG_DISPSTAT & DISPSTAT_HBLANK_INTR) {
+        bool hblankInterrupt = (REG_DISPSTAT & DISPSTAT_HBLANK_INTR) != 0;
+        if (hblankInterrupt) {
             HwRaiseInterrupt(INTR_HBLANK);
         }
-        HwDmaHBlank();
+        int hblankDma = HwDmaHBlank();
+        // No game code runs between lines unless one of these occurs. On the
+        // game thread VRAM must therefore be unchanged; a VCOUNT interrupt at
+        // the next line invalidates this proof before its state is captured.
+        vramUnchanged = !hblankInterrupt && !hblankDma;
         REG_DISPSTAT &= ~DISPSTAT_HBLANK;
     }
     if (watch.stats) {

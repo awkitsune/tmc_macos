@@ -972,8 +972,8 @@ samples; collection stops when the window closes.
 **Debug → GPU PPU (Experimental)** switches the displayed game picture to the
 Metal PPU; select it again to return to software. If the Debug menu is hidden,
 enable it in Settings → Debug. The option starts off each launch. While enabled,
-the GPU draws the game pixels; the CPU still runs display timing and captures a
-full hardware state for every scanline. The capture uses substantial CPU time
+the GPU draws the game pixels; the CPU still runs display timing and captures
+hardware state for every scanline. The capture uses substantial CPU time
 and memory, so this experiment may not be faster than software rendering. In the
 Performance window, capture time appears under Other PPU; GPU execution includes
 the PPU and display filters. Reset the samples after switching modes to compare.
@@ -986,6 +986,15 @@ to an alternative batched-quad renderer. Turn it off to compare the original GPU
 sprite scan. Both use the same per-line capture and background compositor. The
 option resets to off on launch and may be slower; use GPU execution time and
 reset the Performance samples after switching to compare.
+
+With GPU PPU enabled, **Debug → Compact GPU Capture (Experimental)** shares
+unchanged VRAM pages between scanlines. Turn it off to compare full snapshots;
+it also works with sprite quads and resets to off on launch. The Performance
+window shows the most recent GPU capture size. Reset its samples after switching
+and compare both game-thread and GPU time. Compact mode reuses VRAM state when
+no interrupt or DMA ran between lines and checks for changes otherwise. It
+reserves enough space for a worst-case frame, so smaller transfers do not
+necessarily mean lower CPU time or peak memory.
 
 ## Graphics debugging
 

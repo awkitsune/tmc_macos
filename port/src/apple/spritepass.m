@@ -38,7 +38,7 @@
     }
     return self;
 }
-- (void)encode:(id<MTLCommandBuffer>)commands lines:(id<MTLBuffer>)lines slot:(NSUInteger)slot {
+- (void)encode:(id<MTLCommandBuffer>)commands lines:(id<MTLBuffer>)lines poolOffset:(NSUInteger)poolOffset slot:(NSUInteger)slot {
     for (uint32_t window = 0; window < 2; window++) {
         MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
         pass.colorAttachments[0].texture = window ? _windows[slot] : _colors[slot];
@@ -57,6 +57,7 @@
         [encoder setVertexBuffer:lines offset:0 atIndex:0];
         [encoder setVertexBytes:&window length:sizeof(window) atIndex:1];
         [encoder setFragmentBuffer:lines offset:0 atIndex:0];
+        [encoder setFragmentBuffer:lines offset:poolOffset atIndex:2];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4 instanceCount:PPU_HEIGHT * 128];
         [encoder endEncoding];
     }

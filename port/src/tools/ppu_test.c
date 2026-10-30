@@ -525,6 +525,66 @@ static int TestPerformance(void) {
     return Report("perf", bad, 0, 0, 0, 0);
 }
 
+static int TestCompactCapture(void) {
+    PpuCapture* full = calloc(1, sizeof(*full));
+    PpuCompactCapture* compact = malloc(sizeof(*compact));
+    if (!full || !compact) exit(1);
+    ClearHardware();
+    memset(&gHwVram[32], 0x11, 32);
+    for (int i = 0; i < 32 * 32; i++) gHwVram[0xF800 + i * 2] = 1;
+    Reg16(0x08, 0x1F00);
+    Reg16(0x00, 0x0100);
+    PpuCaptureTo(full->lines);
+    PpuCompactCaptureTo(compact);
+    PpuBeginFrame();
+    for (int line = 0; line < PPU_HEIGHT; line++) {
+        // Direct writes are deliberately not routed through DMA or helpers.
+        gHwVram[(line * 997) % HW_VRAM_SIZE] ^= line + 1;
+        gHwVram[32 + line % 32] ^= line + 1;
+        gHwPltt[2] ^= line + 3;
+        gHwPltt[(line * 7) % HW_PLTT_SIZE] ^= line + 3;
+        gHwOam[(line * 11) % HW_OAM_SIZE] ^= line + 5;
+        Reg16(0x10, line * 3);
+        PpuRenderLine(line, &full->reference[line * PPU_WIDTH]);
+    }
+    PpuCaptureTo(NULL);
+    PpuCompactCaptureTo(NULL);
+    int bad = compact->pageCount < PPU_CAPTURE_PAGES || compact->pageCount > PPU_CAPTURE_MAX_PAGES;
+    for (int line = 0; line < PPU_HEIGHT; line++) {
+        PpuCompactLine* packed = &compact->lines[line];
+        PpuCaptureLine* reference = &full->lines[line];
+        bad |= memcmp(&packed->meta, (const uint8_t*)reference + offsetof(PpuCaptureLine, palette), sizeof(packed->meta)) != 0;
+        for (int page = 0; page < PPU_CAPTURE_PAGES; page++) {
+            uint32_t index = packed->page[page];
+            if (index >= compact->pageCount ||
+                memcmp(compact->pages + index * PPU_CAPTURE_PAGE_SIZE,
+                       reference->vram + page * PPU_CAPTURE_PAGE_SIZE, PPU_CAPTURE_PAGE_SIZE) != 0) bad++;
+        }
+    }
+    const char* dir = getenv("TMC_GPU_CASE_DIR");
+    if (dir != NULL) {
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/compact-changing.bin", dir);
+        FILE* file = fopen(path, "wb");
+        if (!file || fwrite(full, sizeof(*full), 1, file) != 1 || fclose(file) != 0) {
+            fprintf(stderr, "could not write GPU case %s\n", path);
+            exit(1);
+        }
+    }
+    // Worst case: every page changes on every line and uses the full capacity.
+    PpuCompactCaptureTo(compact);
+    PpuBeginFrame();
+    for (int line = 0; line < PPU_HEIGHT; line++) {
+        memset(gHwVram, line, sizeof(gHwVram));
+        PpuRenderLine(line, NULL);
+    }
+    PpuCompactCaptureTo(NULL);
+    bad |= compact->pageCount != PPU_CAPTURE_MAX_PAGES || PpuCompactSize(compact) != offsetof(PpuCompactCapture, previousVram);
+    free(compact);
+    free(full);
+    return Report("compact", bad, 0, 0, 0, 0);
+}
+
 int main(void) {
     int failed = 0;
 
@@ -541,6 +601,7 @@ int main(void) {
     failed |= TestBgObjVram();
     failed |= TestObjPriority();
     failed |= TestEffects();
+    failed |= TestCompactCapture();
     failed |= TestPerformance();
     return failed;
 }

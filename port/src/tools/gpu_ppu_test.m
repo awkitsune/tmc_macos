@@ -30,8 +30,10 @@ int main(int argc, const char** argv) {
         NSError* error = nil;
         NSString* source = [NSString stringWithContentsOfFile:@GPU_PPU_SHADER encoding:NSUTF8StringEncoding error:&error];
         if (!source) { fprintf(stderr, "shader source unavailable: %s\n", error.localizedDescription.UTF8String); return 2; }
+        BOOL compactMode = getenv("TMC_GPU_COMPACT_CAPTURE") != NULL;
         MTLCompileOptions* options = [MTLCompileOptions new];
         options.languageVersion = MTLLanguageVersion2_4;
+        if (compactMode) options.preprocessorMacros = @{ @"PPU_COMPACT": @1 };
         id<MTLLibrary> library = [device newLibraryWithSource:source options:options error:&error];
         if (!library) { fprintf(stderr, "shader compile failed: %s\n", error.localizedDescription.UTF8String); return 2; }
         BOOL raster = getenv("TMC_GPU_SPRITE_QUADS") != NULL;
@@ -41,8 +43,24 @@ int main(int argc, const char** argv) {
         id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:[library newFunctionWithName:function] error:&error];
         if (!pipeline) { fprintf(stderr, "pipeline failed: %s\n", error.localizedDescription.UTF8String); return 2; }
         id<MTLCommandQueue> queue = [device newCommandQueue];
+        PpuCompactCapture* compact = compactMode ? malloc(sizeof(*compact)) : NULL;
+        double compactMs = 0;
+        if (compactMode) {
+            if (!compact) { fprintf(stderr, "compact capture allocation failed\n"); return 2; }
+            compact->pageCount = 0;
+            double start = NowMs();
+            for (int i = 0; i < PPU_HEIGHT; i++) {
+                PpuCaptureMeta meta;
+                memcpy(&meta, (const uint8_t*)&capture->lines[i] + offsetof(PpuCaptureLine, palette), sizeof(meta));
+                PpuCompactAppend(compact, i, capture->lines[i].vram, &meta);
+            }
+            compactMs = NowMs() - start;
+        }
         double uploadStart = NowMs();
-        id<MTLBuffer> lines = [device newBufferWithBytes:capture->lines length:sizeof(capture->lines) options:MTLResourceStorageModeShared];
+        NSUInteger inputSize = compactMode ? PpuCompactSize(compact) : sizeof(capture->lines);
+        id<MTLBuffer> lines = [device newBufferWithBytes:compactMode ? (void*)compact : (void*)capture->lines
+                                                 length:inputSize options:MTLResourceStorageModeShared];
+        NSUInteger poolOffset = compactMode ? offsetof(PpuCompactCapture, pages) : 0;
         id<MTLBuffer> output = [device newBufferWithLength:sizeof(capture->reference) options:MTLResourceStorageModeShared];
         double uploadMs = NowMs() - uploadStart;
         if (!queue || !lines || !output) { fprintf(stderr, "Metal allocation failed\n"); return 2; }
@@ -51,11 +69,12 @@ int main(int argc, const char** argv) {
         for (int i = 0; i < runs; i++) {
             double start = NowMs();
             id<MTLCommandBuffer> commands = [queue commandBuffer];
-            if (raster) [sprites encode:commands lines:lines slot:0];
+            if (raster) [sprites encode:commands lines:lines poolOffset:poolOffset slot:0];
             id<MTLComputeCommandEncoder> encoder = [commands computeCommandEncoder];
             [encoder setComputePipelineState:pipeline];
             [encoder setBuffer:lines offset:0 atIndex:0];
             [encoder setBuffer:output offset:0 atIndex:1];
+            [encoder setBuffer:lines offset:poolOffset atIndex:2];
             if (raster) { [encoder setTexture:[sprites colors:0] atIndex:0]; [encoder setTexture:[sprites windows:0] atIndex:1]; }
             [encoder dispatchThreads:MTLSizeMake(PPU_WIDTH, PPU_HEIGHT, 1) threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
             [encoder endEncoding];
@@ -74,7 +93,9 @@ int main(int argc, const char** argv) {
         printf("%s (%s): %d differing pixels", device.name.UTF8String, raster ? "sprite quads" : "sprite scan", bad);
         if (first >= 0) printf("; first (%d,%d): GPU %04x CPU %04x", first % PPU_WIDTH, first / PPU_WIDTH, got[first], capture->reference[first]);
         printf("\ninput %.2f MiB, upload %.3f ms, GPU %.3f ms, submit/wait %.3f ms (mean of %d warm runs)\n",
-               sizeof(capture->lines) / 1048576.0, uploadMs, gpuMs / (runs - 1), wallMs / (runs - 1), runs - 1);
+               inputSize / 1048576.0, uploadMs, gpuMs / (runs - 1), wallMs / (runs - 1), runs - 1);
+        if (compactMode) printf("compact %.2f MiB, %u pages, CPU packing %.3f ms\n", PpuCompactSize(compact) / 1048576.0, compact->pageCount, compactMs);
+        free(compact);
         free(capture);
         return bad != 0;
     }
