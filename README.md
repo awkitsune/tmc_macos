@@ -981,6 +981,12 @@ Switching to GPU while paused takes effect when the next game frame is drawn;
 switching back to software redraws the paused picture. Details and the offline pixel comparison tool are in
 [GPU PPU prototype](port/notes/gpu-ppu-prototype.md).
 
+With GPU PPU enabled, **Debug → GPU Sprite Quads (Experimental)** switches sprites
+to an alternative batched-quad renderer. Turn it off to compare the original GPU
+sprite scan. Both use the same per-line capture and background compositor. The
+option resets to off on launch and may be slower; use GPU execution time and
+reset the Performance samples after switching to compare.
+
 ## Graphics debugging
 
 The app's Debug menu opens emulator-style viewers, each a resizable window that

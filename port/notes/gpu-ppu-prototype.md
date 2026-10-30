@@ -46,6 +46,29 @@ with `TMC_GPU_PROFILE_FRAME=5475`. Add `TMC_GPU_CAPTURE=5475:/tmp/gpu-iris.bin`
 to include the cost of recording every line. These timers themselves add some
 overhead; the sample is one frame, so repeat runs and compare like builds.
 
+## Sprite quad experiment
+
+With GPU PPU enabled, **Debug → GPU Sprite Quads (Experimental)** replaces the
+original per-pixel scan of all 128 sprite entries. Metal draws one thin quad for
+each potentially visible sprite on each scanline; this uses each line's OAM and
+memory snapshot, including mid-frame changes. A depth buffer selects the winner
+by OBJ priority and OAM index. A separate pass builds the OBJ-window mask, and
+the existing compositor applies backgrounds, windows and blending. Affine OBJ
+sampling still uses the GBA's inverse fixed-point transform in the fragment
+shader, with the original sprite bounding box and mosaic rules. Turn the option
+off to compare the previous GPU sprite path; it starts off each launch.
+
+To compare captures with the sprite-quad path, run `gpu_ppu_test` as above with
+`TMC_GPU_SPRITE_QUADS=1`. Its reported GPU time includes both sprite render
+passes and the final composition, but not frame capture or the app's display
+filters. On an M4, three replay frames had no pixel differences and the isolated
+GPU time was roughly 0.82–0.84 ms for quads versus 0.65–0.75 ms for the original
+sprite scan. These are small, scene-specific samples, not a full-app benchmark.
+The one-line quads preserve timing simply but still submit 128 instances for
+each line in each pass; preparing fewer instances is a possible next experiment.
+The full scanline capture is unchanged. The live app check can be run with both
+`TMC_GPU_PPU_SELFTEST=1` and `TMC_GPU_SPRITE_SELFTEST=1`.
+
 ## Initial measurement
 
 On one Apple M4, 2026-10-30, three captures from the new-game replay (frames

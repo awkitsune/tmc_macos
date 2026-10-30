@@ -49,6 +49,54 @@ static uint background(device const Line& l, int bg, int sx, int line, int mode)
 }
 
 struct Obj { uint color, priority, semi, window; };
+static Obj one_sprite(device const Line& l, int x, int line, uint display, int n) {
+    constexpr uchar widths[12] = {8,16,32,64,16,32,32,64,8,8,16,32};
+    constexpr uchar heights[12] = {8,16,32,64,8,8,16,32,16,32,32,64};
+    Obj result = {0xffff, 4, 0, 0};
+    uint at = n * 8, a0 = word(l.oam, at), a1 = word(l.oam, at + 2), a2 = word(l.oam, at + 4);
+    bool affine = a0 & 0x100, doubleOrHidden = a0 & 0x200, bpp8 = a0 & 0x2000;
+    int mode = (a0 >> 10) & 3, shape = a0 >> 14, size = a1 >> 14;
+    if ((!affine && doubleOrHidden) || shape == 3 || mode == 3) return result;
+    int w = widths[shape * 4 + size], h = heights[shape * 4 + size];
+    int bw = w << (affine && doubleOrHidden), bh = h << (affine && doubleOrHidden);
+    int top = a0 & 255; if (top + bh > 256) top -= 256;
+    int left = a1 & 511; if (left >= 240) left -= 512;
+    int bx = x - left, by = line - top;
+    if (bx < 0 || bx >= bw || by < 0 || by >= bh) return result;
+    if (a0 & 0x1000) {
+        by = max(0, by - int(l.mosaicObjY));
+        bx = max(0, bx - x % int(((reg(l, 0x4c) >> 8) & 15) + 1));
+    }
+    int tx, ty;
+    if (affine) {
+        uint p = ((a1 >> 9) & 31) * 32;
+        int pa = short(word(l.oam, p + 6)), pb = short(word(l.oam, p + 14));
+        int pc = short(word(l.oam, p + 22)), pd = short(word(l.oam, p + 30));
+        int cx = bx - bw / 2, cy = by - bh / 2;
+        tx = ((pa * cx + pb * cy) >> 8) + w / 2;
+        ty = ((pc * cx + pd * cy) >> 8) + h / 2;
+        if (tx < 0 || ty < 0 || tx >= w || ty >= h) return result;
+    } else {
+        tx = (a1 & 0x1000) ? w - 1 - bx : bx;
+        ty = (a1 & 0x2000) ? h - 1 - by : by;
+    }
+    uint tile = a2 & 0x3ff;
+    tile += (display & 0x40) ? ((ty >> 3) * (w >> 3) + (tx >> 3)) * (bpp8 ? 2 : 1)
+                             : (ty >> 3) * 32 + (tx >> 3) * (bpp8 ? 2 : 1);
+    uint index = texel(l, 0x10000 + (tile & 0x3ff) * 32, tx & 7, ty & 7, bpp8, 0x18000);
+    if (!index) return result;
+    if (mode == 2) { result.window = 1; return result; }
+    uint priority = (a2 >> 10) & 3;
+    if (priority <= result.priority) {
+        result.color = pal(l, 0x100 + (bpp8 ? index : (a2 >> 12) * 16 + index));
+        result.priority = priority;
+        result.semi = mode == 1;
+    }
+    return result;
+}
+
+// Keep the original scan path intact as a performance and correctness baseline;
+// routing it through one_sprite measurably changes the compiler's GPU code.
 static Obj sprite(device const Line& l, int x, int line, uint display) {
     constexpr uchar widths[12] = {8,16,32,64,16,32,32,64,8,8,16,32};
     constexpr uchar heights[12] = {8,16,32,64,8,8,16,32,16,32,32,64};
@@ -111,7 +159,7 @@ static uint brightness(uint a, uint y, bool up) {
     }
     return result;
 }
-static ushort gpu_color(device const Line* lines, uint2 pos) {
+static ushort gpu_color(device const Line* lines, uint2 pos, Obj obj) {
     device const Line& l = lines[pos.y];
     uint display = reg(l, 0), mode = display & 7;
     if (display & 0x80) return 0x7fff;
@@ -122,8 +170,6 @@ static ushort gpu_color(device const Line* lines, uint2 pos) {
         colors[bg] = enabled ? background(l, bg, pos.x, pos.y, mode) : 0xffff;
         priority[bg] = reg(l, 8 + bg*2) & 3;
     }
-    Obj obj = {0xffff, 4, 0, 0};
-    if (display & 0x1000) obj = sprite(l, pos.x, pos.y, display);
     uint enable = 0x3f;
     if (display & 0xe000) {
         uint in = reg(l, 0x48), out = reg(l, 0x4a);
@@ -162,14 +208,97 @@ static ushort gpu_color(device const Line* lines, uint2 pos) {
 
 kernel void gpu_ppu(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]],
                     uint2 pos [[thread_position_in_grid]]) {
-    if (pos.x < 240 && pos.y < 160) output[pos.y * 240 + pos.x] = gpu_color(lines, pos);
+    if (pos.x < 240 && pos.y < 160) {
+        device const Line& l = lines[pos.y];
+        Obj obj = {0xffff, 4, 0, 0};
+        uint display = reg(l, 0);
+        if (display & 0x1000) obj = sprite(l, pos.x, pos.y, display);
+        output[pos.y * 240 + pos.x] = gpu_color(lines, pos, obj);
+    }
 }
 
 kernel void gpu_ppu_texture(device const Line* lines [[buffer(0)]],
                             texture2d<float, access::write> output [[texture(0)]],
                             uint2 pos [[thread_position_in_grid]]) {
     if (pos.x >= 240 || pos.y >= 160) return;
-    uint c = gpu_color(lines, pos);
+    device const Line& l = lines[pos.y];
+    Obj obj = {0xffff, 4, 0, 0};
+    uint display = reg(l, 0);
+    if (display & 0x1000) obj = sprite(l, pos.x, pos.y, display);
+    uint c = gpu_color(lines, pos, obj);
+    uint3 rgb = uint3(c & 31, (c >> 5) & 31, (c >> 10) & 31);
+    rgb = (rgb << 3) | (rgb >> 2);
+    output.write(float4(float3(rgb) / 255.0, 1.0), pos);
+}
+
+// One one-pixel-high quad per sprite and scanline. The captured OAM and tile
+// memory may change between lines, so each instance uses that line's state.
+struct SpriteVertex {
+    float4 position [[position]];
+    uint line [[flat]];
+    uint index [[flat]];
+};
+vertex SpriteVertex sprite_vertex(uint vid [[vertex_id]], uint instance [[instance_id]],
+                                  device const Line* lines [[buffer(0)]], constant uint& windowPass [[buffer(1)]]) {
+    uint line = instance / 128, index = instance % 128;
+    device const Line& l = lines[line];
+    uint at = index * 8, a0 = word(l.oam, at), a1 = word(l.oam, at + 2), a2 = word(l.oam, at + 4);
+    constexpr uchar widths[12] = {8,16,32,64,16,32,32,64,8,8,16,32};
+    constexpr uchar heights[12] = {8,16,32,64,8,8,16,32,16,32,32,64};
+    bool affine = a0 & 0x100, doubled = a0 & 0x200;
+    uint shape = a0 >> 14, size = a1 >> 14, mode = (a0 >> 10) & 3;
+    SpriteVertex out;
+    out.line = line; out.index = index;
+    if (!(reg(l, 0) & 0x1000) || (!affine && doubled) || shape == 3 || mode == 3 ||
+        (windowPass ? mode != 2 : mode == 2)) {
+        out.position = float4(-2.0, -2.0, 0, 1); return out;
+    }
+    int width = int(widths[shape * 4 + size]) << (affine && doubled);
+    int height = int(heights[shape * 4 + size]) << (affine && doubled);
+    int top = a0 & 255; if (top + height > 256) top -= 256;
+    int left = a1 & 511; if (left >= 240) left -= 512;
+    if (int(line) < top || int(line) >= top + height || left >= 240 || left + width <= 0) {
+        out.position = float4(-2.0, -2.0, 0, 1); return out;
+    }
+    float x = float(left + ((vid & 1) ? width : 0));
+    float y = float(line + (vid >> 1));
+    float depth = float(((a2 >> 10) & 3) * 128 + index + 1) / 513.0;
+    out.position = float4(x / 120.0 - 1.0, 1.0 - y / 80.0, depth, 1.0);
+    return out;
+}
+fragment float4 sprite_fragment(SpriteVertex in [[stage_in]], device const Line* lines [[buffer(0)]]) {
+    device const Line& l = lines[in.line];
+    Obj obj = one_sprite(l, int(in.position.x), int(in.line), reg(l, 0), int(in.index));
+    if (obj.color == 0xffff || !(l.layerMask & 16)) discard_fragment();
+    return float4(float(obj.color & 255), float(obj.color >> 8), float(obj.priority), float(obj.semi + 1)) / 255.0;
+}
+fragment float4 sprite_window_fragment(SpriteVertex in [[stage_in]], device const Line* lines [[buffer(0)]]) {
+    device const Line& l = lines[in.line];
+    Obj obj = one_sprite(l, int(in.position.x), int(in.line), reg(l, 0), int(in.index));
+    if (!obj.window) discard_fragment();
+    return float4(1.0);
+}
+static Obj raster_sprite(uint2 pos, texture2d<float, access::read> colors,
+                         texture2d<float, access::read> windows) {
+    uint4 c = uint4(round(colors.read(pos) * 255.0));
+    Obj obj = { c.a ? (c.r | (c.g << 8)) : 0xffffu, c.a ? c.b : 4u, c.a ? c.a - 1 : 0u,
+                windows.read(pos).r > 0.5 ? 1u : 0u };
+    return obj;
+}
+kernel void gpu_ppu_raster(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]],
+                           texture2d<float, access::read> colors [[texture(0)]],
+                           texture2d<float, access::read> windows [[texture(1)]],
+                           uint2 pos [[thread_position_in_grid]]) {
+    if (pos.x < 240 && pos.y < 160)
+        output[pos.y * 240 + pos.x] = gpu_color(lines, pos, raster_sprite(pos, colors, windows));
+}
+kernel void gpu_ppu_texture_raster(device const Line* lines [[buffer(0)]],
+                                   texture2d<float, access::write> output [[texture(0)]],
+                                   texture2d<float, access::read> colors [[texture(1)]],
+                                   texture2d<float, access::read> windows [[texture(2)]],
+                                   uint2 pos [[thread_position_in_grid]]) {
+    if (pos.x >= 240 || pos.y >= 160) return;
+    uint c = gpu_color(lines, pos, raster_sprite(pos, colors, windows));
     uint3 rgb = uint3(c & 31, (c >> 5) & 31, (c >> 10) & 31);
     rgb = (rgb << 3) | (rgb >> 2);
     output.write(float4(float3(rgb) / 255.0, 1.0), pos);

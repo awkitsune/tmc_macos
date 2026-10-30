@@ -8,6 +8,7 @@
  *           write of BG2X/BG2Y must reload the reference point
  *   window: per-line WIN0H, the iris / spotlight (sub_0801E1EC in src/common.c)
  *   palette: per-line palette RAM writes
+ *   oam: per-line sprite attributes and positions
  *
  * Prints one line per check and exits nonzero on a mismatch.
  */
@@ -33,13 +34,13 @@ const uint32_t gHwRamMapCount = 0;
 
 static const uint16_t* sTable;
 static uint32_t sTableDest, sTableCount;
-static int sTablePalette;
+static int sTablePalette, sTableOam;
 
 // The game's VBlank handler: stop DMA 0, copy line 0's entry, re-arm the table.
 static void ArmTable(void) {
     HwDmaStop(0);
     if (sTable != NULL) {
-        uint8_t* dest = (sTablePalette ? gHwPltt : gHwIo) + sTableDest;
+        uint8_t* dest = (sTableOam ? gHwOam : sTablePalette ? gHwPltt : gHwIo) + sTableDest;
         memcpy(dest, sTable, sTableCount * 2);
         HwDmaSet(0, sTable, dest, DMA_HBLANK_REPEAT | sTableCount);
     }
@@ -60,7 +61,7 @@ static uint16_t Color(int index) {
 }
 
 static void ClearHardware(void) {
-    sTablePalette = 0;
+    sTablePalette = sTableOam = 0;
     memset(gHwIo, 0, sizeof(gHwIo));
     memset(gHwVram, 0, sizeof(gHwVram));
     memset(gHwPltt, 0, sizeof(gHwPltt));
@@ -249,6 +250,29 @@ static int TestPalette(uint16_t* frame) {
     return Check("palette", frame, ExpectPalette);
 }
 
+// Change OBJ0's attributes at each HBlank, including its X and Y positions.
+typedef struct { uint16_t attr0, attr1, attr2; } ObjLine;
+static ObjLine sObj[PPU_HEIGHT];
+static uint16_t ExpectObj(int x, int line) {
+    int left = sObj[EntryForLine(line)].attr1;
+    return x >= left && x < left + 8 ? Color(1) : Color(0);
+}
+static int TestObj(uint16_t* frame) {
+    ClearHardware();
+    memset(&gHwVram[0x10000], 0x11, 32);
+    uint16_t color = Color(1);
+    gHwPltt[0x202] = color & 255;
+    gHwPltt[0x203] = color >> 8;
+    Reg16(0x00, 0x1040); // OBJ with 1D mapping
+    for (int i = 0; i < PPU_HEIGHT; i++) sObj[i] = (ObjLine){ i, (i * 3) % 232, 0 };
+    sTable = (const uint16_t*)sObj;
+    sTableDest = 0;
+    sTableCount = 3;
+    sTableOam = 1;
+    RunFrames(frame);
+    return Check("oam", frame, ExpectObj);
+}
+
 int main(void) {
     static uint16_t frame[PPU_WIDTH * PPU_HEIGHT];
     int failed = 0;
@@ -257,5 +281,6 @@ int main(void) {
     failed |= TestAffine(frame);
     failed |= TestWindow(frame);
     failed |= TestPalette(frame);
+    failed |= TestObj(frame);
     return failed;
 }

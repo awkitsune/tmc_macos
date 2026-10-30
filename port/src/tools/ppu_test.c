@@ -419,6 +419,64 @@ static int TestBgObjVram(void) {
     return Report("bgobjvram", bad, 0, 0, 0, 0);
 }
 
+// Overlapping objects exercise priority, OAM tie-breaking, transparency and
+// the GBA's forced alpha for semi-transparent objects over a background.
+static int TestMaskedObjWindow(void) {
+    int bad = 0;
+    ClearHardware();
+    memset(&gHwVram[0x10000], 0x11, 32);
+    memset(&gHwVram[32], 0x11, 32);
+    for (int i = 0; i < 32 * 32; i++) gHwVram[0xF800 + i * 2] = 1;
+    Reg16(0x08, 0x1F00);
+    Reg16(0x00, 0x9140); // BG0, OBJ, OBJ window, 1D mapping
+    Reg16(0x4A, 0x0001); // BG0 outside, backdrop inside
+    SetObj(0, 0x0800 | 20, 20, 0);
+    PpuSetLayerMask(0x0F); // hide sprite colors without disabling OBJ windows
+    PpuRenderFrame(sMosaic);
+    for (int y = 0; y < PPU_HEIGHT; y++) {
+        for (int x = 0; x < PPU_WIDTH; x++) {
+            uint16_t want = x >= 20 && x < 28 && y >= 20 && y < 28 ? Color(0) : Color(1);
+            bad += sMosaic[y * PPU_WIDTH + x] != want;
+        }
+    }
+    int failed = Report("objwin-hidden", bad, 0, 0, 0, 0);
+    PpuSetLayerMask(PPU_LAYERS_ALL);
+    return failed;
+}
+
+static int TestObjPriority(void) {
+    int failed = 0;
+    const int pixel = 20 * PPU_WIDTH + 20;
+    ClearHardware();
+    memset(&gHwVram[0x10000], 0x11, 32);
+    memset(&gHwVram[0x10020], 0x22, 32);
+    memset(&gHwVram[0x10040], 0x33, 32);
+    SetObj(0, 20, 20, 2 << 10);
+    SetObj(1, 20, 20, (1 << 10) | 1);
+    SetObj(2, 20, 20, (1 << 10) | 2);
+    Reg16(0x00, 0x1040);
+    PpuRenderFrame(sMosaic);
+    failed |= Report("obj-prio", sMosaic[pixel] != Color(0x102), 20, 20, sMosaic[pixel], Color(0x102));
+    SetObj(0, 20, 20, 1 << 10);
+    PpuRenderFrame(sMosaic);
+    failed |= Report("obj-tie", sMosaic[pixel] != Color(0x101), 20, 20, sMosaic[pixel], Color(0x101));
+    memset(&gHwVram[0x10000], 0, 32);
+    PpuRenderFrame(sMosaic);
+    failed |= Report("obj-transparent", sMosaic[pixel] != Color(0x102), 20, 20, sMosaic[pixel], Color(0x102));
+    memset(&gHwVram[0x10000], 0x11, 32);
+    memset(&gHwVram[32], 0x44, 32);
+    for (int i = 0; i < 32 * 32; i++) gHwVram[0xF800 + i * 2] = 1;
+    Reg16(0x08, 0x1F01); // BG0 priority 1
+    Reg16(0x00, 0x1140); // BG0 and OBJ
+    SetObj(0, 0x0400 | 20, 20, 0); // semi-transparent OBJ, priority 0
+    Reg16(0x50, 0x0100); // BG0 is a second target
+    Reg16(0x52, 0x0808);
+    PpuRenderFrame(sMosaic);
+    uint16_t want = Blend(Color(0x101), Color(4), 8, 8);
+    failed |= Report("obj-alpha", sMosaic[pixel] != want, 20, 20, sMosaic[pixel], want);
+    return failed;
+}
+
 static int TestEffects(void) {
     int failed = 0, bad;
     ClearHardware();
@@ -478,8 +536,10 @@ int main(void) {
     failed |= TestWindow();
     failed |= TestBlend();
     failed |= TestObjWindow();
+    failed |= TestMaskedObjWindow();
     failed |= TestObj8bpp();
     failed |= TestBgObjVram();
+    failed |= TestObjPriority();
     failed |= TestEffects();
     failed |= TestPerformance();
     return failed;

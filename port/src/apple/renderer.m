@@ -1,6 +1,7 @@
 #import "renderer.h"
 #include "port/performance.h"
 #import "selftestlog.h"
+#import "spritepass.h"
 
 #include <os/lock.h>
 #include <stdatomic.h>
@@ -213,10 +214,12 @@ typedef struct {
     id<MTLCommandQueue> _queue;
     id<MTLRenderPipelineState> _pipeline;
     id<MTLTexture> _textures[IN_FLIGHT];
-    id<MTLComputePipelineState> _gpuPpuPipeline;
+    id<MTLLibrary> _gpuPpuLibrary;
+    id<MTLComputePipelineState> _gpuPpuPipeline, _gpuSpritePipeline;
+    SpritePass* _spritePass;
     id<MTLBuffer> _gpuPpuInputs[IN_FLIGHT];
     id<MTLTexture> _gpuPpuTextures[IN_FLIGHT];
-    BOOL _gpuPpuEnabled, _lastFrameGpu, _gpuSelfTestChecked, _gpuOnlyTestChecked, _gpuFallbackTestChecked;
+    BOOL _gpuPpuEnabled, _gpuSpriteQuadsEnabled, _lastFrameGpu, _gpuSelfTestChecked, _gpuOnlyTestChecked, _gpuFallbackTestChecked;
     NSUInteger _gpuPpuGeneration;
     // LCD response: what the simulated LCD shows, in linear light (ping-pong,
     // _history[_historySlot] is current), and the same gamma-encoded for the
@@ -445,6 +448,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         MTLCompileOptions* options = [MTLCompileOptions new];
         options.languageVersion = MTLLanguageVersion2_4;
         id<MTLLibrary> library = source ? [_device newLibraryWithSource:source options:options error:&error] : nil;
+        _gpuPpuLibrary = library;
         id<MTLFunction> function = [library newFunctionWithName:@"gpu_ppu_texture"];
         _gpuPpuPipeline = function ? [_device newComputePipelineStateWithFunction:function error:&error] : nil;
         if (!_gpuPpuPipeline) {
@@ -473,6 +477,10 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         }
     } else {
         FrontendSetGpuPpuEnabled(false);
+        _gpuSpriteQuadsEnabled = NO;
+        _gpuSpritePipeline = nil;
+        _spritePass = nil;
+        _gpuPpuLibrary = nil;
         for (int i = 0; i < IN_FLIGHT; i++) _gpuPpuInputs[i] = nil;
         _gpuPpuPipeline = nil;
         // Keep the last GPU texture visible until a new software frame arrives.
@@ -480,6 +488,33 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     _gpuPpuEnabled = enabled;
     _gpuPpuGeneration++;
     if (enabled) _sequence = 0; // show the latest software frame until a captured frame arrives
+    _historyValid = NO;
+    return YES;
+}
+
+- (BOOL)gpuSpriteQuadsEnabled { return _gpuSpriteQuadsEnabled; }
+
+- (BOOL)enableGpuSpriteQuads:(BOOL)enabled {
+    if (enabled == _gpuSpriteQuadsEnabled) return YES;
+    if (enabled) {
+        if (!_gpuPpuEnabled) return NO;
+        NSError* error = nil;
+        SpritePass* sprites = [[SpritePass alloc] initWithDevice:_device library:_gpuPpuLibrary error:&error];
+        id<MTLFunction> function = [_gpuPpuLibrary newFunctionWithName:@"gpu_ppu_texture_raster"];
+        id<MTLComputePipelineState> pipeline = function ? [_device newComputePipelineStateWithFunction:function error:&error] : nil;
+        if (!sprites || !pipeline) {
+            NSLog(@"GPU sprite quads unavailable: %@", error);
+            return NO;
+        }
+        _spritePass = sprites;
+        _gpuSpritePipeline = pipeline;
+    } else {
+        _spritePass = nil;
+        _gpuSpritePipeline = nil;
+    }
+    _gpuSpriteQuadsEnabled = enabled;
+    _gpuPpuGeneration++;
+    _sequence = 0; // redraw the latest captured frame using the selected sprite path
     _historyValid = NO;
     return YES;
 }
@@ -525,10 +560,15 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     id<MTLCommandBuffer> commands = [_queue commandBuffer];
     if (fresh) {
         if (gpuAvailable) {
+            if (_gpuSpriteQuadsEnabled) [_spritePass encode:commands lines:_gpuPpuInputs[next] slot:next];
             id<MTLComputeCommandEncoder> encoder = [commands computeCommandEncoder];
-            [encoder setComputePipelineState:_gpuPpuPipeline];
+            [encoder setComputePipelineState:_gpuSpriteQuadsEnabled ? _gpuSpritePipeline : _gpuPpuPipeline];
             [encoder setBuffer:_gpuPpuInputs[next] offset:0 atIndex:0];
             [encoder setTexture:_gpuPpuTextures[next] atIndex:0];
+            if (_gpuSpriteQuadsEnabled) {
+                [encoder setTexture:[_spritePass colors:next] atIndex:1];
+                [encoder setTexture:[_spritePass windows:next] atIndex:2];
+            }
             [encoder dispatchThreads:MTLSizeMake(PPU_WIDTH, PPU_HEIGHT, 1)
                  threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
             [encoder endEncoding];

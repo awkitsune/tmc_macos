@@ -286,6 +286,22 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
             if (!strongSelf) return;
             [strongSelf toggleGpuPpu:nil];
             NSLog(@"GPU PPU self-test: switch %@", strongSelf->_renderer.gpuPpuEnabled ? @"on" : @"FAILED");
+            if (getenv("TMC_GPU_SPRITE_SELFTEST")) {
+                [strongSelf toggleGpuSpriteQuads:nil];
+                NSLog(@"GPU sprite self-test: switch %@", strongSelf->_renderer.gpuSpriteQuadsEnabled ? @"on" : @"FAILED");
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                    AppDelegate* target = weakSelf;
+                    if (!target) return;
+                    [target toggleGpuSpriteQuads:nil];
+                    NSLog(@"GPU sprite self-test: switch %@", target->_renderer.gpuSpriteQuadsEnabled ? @"FAILED" : @"off");
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{
+                        AppDelegate* target = weakSelf;
+                        if (!target) return;
+                        [target toggleGpuSpriteQuads:nil];
+                        NSLog(@"GPU sprite self-test: switch %@", target->_renderer.gpuSpriteQuadsEnabled ? @"on" : @"FAILED");
+                    });
+                });
+            }
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
                 AppDelegate* strongSelf = weakSelf;
                 if (!strongSelf) return;
@@ -534,7 +550,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     if (counter) {
         [parts addObject:[NSString stringWithFormat:@"Frame %llu", (unsigned long long)FrontendFrame()]];
     }
-    if (_renderer.gpuPpuEnabled) [parts addObject:@"GPU PPU (experimental)"];
+    if (_renderer.gpuPpuEnabled) [parts addObject:_renderer.gpuSpriteQuadsEnabled ? @"GPU PPU · Sprite quads" : @"GPU PPU (experimental)"];
     NSString* text = [parts componentsJoinedByString:@" · "];
     if (![_window.subtitle isEqualToString:text]) {
         _window.subtitle = text;
@@ -622,6 +638,19 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         NSAlert* alert = [NSAlert new];
         alert.messageText = @"GPU PPU unavailable";
         alert.informativeText = @"The experimental renderer could not be initialized. The software renderer is still in use.";
+        [alert beginSheetModalForWindow:_window completionHandler:nil];
+        return;
+    }
+    _subtitleDirty = YES;
+    [self updateSubtitle];
+    [_view setNeedsDisplay:YES];
+}
+
+- (void)toggleGpuSpriteQuads:(id)sender {
+    if (![_renderer enableGpuSpriteQuads:!_renderer.gpuSpriteQuadsEnabled]) {
+        NSAlert* alert = [NSAlert new];
+        alert.messageText = @"GPU sprite quads unavailable";
+        alert.informativeText = @"The existing GPU sprite renderer is still in use.";
         [alert beginSheetModalForWindow:_window completionHandler:nil];
         return;
     }
@@ -892,6 +921,8 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [menu addItemWithTitle:@"Show Frame Counter" action:@selector(toggleFrameCounter:) keyEquivalent:@""];
     NSMenuItem* gpuPpu = [menu addItemWithTitle:@"GPU PPU (Experimental)" action:@selector(toggleGpuPpu:) keyEquivalent:@""];
     gpuPpu.toolTip = @"Render gameplay on the GPU; scanline state capture still uses CPU time and memory.";
+    NSMenuItem* sprites = [menu addItemWithTitle:@"GPU Sprite Quads (Experimental)" action:@selector(toggleGpuSpriteQuads:) keyEquivalent:@""];
+    sprites.toolTip = @"Draw sprites as batched quads for comparison with the original GPU sprite renderer.";
     [menu addItem:NSMenuItem.separatorItem];
     NSMenu* checkpoints = [[NSMenu alloc] initWithTitle:@"Load Checkpoint"];
     checkpoints.delegate = self; // filled when opened (menuNeedsUpdate:)
@@ -929,6 +960,9 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
                                                                                            : NSControlStateValueOff;
     } else if (item.action == @selector(toggleGpuPpu:)) {
         item.state = _renderer.gpuPpuEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    } else if (item.action == @selector(toggleGpuSpriteQuads:)) {
+        item.state = _renderer.gpuSpriteQuadsEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+        return _window != nil && _renderer.gpuPpuEnabled;
     } else if (item.action == @selector(togglePause:)) {
         item.title = FrontendIsPaused() ? @"Resume" : @"Pause";
     } else if (item.action == @selector(changeRom:) || item.action == @selector(reextractGameData:)) {
