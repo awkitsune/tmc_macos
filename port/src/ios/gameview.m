@@ -7,6 +7,7 @@
 
 #import "audiosession.h"
 #import "displaysync.h"
+#import "romimport.h"
 #import "selftest.h"
 #import "settingsstore.h"
 #import "settingsview.h"
@@ -175,6 +176,23 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _touch.hidden = YES;
     _touch.menuTapped = ^{
         [weakSelf showSettings];
+    };
+    _touch.clusterMoved = ^(TouchCluster cluster, CGPoint offset) {
+        GameViewController* strongSelf = weakSelf;
+        TouchSettings settings = TouchSettingsLoad(strongSelf.portrait);
+        settings.layout.offsets[cluster] = offset;
+        TouchSettingsSave(strongSelf.portrait, &settings);
+        [strongSelf layoutPicture];
+    };
+    _touch.editReset = ^{
+        GameViewController* strongSelf = weakSelf;
+        TouchSettings settings = TouchSettingsLoad(strongSelf.portrait);
+        memset(settings.layout.offsets, 0, sizeof(settings.layout.offsets));
+        TouchSettingsSave(strongSelf.portrait, &settings);
+        [strongSelf layoutPicture];
+    };
+    _touch.editDone = ^{
+        [weakSelf endTouchEditing];
     };
     [self.view addSubview:_touch];
     [self buildOverlay];
@@ -488,20 +506,50 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _tap.enabled = !touch;
     _touch.haptics = [NSUserDefaults.standardUserDefaults boolForKey:kTouchHapticsDefault];
     _touch.hidden = !touch || _input.hasGamepad || _renderer == nil;
+    if (_touch.hidden) {
+        [self endTouchEditing];
+    }
     [self setPause:PauseReasonNoController on:!touch && !_input.hasController];
     [self layoutPicture];
     [self setNeedsUpdateOfScreenEdgesDeferringSystemGestures];
 }
 
+- (BOOL)portrait {
+    CGSize size = self.view.bounds.size;
+    return size.height > size.width;
+}
+
+- (void)editTouchControls {
+    [self closeSettings];
+    if (_touch.hidden) {
+        [self showStatus:_input.hasGamepad ? @"The touch controls are hidden while a gamepad is connected"
+                                           : @"Turn on the touch controls first"];
+        return;
+    }
+    _touch.editing = YES;
+    [self setPause:PauseReasonEditing on:YES];
+}
+
+- (void)endTouchEditing {
+    _touch.editing = NO;
+    [self setPause:PauseReasonEditing on:NO];
+}
+
+// The picture and the touch controls, with the player's touch settings for
+// this orientation and the renderer's integer scaling.
 - (void)layoutPicture {
     CGSize size = self.view.bounds.size;
     if (size.width <= 0 || size.height <= 0) {
         return;
     }
     CGFloat scale = _view.contentScaleFactor;
-    TouchLayout layout = TouchLayoutMake(size, self.view.safeAreaInsets, size.height > size.width,
-                                         UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad, scale);
+    TouchSettings settings = TouchSettingsLoad(self.portrait);
+    settings.layout.integerScaling = _renderer == nil || _renderer.integerScaling;
+    TouchLayout layout = TouchLayoutMake(size, self.view.safeAreaInsets, self.portrait,
+                                         UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad, scale,
+                                         &settings.layout);
     _touch.layout = layout;
+    _touch.opacity = settings.opacity;
     _renderer.pictureRect = _touch.hidden ? CGRectZero : TouchLayoutPixelRect(layout.picture, scale);
 }
 
@@ -568,6 +616,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         return;
     }
     _resumeBy = 0;
+    [self endTouchEditing];
     [_touch releaseAll];
     [self setPause:PauseReasonSettings on:YES];
     _settings = [[SettingsController alloc] initWithHost:self];
@@ -598,6 +647,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 - (void)settingsClosed {
     _settings = nil;
     _resumeBy = CACurrentMediaTime() + 1;
+    [self layoutPicture]; // ⏩ shows the Fast-forward setting
 }
 
 - (NSString*)roomName {
@@ -636,6 +686,10 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 - (void)resetGame {
     FrontendRequestReset();
     [self closeSettings];
+}
+
+- (void)changeRom:(BOOL)reextract {
+    [RomImport changeRomOver:self reextract:reextract];
 }
 
 #pragma mark Save states
@@ -692,6 +746,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 
 - (void)sceneDidBecomeActive {
     [self setPause:PauseReasonInactive on:NO];
+    [_input claimHomeButtons];
 }
 
 - (void)sceneDidEnterBackground {

@@ -75,8 +75,9 @@ static void CheckGamepadMapping(Input* input) {
             }
         }
     }
+    // ☰ is Start only when let go before it opens the settings (Input's handler).
     [pad.buttonMenu setValue:1];
-    failures += [input keysForController:controller nintendo:NO] != HW_KEY_START;
+    failures += [input keysForController:controller nintendo:NO] != 0;
     [pad.buttonMenu setValue:0];
     input.gamepadLayout = saved;
     Check(failures == 0, @"gamepad mapping");
@@ -152,7 +153,8 @@ static const Screen kScreens[] = {
 
 static TouchLayout ScreenLayout(const Screen* screen, BOOL portrait) {
     CGSize size = portrait ? screen->portrait : CGSizeMake(screen->portrait.height, screen->portrait.width);
-    return TouchLayoutMake(size, portrait ? screen->portraitSafe : screen->landscapeSafe, portrait, screen->pad, screen->scale);
+    return TouchLayoutMake(size, portrait ? screen->portraitSafe : screen->landscapeSafe, portrait, screen->pad, screen->scale,
+                           NULL);
 }
 
 static BOOL Overlap(CGRect a, CGRect b) {
@@ -210,6 +212,29 @@ static void CheckTouchLayouts(void) {
     // The sizes asked for on the iPhone 15: 5x (1200x800) in landscape, 4x (960x640) in portrait.
     TouchLayout landscape = ScreenLayout(&kScreens[1], NO), portrait = ScreenLayout(&kScreens[1], YES);
     Check(PictureScale(&landscape, 3) == 5 && PictureScale(&portrait, 3) == 4, @"touch layout: iPhone 15 at 5x and 4x");
+    // Without integer scaling the landscape picture takes the room the controls leave.
+    TouchLayoutOptions free = TouchLayoutDefaults;
+    free.integerScaling = NO;
+    const Screen* phone = &kScreens[1];
+    TouchLayout wide = TouchLayoutMake(CGSizeMake(phone->portrait.height, phone->portrait.width), phone->landscapeSafe, NO,
+                                       NO, phone->scale, &free);
+    CGRect fitted = RendererFitPicture(TouchLayoutPixelRect(wide.picture, phone->scale), NO);
+    BOOL clear = YES;
+    for (TouchControl c = 0; c < TouchControlCount; c++) {
+        clear = clear && !Overlap(wide.picture, wide.controls[c]);
+    }
+    NSLog(@"selftest: touch layout iPhone 15 landscape, no integer scaling: picture %.0fx%.0f px", fitted.size.width,
+          fitted.size.height);
+    Check(clear && fitted.size.width > 1200, @"touch layout: no integer scaling, wider picture");
+    // A moved cluster stays inside the safe area, its controls together.
+    free.offsets[TouchClusterFace] = CGPointMake(-2000, 2000);
+    TouchLayout moved = TouchLayoutMake(CGSizeMake(phone->portrait.height, phone->portrait.width), phone->landscapeSafe, NO,
+                                        NO, phone->scale, &free);
+    CGRect safe = UIEdgeInsetsInsetRect(CGRectMake(0, 0, phone->portrait.height, phone->portrait.width), phone->landscapeSafe);
+    Check(CGRectContainsRect(CGRectInset(safe, -0.01, -0.01), moved.clusters[TouchClusterFace]) &&
+              CGRectContainsRect(moved.clusters[TouchClusterFace], moved.controls[TouchControlA]) &&
+              CGRectContainsRect(moved.clusters[TouchClusterFace], moved.controls[TouchControlB]),
+          @"touch layout: a moved cluster stays on screen");
 }
 
 static CGPoint Middle(CGRect rect) {
@@ -254,6 +279,7 @@ static void CheckTouchHits(void) {
                 { Middle(layout.controls[TouchControlStart]), NO, HW_KEY_START, TouchControlStart },
                 { Middle(layout.controls[TouchControlSelect]), NO, HW_KEY_SELECT, TouchControlSelect },
                 { Middle(layout.controls[TouchControlMenu]), NO, 0, TouchControlMenu },
+                { Middle(layout.controls[TouchControlFastForward]), NO, 0, TouchControlFastForward },
                 { Middle(layout.picture), NO, 0, TouchControlCount },
             };
             for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {

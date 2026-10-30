@@ -26,12 +26,7 @@ drawing every sprite there is kept on purpose (`ppu-audit.md`).
   Xcode and has to be installed again every 7 days (`port/scripts/ios_install.sh`).
 - The touch controls are flat shapes drawn in code. A skin like the GBA's shell (the purple plastic, the speaker
   grille) drawn around them would be a possible later option.
-- The touch controls' layout gives the picture a whole-number scale even with Integer scaling off: in landscape the
-  middle column is only as wide as that picture.
-- The touch controls cannot be moved, resized or made more transparent, and there is no fast-forward button.
 - The settings sheet is driven by a controller through its own polling (`port/src/ios/settingsview.m`), not UIKit's
-  focus system; a slider moves in 1/20 steps of its range.
-- ☰ is both Start and (held) the settings, so holding it to open the settings first gives the game a Start press;
-  controllers without a Home button only have that way (or a tap, or the touch controls' ☰).
-- No in-app way to change the ROM or re-extract the data after the first launch (the Mac app has Change ROM…); a
-  new build that needs other data re-extracts from the remembered ROM by itself.
+  focus system (kept: the rows are custom and the polling is small).
+- ☰ gives Start on release (so a held ☰ can open the settings without it): a quick press reaches the game a little
+  late, and Start cannot be held.

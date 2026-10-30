@@ -19,6 +19,11 @@ static NSString* const kHighQualityAudioDefault = @"HighQualityAudio";
 // Held this long, a direction repeats every kRepeatSeconds.
 static const CFTimeInterval kRepeatDelay = 0.35;
 static const CFTimeInterval kRepeatSeconds = 0.08;
+// A slider moves 1/kSliderSteps of its range a step, and a held direction
+// speeds up to kSliderMaxSpeed steps a repeat (one every kSliderSpeedUp repeats).
+static const float kSliderSteps = 100;
+static const NSInteger kSliderMaxSpeed = 8;
+static const NSInteger kSliderSpeedUp = 5;
 
 typedef NS_ENUM(NSInteger, RowKind) {
     RowKindToggle, // a switch
@@ -40,7 +45,9 @@ typedef NS_ENUM(NSInteger, RowKind) {
 @property(nonatomic, copy, nullable) NSArray<NSString*>* options;   // choice
 @property(nonatomic, copy, nullable) NSInteger (^selected)(void);   // choice
 @property(nonatomic, copy, nullable) void (^select)(NSInteger index); // choice
-@property(nonatomic) const Knob* knob;                              // slider
+@property(nonatomic) const Knob* knob;                              // slider: its range and format
+@property(nonatomic, copy, nullable) float (^value)(void);          // slider: nil for a filter knob
+@property(nonatomic, copy, nullable) void (^setValue)(float value); // slider
 @property(nonatomic, copy, nullable) void (^run)(void);             // action
 @property(nonatomic) BOOL destructive;                              // action: the first press asks, the second runs
 @property(nonatomic, copy, nullable) NSString* confirmTitle;        // its title while asking
@@ -205,14 +212,12 @@ typedef NS_ENUM(NSInteger, RowKind) {
         SliderCell* cell = [tableView dequeueReusableCellWithIdentifier:@"slider"]
                                ?: [[SliderCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"slider"];
         const Knob* knob = row.knob;
-        FilterParams params = self.host.renderer.params;
-        float value = *KnobValue(&params, knob);
+        float value = [self valueOf:row];
         cell.title.text = row.title;
         cell.value.text = KnobText(knob, value);
         cell.slider.minimumValue = knob->min;
         cell.slider.maximumValue = knob->max;
         cell.slider.value = value;
-        cell.slider.tag = (NSInteger)(knob - kKnobs);
         [cell.slider removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
         [cell.slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
         return cell;
@@ -284,19 +289,38 @@ typedef NS_ENUM(NSInteger, RowKind) {
 }
 
 - (void)sliderChanged:(UISlider*)slider {
-    const Knob* knob = &kKnobs[slider.tag];
-    [self setKnob:knob value:slider.value updateSlider:NO];
+    for (UITableViewCell* cell in self.tableView.visibleCells) {
+        NSIndexPath* path = [self.tableView indexPathForCell:cell];
+        if ([cell isKindOfClass:SliderCell.class] && ((SliderCell*)cell).slider == slider && path != nil) {
+            [self setRow:[self rowAt:path] value:slider.value updateSlider:NO];
+        }
+    }
 }
 
-- (void)setKnob:(const Knob*)knob value:(float)value updateSlider:(BOOL)updateSlider {
-    Renderer* renderer = self.host.renderer;
-    FilterParams params = renderer.params;
+// A slider's value: its own, or a filter knob's.
+- (float)valueOf:(SettingsRow*)row {
+    if (row.value != nil) {
+        return row.value();
+    }
+    FilterParams params = self.host.renderer.params;
+    return *KnobValue(&params, row.knob);
+}
+
+- (void)setRow:(SettingsRow*)row value:(float)value updateSlider:(BOOL)updateSlider {
+    const Knob* knob = row.knob;
     value = KnobSnap(knob, fminf(fmaxf(value, knob->min), knob->max));
-    *KnobValue(&params, knob) = value;
-    renderer.params = params;
-    [NSUserDefaults.standardUserDefaults setFloat:value forKey:knob->key];
+    if (row.setValue != nil) {
+        row.setValue(value);
+    } else {
+        Renderer* renderer = self.host.renderer;
+        FilterParams params = renderer.params;
+        *KnobValue(&params, knob) = value;
+        renderer.params = params;
+        [NSUserDefaults.standardUserDefaults setFloat:value forKey:knob->key];
+    }
     for (UITableViewCell* cell in self.tableView.visibleCells) {
-        if ([cell isKindOfClass:SliderCell.class] && ((SliderCell*)cell).slider.tag == knob - kKnobs) {
+        NSIndexPath* path = [self.tableView indexPathForCell:cell];
+        if ([cell isKindOfClass:SliderCell.class] && path != nil && [self rowAt:path] == row) {
             ((SliderCell*)cell).value.text = KnobText(knob, value);
             if (updateSlider) {
                 ((SliderCell*)cell).slider.value = value;
@@ -356,8 +380,26 @@ typedef NS_ENUM(NSInteger, RowKind) {
     }
 }
 
-// Left and right: switch, step through the options, move a slider.
-- (void)adjust:(NSInteger)delta {
+// The first row of the section after (delta 1) or before (-1) the focused one.
+- (void)jumpSection:(NSInteger)delta {
+    if (self.focus == nil) {
+        [self moveFocus:1];
+        return;
+    }
+    for (NSInteger s = self.focus.section + delta; s >= 0 && s < (NSInteger)self.sections.count; s += delta) {
+        NSArray<SettingsRow*>* rows = self.sections[(NSUInteger)s].rows;
+        for (NSUInteger r = 0; r < rows.count; r++) {
+            if (rows[r].focusable) {
+                [self setFocusTo:[NSIndexPath indexPathForRow:(NSInteger)r inSection:s]];
+                return;
+            }
+        }
+    }
+}
+
+// Left and right: switch, step through the options, move a slider (speed
+// steps at a time; the rest take one).
+- (void)adjust:(NSInteger)delta speed:(NSInteger)speed {
     if (self.focus == nil) {
         return;
     }
@@ -378,9 +420,8 @@ typedef NS_ENUM(NSInteger, RowKind) {
             break;
         }
         case RowKindSlider: {
-            FilterParams params = self.host.renderer.params;
-            float step = fmaxf(row.knob->step, (row.knob->max - row.knob->min) / 20);
-            [self setKnob:row.knob value:*KnobValue(&params, row.knob) + step * (float)delta updateSlider:YES];
+            float step = fmaxf(row.knob->step, (row.knob->max - row.knob->min) / kSliderSteps);
+            [self setRow:row value:[self valueOf:row] + step * (float)(delta * speed) updateSlider:YES];
             break;
         }
         default:
@@ -518,6 +559,10 @@ static SettingsPage* DisplayPage(id<SettingsHost> host) {
                                                    ^(BOOL on) {
                                                        weakHost.renderer.integerScaling = on;
                                                        [NSUserDefaults.standardUserDefaults setBool:on forKey:kIntegerScalingDefault];
+                                                       // The touch layout sizes the picture by it.
+                                                       [NSNotificationCenter.defaultCenter
+                                                           postNotificationName:kTouchControlsChangedNotification
+                                                                         object:nil];
                                                    }),
                                                Toggle(
                                                    @"Draw on the GPU", ^BOOL { return weakHost.renderer.gpuPpuEnabled; },
@@ -562,6 +607,33 @@ static SettingsPage* DisplayPage(id<SettingsHost> host) {
     return page;
 }
 
+// The touch controls' opacity and size, in percent, for the layout shown now.
+static const Knob kTouchOpacityKnob = { nil, @"Opacity", @"Opacity", 0, 10, 100, 5, @"%.0f%%" };
+static const Knob kTouchSizeKnob = { nil, @"Size", @"Size", 0, 75, 150, 5, @"%.0f%%" };
+
+static SettingsRow* TouchSlider(id<SettingsHost> host, const Knob* knob) {
+    __weak id<SettingsHost> weakHost = host;
+    BOOL opacity = knob == &kTouchOpacityKnob;
+    SettingsRow* row = [SettingsRow rowWithKind:RowKindSlider title:knob->title];
+    row.knob = knob;
+    row.value = ^float {
+        TouchSettings settings = TouchSettingsLoad(weakHost.portrait);
+        return (float)round(100 * (opacity ? settings.opacity : settings.layout.size));
+    };
+    row.setValue = ^(float value) {
+        BOOL portrait = weakHost.portrait;
+        TouchSettings settings = TouchSettingsLoad(portrait);
+        if (opacity) {
+            settings.opacity = value / 100;
+        } else {
+            settings.layout.size = value / 100;
+        }
+        TouchSettingsSave(portrait, &settings);
+        [NSNotificationCenter.defaultCenter postNotificationName:kTouchControlsChangedNotification object:nil];
+    };
+    return row;
+}
+
 static SettingsPage* ControlsPage(id<SettingsHost> host) {
     SettingsPage* page = [[SettingsPage alloc] initWithTitle:@"Controls" host:host];
     __weak id<SettingsHost> weakHost = host;
@@ -572,16 +644,44 @@ static SettingsPage* ControlsPage(id<SettingsHost> host) {
     if (connected.count == 0) {
         [connected addObject:Info(@"None", @"")];
     }
+    NSString* home = host.input.homeButtonStatus;
+    if (home != nil) {
+        SettingsRow* row = Action(@"Home Button…", ^{
+            [weakHost.input openHomeButtonSettings];
+        });
+        row.detail = ^NSString* {
+            return [home isEqualToString:@"System"] ? @"Opens the system overlay" : @"Opens these settings";
+        };
+        [connected addObject:row];
+    }
     void (^touchChanged)(BOOL) = ^(BOOL on) {
         [NSNotificationCenter.defaultCenter postNotificationName:kTouchControlsChangedNotification object:nil];
     };
+    __weak SettingsPage* weakPage = page;
+    SettingsRow* resetTouch = Action(@"Reset Touch Layout", ^{
+        TouchSettingsReset(weakHost.portrait);
+        [NSNotificationCenter.defaultCenter postNotificationName:kTouchControlsChangedNotification object:nil];
+        [weakPage refresh];
+    });
+    resetTouch.destructive = YES;
+    resetTouch.confirmTitle = @"Reset Opacity, Size and Places?";
     page.sections = @[
         [SettingsSection header:@"Touch"
                            rows:@[
                                DefaultsToggle(@"Touch controls", kTouchControlsDefault, touchChanged),
                                DefaultsToggle(@"Haptics", kTouchHapticsDefault, touchChanged),
                            ]
-                         footer:@"On-screen buttons, hidden while a gamepad is connected. Their ☰ opens the settings."],
+                         footer:@"On-screen buttons, hidden while a gamepad is connected. Their ☰ opens the settings; "
+                                @"⏩ switches fast-forward, or holds it while held."],
+        [SettingsSection header:host.portrait ? @"Touch Layout (Portrait)" : @"Touch Layout (Landscape)"
+                           rows:@[
+                               TouchSlider(host, &kTouchOpacityKnob),
+                               TouchSlider(host, &kTouchSizeKnob),
+                               Action(@"Move Controls…", ^{ [weakHost editTouchControls]; }),
+                               resetTouch,
+                           ]
+                         footer:@"Kept apart for portrait and landscape; these change the one shown now. Move Controls "
+                                @"pauses the game so the D-pad, A and B, L, R, Start and Select, ☰ and ⏩ can be dragged."],
         [SettingsSection header:@"Gamepad"
                            rows:@[ Choice(
                                     @"A and B", @[ @"By label (A is A)", @"By position (right is A)" ],
@@ -591,18 +691,24 @@ static SettingsPage* ControlsPage(id<SettingsHost> host) {
                                         [NSUserDefaults.standardUserDefaults setInteger:index forKey:kGamepadLayoutDefault];
                                     }) ]
                          footer:@"Nintendo pads use their labels either way; this changes Xbox and PlayStation pads."],
-        [SettingsSection header:@"Connected" rows:connected footer:nil],
+        [SettingsSection header:@"Connected"
+                           rows:connected
+                         footer:[home isEqualToString:@"System"]
+                                    ? @"The system keeps Home for itself. In Home Button…, let apps handle it, and Home "
+                                      @"opens these settings."
+                                    : nil],
         [SettingsSection header:@"Gamepad Buttons"
                            rows:@[
                                Info(@"A, B (and X, Y)", @"A, B"),
                                Info(@"Shoulders and triggers", @"L, R"),
                                Info(@"D-pad or left stick", @"D-pad"),
-                               Info(@"☰ Menu", @"Start"),
+                               Info(@"☰ Menu (press)", @"Start"),
                                Info(@"Options / View / Share", @"Select"),
                                Info(@"Right stick click (hold)", @"Fast-forward"),
                                Info(@"Home, or hold ☰", @"Settings"),
                            ]
-                         footer:nil],
+                         footer:@"Start is given when ☰ is let go; held, ☰ opens the settings and the game sees no "
+                                @"Start."],
         [SettingsSection header:@"Keyboard"
                            rows:@[
                                Info(@"Arrow keys", @"D-pad"),
@@ -666,7 +772,8 @@ static SettingsPage* GamePage(id<SettingsHost> host) {
     });
     reset.destructive = YES;
     reset.confirmTitle = @"Press Again to Reset";
-    page.sections = @[
+    NSMutableArray<SettingsSection*>* sections = [NSMutableArray array];
+    [sections addObjectsFromArray:@[
         [SettingsSection header:@"Save States"
                            rows:@[
                                Choice(
@@ -691,7 +798,17 @@ static SettingsPage* GamePage(id<SettingsHost> host) {
                            ]
                          footer:@"High quality mixes at 48 kHz instead of the GBA's 15.7 kHz."],
         [SettingsSection header:nil rows:@[ reset ] footer:@"Back to the title screen, as A+B+Select+Start. The save is kept."],
-    ];
+    ]];
+    if (!RomDataIsBaked()) {
+        [sections addObject:[SettingsSection header:@"Game Data"
+                                               rows:@[
+                                                   Action(@"Change ROM…", ^{ [weakHost changeRom:NO]; }),
+                                                   Action(@"Re-extract Game Data", ^{ [weakHost changeRom:YES]; }),
+                                               ]
+                                             footer:@"The graphics, maps and sound are extracted from your ROM. "
+                                                    @"Re-extract uses the ROM chosen before."]];
+    }
+    page.sections = sections;
     return page;
 }
 
@@ -737,6 +854,7 @@ static SettingsRow* PageRow(NSString* title, NSString* symbol, SettingsPage* (*m
     CADisplayLink* _poll;
     uint16_t _held;
     uint16_t _repeating;
+    NSInteger _repeats; // of the direction held now
     CFTimeInterval _repeatAt;
 }
 
@@ -752,8 +870,9 @@ static SettingsRow* PageRow(NSString* title, NSString* symbol, SettingsPage* (*m
                                PageRow(@"Game", @"square.and.arrow.down.on.square", GamePage, host),
                                PageRow(@"About", @"info.circle", AboutPage, host),
                            ]
-                         footer:@"B closes. In the game, press Home or hold ☰ (Escape on a keyboard), or tap the "
-                                @"screen (☰ with touch controls on), to come back here."],
+                         footer:@"D-pad moves, L and R jump between sections, A selects, B goes back and closes. In "
+                                @"the game, press Home or hold ☰ (Escape on a keyboard), or tap the screen (☰ with "
+                                @"touch controls on), to come back here."],
     ];
     if ((self = [super initWithRootViewController:root]) != nil) {
         _host = host;
@@ -794,14 +913,17 @@ static SettingsRow* PageRow(NSString* title, NSString* symbol, SettingsPage* (*m
     // A direction held down repeats.
     if (pressed & directions) {
         _repeating = pressed & directions;
+        _repeats = 0;
         _repeatAt = now + kRepeatDelay;
     } else if (_repeating != 0 && (keys & _repeating) == _repeating && now >= _repeatAt) {
         pressed |= _repeating;
+        _repeats++;
         _repeatAt = now + kRepeatSeconds;
     } else if ((keys & _repeating) != _repeating) {
         _repeating = 0;
     }
-    if (pressed == 0 || self.transitionCoordinator != nil) {
+    // Nothing while a ROM picker or an alert is over the sheet.
+    if (pressed == 0 || self.transitionCoordinator != nil || self.presentedViewController != nil) {
         return;
     }
     SettingsPage* page = self.page;
@@ -809,10 +931,13 @@ static SettingsRow* PageRow(NSString* title, NSString* symbol, SettingsPage* (*m
         [page moveFocus:-1];
     } else if (pressed & HW_KEY_DOWN) {
         [page moveFocus:1];
-    } else if (pressed & HW_KEY_LEFT) {
-        [page adjust:-1];
-    } else if (pressed & HW_KEY_RIGHT) {
-        [page adjust:1];
+    } else if (pressed & (HW_KEY_LEFT | HW_KEY_RIGHT)) {
+        NSInteger speed = MIN(kSliderMaxSpeed, 1 + _repeats / kSliderSpeedUp);
+        [page adjust:(pressed & HW_KEY_LEFT) ? -1 : 1 speed:speed];
+    } else if (pressed & HW_KEY_L) {
+        [page jumpSection:-1];
+    } else if (pressed & HW_KEY_R) {
+        [page jumpSection:1];
     } else if (pressed & HW_KEY_A) {
         [page activate];
     } else if (pressed & HW_KEY_B) {

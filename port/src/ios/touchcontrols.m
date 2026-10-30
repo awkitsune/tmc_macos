@@ -6,11 +6,61 @@ NSString* const kTouchControlsDefault = @"TouchControls";
 NSString* const kTouchHapticsDefault = @"TouchHaptics";
 NSString* const kTouchControlsChangedNotification = @"TMCTouchControlsChanged";
 
+// Held this long, fast-forward is held rather than switched.
+static const CFTimeInterval kFastForwardHold = 0.35;
+
+static NSString* SettingsKey(BOOL portrait) {
+    return portrait ? @"TouchLayoutPortrait" : @"TouchLayoutLandscape";
+}
+
+TouchSettings TouchSettingsLoad(BOOL portrait) {
+    TouchSettings settings = { .opacity = 1, .layout = TouchLayoutDefaults };
+    NSDictionary* saved = [NSUserDefaults.standardUserDefaults dictionaryForKey:SettingsKey(portrait)];
+    NSNumber* opacity = saved[@"Opacity"];
+    NSNumber* size = saved[@"Size"];
+    NSArray* offsets = saved[@"Offsets"];
+    if ([opacity isKindOfClass:NSNumber.class]) {
+        settings.opacity = MAX(0.1, MIN(opacity.doubleValue, 1));
+    }
+    if ([size isKindOfClass:NSNumber.class]) {
+        settings.layout.size = MAX(0.5, MIN(size.doubleValue, 2));
+    }
+    if ([offsets isKindOfClass:NSArray.class] && offsets.count == 2 * TouchClusterCount) {
+        for (NSUInteger i = 0; i < TouchClusterCount; i++) {
+            NSNumber* x = offsets[2 * i];
+            NSNumber* y = offsets[2 * i + 1];
+            if ([x isKindOfClass:NSNumber.class] && [y isKindOfClass:NSNumber.class]) {
+                settings.layout.offsets[i] = CGPointMake(x.doubleValue, y.doubleValue);
+            }
+        }
+    }
+    return settings;
+}
+
+void TouchSettingsSave(BOOL portrait, const TouchSettings* settings) {
+    NSMutableArray* offsets = [NSMutableArray array];
+    for (NSUInteger i = 0; i < TouchClusterCount; i++) {
+        [offsets addObject:@(round(settings->layout.offsets[i].x))];
+        [offsets addObject:@(round(settings->layout.offsets[i].y))];
+    }
+    [NSUserDefaults.standardUserDefaults
+        setObject:@{ @"Opacity" : @(settings->opacity), @"Size" : @(settings->layout.size), @"Offsets" : offsets }
+           forKey:SettingsKey(portrait)];
+}
+
+void TouchSettingsReset(BOOL portrait) {
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:SettingsKey(portrait)];
+}
+
 // One finger: the control it started on, and what it holds now.
 @interface TrackedTouch : NSObject
 @property(nonatomic) TouchControl control;
 @property(nonatomic) uint16_t keys;
-@property(nonatomic) BOOL onMenu; // ☰: still over it
+@property(nonatomic) BOOL onMenu;          // ☰: still over it
+@property(nonatomic) BOOL wasFastForward;  // fast-forward: switched on before this press
+@property(nonatomic) CFTimeInterval began; // fast-forward: when pressed
+@property(nonatomic) CGPoint start;        // edit mode: where the drag began
+@property(nonatomic) CGPoint offset;       // edit mode: the cluster's offset then
 @end
 
 @implementation TrackedTouch
@@ -26,6 +76,10 @@ static const uint16_t kArmKeys[4] = { HW_KEY_UP, HW_KEY_DOWN, HW_KEY_LEFT, HW_KE
     CAShapeLayer* _arms[4];
     UILabel* _labels[TouchControlCount];
     UIImageView* _menuIcon;
+    UIImageView* _fastForwardIcon;
+    UIView* _board;                           // the controls, at the player's opacity
+    CAShapeLayer* _outlines[TouchClusterCount]; // edit mode
+    UIStackView* _editBar;
     UIImpactFeedbackGenerator* _impact;
     UISelectionFeedbackGenerator* _selection;
     unsigned _lit; // controls drawn pressed, by bit
@@ -51,17 +105,22 @@ static UIFont* RoundedFont(CGFloat size, UIFontWeight weight) {
         _touches = [NSMapTable strongToStrongObjectsMapTable];
         self.multipleTouchEnabled = YES;
         self.backgroundColor = UIColor.clearColor;
+        _opacity = 1;
+        _board = [[UIView alloc] initWithFrame:self.bounds];
+        _board.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        _board.userInteractionEnabled = NO;
+        [self addSubview:_board];
         for (TouchControl control = 0; control < TouchControlCount; control++) {
             _shapes[control] = ShapeLayer();
-            [self.layer addSublayer:_shapes[control]];
+            [_board.layer addSublayer:_shapes[control]];
             if (control == TouchControlDpad) {
                 for (int arm = 0; arm < 4; arm++) {
                     _arms[arm] = ShapeLayer();
                     _arms[arm].lineWidth = 0;
-                    [self.layer addSublayer:_arms[arm]];
+                    [_board.layer addSublayer:_arms[arm]];
                 }
             }
-            if (control == TouchControlDpad || control == TouchControlMenu) {
+            if (control == TouchControlDpad || control == TouchControlMenu || control == TouchControlFastForward) {
                 continue;
             }
             UILabel* label = [UILabel new];
@@ -70,20 +129,78 @@ static UIFont* RoundedFont(CGFloat size, UIFontWeight weight) {
             label.textColor = [UIColor colorWithWhite:1 alpha:0.8];
             BOOL small = control == TouchControlStart || control == TouchControlSelect;
             label.font = small ? RoundedFont(11, UIFontWeightBold) : RoundedFont(control <= TouchControlB ? 26 : 18, UIFontWeightBold);
-            [self addSubview:label];
+            [_board addSubview:label];
             _labels[control] = label;
         }
-        _menuIcon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"]];
-        _menuIcon.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:17
-                                                                                                 weight:UIImageSymbolWeightBold];
-        _menuIcon.tintColor = [UIColor colorWithWhite:1 alpha:0.8];
-        _menuIcon.contentMode = UIViewContentModeCenter;
-        [self addSubview:_menuIcon];
+        _menuIcon = [self iconNamed:@"line.3.horizontal"];
+        _fastForwardIcon = [self iconNamed:@"forward.fill"];
+        for (TouchCluster cluster = 0; cluster < TouchClusterCount; cluster++) {
+            _outlines[cluster] = ShapeLayer();
+            _outlines[cluster].fillColor = UIColor.clearColor.CGColor;
+            _outlines[cluster].strokeColor = UIColor.systemYellowColor.CGColor;
+            _outlines[cluster].lineDashPattern = @[ @6, @4 ];
+            _outlines[cluster].hidden = YES;
+            [self.layer addSublayer:_outlines[cluster]];
+        }
+        [self buildEditBar];
         _impact = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
         _selection = [UISelectionFeedbackGenerator new];
         [self redraw];
     }
     return self;
+}
+
+- (UIImageView*)iconNamed:(NSString*)name {
+    UIImageView* icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:name]];
+    icon.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:17
+                                                                                        weight:UIImageSymbolWeightBold];
+    icon.tintColor = [UIColor colorWithWhite:1 alpha:0.8];
+    icon.contentMode = UIViewContentModeCenter;
+    [_board addSubview:icon];
+    return icon;
+}
+
+- (UIButton*)editButton:(NSString*)title prominent:(BOOL)prominent action:(SEL)action {
+    UIButtonConfiguration* config =
+        prominent ? [UIButtonConfiguration filledButtonConfiguration] : [UIButtonConfiguration grayButtonConfiguration];
+    config.title = title;
+    config.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    UIButton* button = [UIButton buttonWithConfiguration:config primaryAction:nil];
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return button;
+}
+
+// Reset and Done at the top, between the hints.
+- (void)buildEditBar {
+    UILabel* hint = [UILabel new];
+    hint.text = @"Drag the controls";
+    hint.textColor = UIColor.whiteColor;
+    hint.font = RoundedFont(15, UIFontWeightSemibold);
+    _editBar = [[UIStackView alloc] initWithArrangedSubviews:@[
+        [self editButton:@"Reset" prominent:NO action:@selector(resetTapped)], hint,
+        [self editButton:@"Done" prominent:YES action:@selector(doneTapped)]
+    ]];
+    _editBar.spacing = 12;
+    _editBar.alignment = UIStackViewAlignmentCenter;
+    _editBar.hidden = YES;
+    _editBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:_editBar];
+    [NSLayoutConstraint activateConstraints:@[
+        [_editBar.centerXAnchor constraintEqualToAnchor:self.safeAreaLayoutGuide.centerXAnchor],
+        [_editBar.topAnchor constraintEqualToAnchor:self.safeAreaLayoutGuide.topAnchor constant:12],
+    ]];
+}
+
+- (void)resetTapped {
+    if (self.editReset) {
+        self.editReset();
+    }
+}
+
+- (void)doneTapped {
+    if (self.editDone) {
+        self.editDone();
+    }
 }
 
 #pragma mark Drawing
@@ -127,7 +244,8 @@ static UIBezierPath* Shape(TouchControl control, CGRect rect) {
             CGRect capsule = CGRectInset(rect, 4, (rect.size.height - 28) / 2);
             return [UIBezierPath bezierPathWithRoundedRect:capsule cornerRadius:capsule.size.height / 2];
         }
-        case TouchControlMenu: return [UIBezierPath bezierPathWithOvalInRect:CGRectInset(rect, 3, 3)];
+        case TouchControlMenu:
+        case TouchControlFastForward: return [UIBezierPath bezierPathWithOvalInRect:CGRectInset(rect, 3, 3)];
         default: return [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:12];
     }
 }
@@ -145,8 +263,32 @@ static UIBezierPath* Shape(TouchControl control, CGRect rect) {
     for (int arm = 0; arm < 4; arm++) {
         _arms[arm].path = [UIBezierPath bezierPathWithRect:Arm(dpad, arm)].CGPath;
     }
+    for (TouchCluster cluster = 0; cluster < TouchClusterCount; cluster++) {
+        _outlines[cluster].path =
+            [UIBezierPath bezierPathWithRoundedRect:CGRectInset(layout.clusters[cluster], -4, -4) cornerRadius:10].CGPath;
+    }
     [CATransaction commit];
     _menuIcon.frame = layout.controls[TouchControlMenu];
+    _fastForwardIcon.frame = layout.controls[TouchControlFastForward];
+    [self redraw];
+}
+
+- (void)setOpacity:(CGFloat)opacity {
+    _opacity = opacity;
+    _board.alpha = _editing ? MAX(opacity, 0.6) : opacity;
+}
+
+- (void)setEditing:(BOOL)editing {
+    if (editing == _editing) {
+        return;
+    }
+    [self releaseAll];
+    _editing = editing;
+    _editBar.hidden = !editing;
+    for (TouchCluster cluster = 0; cluster < TouchClusterCount; cluster++) {
+        _outlines[cluster].hidden = !editing;
+    }
+    self.opacity = _opacity;
 }
 
 - (void)redraw {
@@ -156,6 +298,9 @@ static UIBezierPath* Shape(TouchControl control, CGRect rect) {
     [CATransaction setDisableActions:YES];
     for (TouchControl control = 0; control < TouchControlCount; control++) {
         BOOL on = control != TouchControlDpad && (_lit & (1u << control)) != 0;
+        if (control == TouchControlFastForward) {
+            on = _input.fastForwardLatched;
+        }
         _shapes[control].fillColor = on ? lit : fill;
         _shapes[control].strokeColor = stroke;
     }
@@ -188,7 +333,52 @@ static UIBezierPath* Shape(TouchControl control, CGRect rect) {
     }
 }
 
+// Edit mode: the cluster under the finger follows it.
+- (void)dragTouch:(id)touch at:(CGPoint)point phase:(UITouchPhase)phase {
+    TrackedTouch* tracked = [_touches objectForKey:touch];
+    if (phase == UITouchPhaseBegan) {
+        TouchControl control = TouchLayoutHit(&_layout, point);
+        if (control == TouchControlCount) {
+            return;
+        }
+        tracked = [TrackedTouch new];
+        tracked.control = control;
+        tracked.start = point;
+        tracked.offset = _layout.offsets[TouchControlCluster(control)];
+        [_touches setObject:tracked forKey:touch];
+        return;
+    }
+    if (tracked == nil) {
+        return;
+    }
+    if (phase == UITouchPhaseEnded || phase == UITouchPhaseCancelled) {
+        [_touches removeObjectForKey:touch];
+        return;
+    }
+    CGPoint offset = CGPointMake(tracked.offset.x + point.x - tracked.start.x, tracked.offset.y + point.y - tracked.start.y);
+    if (self.clusterMoved) {
+        self.clusterMoved(TouchControlCluster(tracked.control), offset);
+    }
+}
+
+// Fast-forward: a short press switches it, a long one holds it till let go.
+- (void)fastForwardPressed:(TrackedTouch*)tracked ended:(BOOL)ended {
+    if (!ended) {
+        tracked.wasFastForward = _input.fastForwardLatched;
+        tracked.began = CACurrentMediaTime();
+        _input.fastForwardLatched = YES;
+        [self tap:NO];
+    } else {
+        BOOL held = CACurrentMediaTime() - tracked.began >= kFastForwardHold;
+        _input.fastForwardLatched = held ? tracked.wasFastForward : !tracked.wasFastForward;
+    }
+}
+
 - (void)trackTouch:(id)touch at:(CGPoint)point phase:(UITouchPhase)phase {
+    if (_editing) {
+        [self dragTouch:touch at:point phase:phase];
+        return;
+    }
     TrackedTouch* tracked = [_touches objectForKey:touch];
     if (phase == UITouchPhaseBegan) {
         TouchControl control = TouchLayoutHit(&_layout, point);
@@ -199,8 +389,21 @@ static UIBezierPath* Shape(TouchControl control, CGRect rect) {
         tracked = [TrackedTouch new];
         tracked.control = control;
         [_touches setObject:tracked forKey:touch];
+        if (control == TouchControlFastForward) {
+            [self fastForwardPressed:tracked ended:NO];
+            [self redraw];
+            return;
+        }
     }
     if (tracked == nil) {
+        return;
+    }
+    if (tracked.control == TouchControlFastForward) {
+        if (phase == UITouchPhaseEnded || phase == UITouchPhaseCancelled) {
+            [self fastForwardPressed:tracked ended:YES];
+            [_touches removeObjectForKey:touch];
+            [self redraw];
+        }
         return;
     }
     uint16_t before = tracked.keys;
@@ -259,6 +462,12 @@ static UIBezierPath* Shape(TouchControl control, CGRect rect) {
 }
 
 - (void)releaseAll {
+    for (id touch in _touches) {
+        TrackedTouch* tracked = [_touches objectForKey:touch];
+        if (!_editing && tracked.control == TouchControlFastForward) {
+            [self fastForwardPressed:tracked ended:YES];
+        }
+    }
     [_touches removeAllObjects];
     [self update];
 }

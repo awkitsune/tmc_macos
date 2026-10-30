@@ -13,6 +13,7 @@ typedef NS_OPTIONS(NSUInteger, PauseReason) {
     PauseReasonInactive = 1 << 1,     // Control Center, a call, the app switcher
     PauseReasonSettings = 1 << 2,     // the settings sheet is open (and until its buttons are let go)
     PauseReasonNoController = 1 << 3, // no gamepad or keyboard to play with
+    PauseReasonEditing = 1 << 4,      // the touch controls are being moved
 };
 
 /*
@@ -41,6 +42,13 @@ typedef NS_OPTIONS(NSUInteger, PauseReason) {
 
 - (void)showSettings;
 - (void)closeSettings;
+
+// The touch controls' edit mode (Settings > Controls > Move Controls): the game
+// pauses while the player drags the controls about.
+- (void)editTouchControls;
+- (void)endTouchEditing;
+// The layout is the portrait one (the touch settings are kept per orientation).
+@property(nonatomic, readonly) BOOL portrait;
 
 // Scene life cycle.
 - (void)sceneWillResignActive;
