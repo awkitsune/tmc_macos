@@ -115,6 +115,8 @@ CGRect RendererFitPicture(CGRect area, BOOL integerScaling);
 - (BOOL)enableGpuSpriteQuads:(BOOL)enabled;
 @property(nonatomic, readonly) BOOL compactGpuCaptureEnabled;
 - (BOOL)enableCompactGpuCapture:(BOOL)enabled;
+@property(nonatomic, readonly) BOOL gpuBackgroundLayersEnabled;
+- (BOOL)enableGpuBackgroundLayers:(BOOL)enabled;
 // Called on the main thread if GPU execution fails and software is restored.
 @property(nonatomic, copy, nullable) void (^gpuPpuFailed)(NSString* message);
 // Debugging: the buffer to copy back each few refreshes (DebugBufferNone: none,

@@ -2093,6 +2093,11 @@ static NSRect OverviewRect(const MapOverview* o, int x, int y, int width, int he
 
 #pragma mark - Performance
 
+static NSArray<NSColor*>* PerformanceColors(void) {
+    return @[ NSColor.systemBlueColor, NSColor.systemOrangeColor, NSColor.systemPurpleColor,
+              NSColor.systemTealColor, NSColor.separatorColor ];
+}
+
 @interface PerformanceBar : NSView
 - (void)setValues:(double*)values;
 @property(nonatomic) double budget;
@@ -2107,8 +2112,7 @@ static NSRect OverviewRect(const MapOverview* o, int x, int y, int width, int he
     NSRect bounds = NSInsetRect(self.bounds, 0, 4);
     [NSColor.separatorColor setFill];
     NSRectFill(bounds);
-    NSArray<NSColor*>* colors = @[ NSColor.systemBlueColor, NSColor.systemOrangeColor,
-                                    NSColor.systemPurpleColor, NSColor.systemTealColor ];
+    NSArray<NSColor*>* colors = PerformanceColors();
     double total = 0;
     for (int i = 0; i < 4; i++) total += _values[i];
     double scale = MAX(MAX(total, self.budget), 0.001);
@@ -2146,6 +2150,21 @@ static int CompareDouble(const void* a, const void* b) {
         [_bar.heightAnchor constraintEqualToConstant:24].active = YES;
         [body addArrangedSubview:_bar];
         [_bar.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
+        NSMutableAttributedString* key = [[NSMutableAttributedString alloc] initWithString:@""];
+        NSArray<NSString*>* names = @[ @"Game", @"PPU", @"Timing & interrupts", @"Publish", @"Unused" ];
+        NSArray<NSColor*>* colors = PerformanceColors();
+        NSFont* font = [NSFont systemFontOfSize:11];
+        for (NSUInteger i = 0; i < names.count; i++) {
+            [key appendAttributedString:[[NSAttributedString alloc] initWithString:@"● "
+                attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: colors[i] }]];
+            NSString* label = [names[i] stringByAppendingString:i + 1 < names.count ? @"   " : @""];
+            [key appendAttributedString:[[NSAttributedString alloc] initWithString:label
+                attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: NSColor.secondaryLabelColor }]];
+        }
+        NSTextField* legend = [NSTextField wrappingLabelWithString:@""];
+        legend.attributedStringValue = key;
+        [body addArrangedSubview:legend];
+        [legend.widthAnchor constraintEqualToAnchor:body.widthAnchor].active = YES;
         _text = [NSTextField wrappingLabelWithString:@"Waiting for frames…"];
         _text.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];
         _text.selectable = YES;
@@ -2211,7 +2230,7 @@ static int CompareDouble(const void* a, const void* b) {
         "GPU capture          %@\n\n"
         "PRESENTATION  (separate, may overlap)\n"
         "CPU upload & encode  %@\nGPU execution        %@\nDisplayed FPS        %@\n(presentation averages are smoothed)\n\n"
-        "Last %d frames · Bar: game / PPU / timing / publish\n"
+        "Last %d frames\n"
         "Bar scale: at least %.2f ms (current frame interval)",
         (unsigned long long)frame, FrontendIsPaused() ? @"Paused" : @"Live", fps,
         sum / snap.count, totals[(snap.count * 95 + 99) / 100 - 1], stages[PERF_GAME], ppu,

@@ -357,6 +357,17 @@ static void CheckSettings(SettingsWindowController* settings, Renderer* renderer
     NSLog(@"selftest: settings window %.0fx%.0f, visible screen height %.0f %@", NSWidth(window.frame),
           NSHeight(window.frame), screen, fits ? @"ok" : @"FAILED");
     NSString* tab = [defaults objectForKey:@"SettingsTab"];
+    [settings.tabView selectTabViewItemWithIdentifier:@"Debug"];
+    [window.contentView layoutSubtreeIfNeeded];
+    NSScrollView* debugScroll = (NSScrollView*)settings.tabView.selectedTabViewItem.view;
+    NSMutableArray<NSControl*>* debugControls = [NSMutableArray array];
+    CollectControls(debugScroll, debugControls);
+    BOOL debugFits = debugControls.count == 2;
+    for (NSControl* control in debugControls) {
+        NSRect frame = [control convertRect:control.bounds toView:debugScroll.contentView];
+        debugFits &= NSContainsRect(debugScroll.contentView.bounds, frame);
+    }
+    NSLog(@"selftest: Debug controls fit in the tab %@", debugFits ? @"ok" : @"FAILED");
     [settings.tabView selectTabViewItemWithIdentifier:@"Filters"];
     [settings fitToHeight:300];
     [window.contentView layoutSubtreeIfNeeded];
@@ -381,7 +392,8 @@ static void CheckSettings(SettingsWindowController* settings, Renderer* renderer
 }
 
 void SelfTestSnapshotWindow(NSWindow* window, NSString* name) {
-    NSString* dir = NSProcessInfo.processInfo.environment[@"TMC_SELFTEST"];
+    NSDictionary* env = NSProcessInfo.processInfo.environment;
+    NSString* dir = env[@"TMC_SELFTEST"] ?: env[@"TMC_GPU_SETTINGS_SNAPSHOT"];
     if (dir.length == 0) {
         return;
     }
@@ -525,6 +537,9 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
         logBuffer(FilterModeNearest, buffer);
     }
     add(3, ^{ SelfTestSnapshotWindow([debug windowForPanel:DebugPanelShaderBuffers], @"debug_shader_buffers"); });
+    add(1, ^{ [debug showPanel:DebugPanelPerformance]; });
+    add(10, ^{ SelfTestSnapshotWindow([debug windowForPanel:DebugPanelPerformance], @"debug_performance"); });
+    add(1, ^{ [[debug windowForPanel:DebugPanelPerformance] close]; });
     for (FilterMode mode = FilterModeLCD; mode <= FilterModeCRT; mode++) {
         add(3, ^{ renderer.filter = mode; });
         for (NSInteger buffer = DebugBufferFilterRaw; buffer < DebugBufferCount; buffer++) {

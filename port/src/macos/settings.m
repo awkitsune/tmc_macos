@@ -93,6 +93,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     NSButton* _debugMenu;
     NSButton* _debugToolbar;
     NSButton* _lcdResponse;
+    NSButton *_gpuPpu, *_gpuCompact, *_gpuSprites, *_gpuBackgrounds;
     NSSlider* _sliders[KNOB_COUNT];
     NSTextField* _values[KNOB_COUNT];
     NSTabView* _tabs;
@@ -123,6 +124,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
 - (void)buildContent {
     SettingsPage* display = [[SettingsPage alloc] initWithTitle:@"Display"];
     SettingsPage* filters = [[SettingsPage alloc] initWithTitle:@"Filters"];
+    SettingsPage* rendering = [[SettingsPage alloc] initWithTitle:@"Rendering"];
     SettingsPage* timing = [[SettingsPage alloc] initWithTitle:@"Timing"];
     SettingsPage* controls = [[SettingsPage alloc] initWithTitle:@"Controls"];
     SettingsPage* debug = [[SettingsPage alloc] initWithTitle:@"Debug"];
@@ -175,6 +177,17 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
         [page addRow:kKnobs[i].title control:slider value:value];
     }
 
+    [rendering addHeader:@"Game rendering"];
+    _gpuPpu = [NSButton checkboxWithTitle:@"GPU PPU (experimental)" target:self action:@selector(renderingChanged:)];
+    [rendering addRow:@"Renderer" control:_gpuPpu value:nil];
+    _gpuCompact = [NSButton checkboxWithTitle:@"Compact scanline capture" target:self action:@selector(renderingChanged:)];
+    [rendering addRow:@"Capture" control:_gpuCompact value:nil];
+    _gpuSprites = [NSButton checkboxWithTitle:@"Sprite quads" target:self action:@selector(renderingChanged:)];
+    [rendering addRow:@"Sprites" control:_gpuSprites value:nil];
+    _gpuBackgrounds = [NSButton checkboxWithTitle:@"Separate background layers" target:self action:@selector(renderingChanged:)];
+    [rendering addRow:@"Backgrounds" control:_gpuBackgrounds value:nil];
+    [rendering addRow:nil control:Note(@"Experimental options reset when the app closes.\nUse Debug → Performance to compare them.") value:nil];
+
     [timing addHeader:@"Timing"];
     _pacingPopup = [NSPopUpButton new];
     [_pacingPopup addItemsWithTitles:@[ @"Accurate (59.73 Hz)", @"Display sync (60 Hz, less lag)" ]];
@@ -200,17 +213,17 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     [debug addHeader:@"Debug"];
     _debugMenu = [NSButton checkboxWithTitle:@"Show Debug menu" target:self action:@selector(debugMenuChanged:)];
     _debugMenu.identifier = kDebugMenuDefault;
-    [debug addRow:nil control:_debugMenu value:nil];
+    [debug addRow:@"Menu" control:_debugMenu value:nil];
     _debugToolbar = [NSButton checkboxWithTitle:@"Show debug tools in toolbar" target:self
                                          action:@selector(debugToolbarChanged:)];
     _debugToolbar.identifier = kDebugToolbarDefault;
-    [debug addRow:nil control:_debugToolbar value:nil];
+    [debug addRow:@"Toolbar" control:_debugToolbar value:nil];
 
     // Each tab scrolls, so the window can be as short as the screen needs.
     _tabs = [NSTabView new];
     _tabs.translatesAutoresizingMaskIntoConstraints = NO;
     NSSize largest = NSZeroSize;
-    for (SettingsPage* each in @[ display, filters, timing, controls, debug ]) {
+    for (SettingsPage* each in @[ display, filters, rendering, timing, controls, debug ]) {
         NSGridView* grid = each.grid;
         grid.translatesAutoresizingMaskIntoConstraints = NO;
         FlippedView* document = [FlippedView new];
@@ -308,6 +321,11 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     [_filterPopup selectItemAtIndex:(NSInteger)_renderer.filter];
     _integerScaling.state = _renderer.integerScaling ? NSControlStateValueOn : NSControlStateValueOff;
     _lcdResponse.state = _renderer.lcdResponse ? NSControlStateValueOn : NSControlStateValueOff;
+    _gpuPpu.state = _renderer.gpuPpuEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _gpuCompact.state = _renderer.compactGpuCaptureEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _gpuSprites.state = _renderer.gpuSpriteQuadsEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _gpuBackgrounds.state = _renderer.gpuBackgroundLayersEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    _gpuCompact.enabled = _gpuSprites.enabled = _gpuBackgrounds.enabled = _renderer.gpuPpuEnabled;
     [_gamepadPopup selectItemAtIndex:_input.gamepadLayout];
     [_pacingPopup selectItemAtIndex:[NSUserDefaults.standardUserDefaults integerForKey:kPacingDefault] == 0 ? 0 : 1];
     _pacingNote.stringValue = _pacingStatus != nil ? _pacingStatus() : @"";
@@ -320,6 +338,32 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
         _sliders[i].floatValue = value;
         _values[i].stringValue = KnobText(&kKnobs[i], value);
     }
+}
+
+- (void)renderingChanged:(NSButton*)sender {
+    NSString* action = sender == _gpuPpu ? @"toggleGpuPpu:" : sender == _gpuCompact ? @"toggleCompactGpuCapture:" :
+                       sender == _gpuSprites ? @"toggleGpuSpriteQuads:" : @"toggleGpuBackgroundLayers:";
+    [NSApp sendAction:NSSelectorFromString(action) to:NSApp.delegate from:sender];
+    [self refresh];
+}
+
+- (BOOL)checkRenderingControls {
+    if (_renderer.gpuPpuEnabled) return NO;
+    [self refresh];
+    BOOL ok = !_gpuCompact.enabled && !_gpuSprites.enabled && !_gpuBackgrounds.enabled;
+    [_gpuPpu performClick:nil];
+    ok &= _renderer.gpuPpuEnabled && _gpuCompact.enabled && _gpuSprites.enabled && _gpuBackgrounds.enabled;
+    if (_renderer.gpuPpuEnabled) {
+        [_gpuCompact performClick:nil];
+        [_gpuSprites performClick:nil];
+        [_gpuBackgrounds performClick:nil];
+        ok &= _renderer.compactGpuCaptureEnabled && _renderer.gpuSpriteQuadsEnabled && _renderer.gpuBackgroundLayersEnabled;
+        [self resetToDefaults:nil];
+    }
+    ok &= !_renderer.gpuPpuEnabled && !_renderer.compactGpuCaptureEnabled &&
+          !_renderer.gpuSpriteQuadsEnabled && !_renderer.gpuBackgroundLayersEnabled &&
+          !_gpuCompact.enabled && !_gpuSprites.enabled && !_gpuBackgrounds.enabled;
+    return ok;
 }
 
 - (void)filterChanged:(NSPopUpButton*)sender {
@@ -374,6 +418,11 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
 }
 
 - (void)resetToDefaults:(id)sender {
+    if ([_tabs.selectedTabViewItem.identifier isEqual:@"Rendering"]) {
+        if (_renderer.gpuPpuEnabled) [NSApp sendAction:NSSelectorFromString(@"toggleGpuPpu:") to:NSApp.delegate from:sender];
+        [self refresh];
+        return;
+    }
     for (size_t i = 0; i < KNOB_COUNT; i++) {
         [NSUserDefaults.standardUserDefaults removeObjectForKey:kKnobs[i].key];
     }

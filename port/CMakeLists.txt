@@ -268,6 +268,7 @@ set(TMC_APPLE_SOURCES
     src/apple/latency.c
     src/apple/renderer.m
     src/apple/spritepass.m
+    src/apple/backgroundpass.m
     src/apple/roomname.c
     src/apple/settingsstore.m
 )
@@ -379,7 +380,7 @@ target_include_directories(scanline_test PRIVATE include)
 target_link_libraries(scanline_test PRIVATE z)
 
 # Standalone experimental Metal PPU: compares a headless scanline capture with the CPU.
-add_executable(gpu_ppu_test EXCLUDE_FROM_ALL src/tools/gpu_ppu_test.m src/apple/spritepass.m src/ppucapture.c)
+add_executable(gpu_ppu_test EXCLUDE_FROM_ALL src/tools/gpu_ppu_test.m src/apple/spritepass.m src/apple/backgroundpass.m src/ppucapture.c)
 target_include_directories(gpu_ppu_test PRIVATE include src/apple)
 target_compile_options(gpu_ppu_test PRIVATE -fobjc-arc)
 target_compile_definitions(gpu_ppu_test PRIVATE GPU_PPU_SHADER="${CMAKE_CURRENT_SOURCE_DIR}/src/tools/gpu_ppu.metal")

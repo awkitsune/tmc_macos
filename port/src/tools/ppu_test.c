@@ -477,6 +477,30 @@ static int TestObjPriority(void) {
     return failed;
 }
 
+static int TestMode2Layers(void) {
+    int failed = 0;
+    ClearHardware();
+    for (int i = 0; i < 64; i++) {
+        gHwVram[64 + i] = i % 8 < 4 ? 0 : 1;
+        gHwVram[128 + i] = 2;
+    }
+    memset(&gHwVram[0xF800], 1, 16 * 16);
+    memset(&gHwVram[0xF000], 2, 16 * 16);
+    Reg16(0x0C, 0x1F00); // BG2 priority 0
+    Reg16(0x0E, 0x1E01); // BG3 priority 1
+    Reg16(0x20, 0x0100); Reg16(0x26, 0x0100);
+    Reg16(0x30, 0x0100); Reg16(0x36, 0x0100);
+    Reg16(0x00, 0x0C02); // mode 2, BG2 and BG3
+    PpuRenderFrame(sMosaic);
+    int bad = sMosaic[0] != Color(2) || sMosaic[4] != Color(1);
+    failed |= Report("mode2-layers", bad, 4, 0, sMosaic[4], Color(1));
+    PpuSetLayerMask(PPU_LAYERS_ALL & ~(1u << 2));
+    PpuRenderFrame(sMosaic);
+    failed |= Report("mode2-hidden", sMosaic[4] != Color(2), 4, 0, sMosaic[4], Color(2));
+    PpuSetLayerMask(PPU_LAYERS_ALL);
+    return failed;
+}
+
 static int TestEffects(void) {
     int failed = 0, bad;
     ClearHardware();
@@ -600,6 +624,7 @@ int main(void) {
     failed |= TestObj8bpp();
     failed |= TestBgObjVram();
     failed |= TestObjPriority();
+    failed |= TestMode2Layers();
     failed |= TestEffects();
     failed |= TestCompactCapture();
     failed |= TestPerformance();

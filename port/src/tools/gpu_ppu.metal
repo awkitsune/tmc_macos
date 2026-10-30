@@ -217,6 +217,53 @@ static ushort gpu_color(device const Line* lines, device const uchar* pool, uint
     return ushort(color);
 }
 
+// Separate-layer compositor, kept independent so the original path stays a fair baseline.
+static ushort gpu_color_layers(device const Line* lines, uint2 pos, Obj obj, texture2d_array<uint, access::read> layers) {
+    device const Line& l = lines[pos.y];
+    uint display = reg(l, 0);
+    if (display & 0x80) return 0x7fff;
+    uint colors[4], priority[4];
+    for (int bg = 0; bg < 4; bg++) {
+        colors[bg] = layers.read(pos, bg).r;
+        priority[bg] = reg(l, 8 + bg*2) & 3;
+    }
+    uint enable = 0x3f;
+    if (display & 0xe000) {
+        uint in = reg(l, 0x48), out = reg(l, 0x4a);
+        enable = out & 0x3f;
+        if ((display & 0x8000) && obj.window) enable = (out >> 8) & 0x3f;
+        for (int w = 1; w >= 0; w--) if (display & (0x2000 << w)) {
+            uint h = reg(l, 0x40 + w*2), v = reg(l, 0x44 + w*2);
+            int x1 = h >> 8, x2 = h & 255, y1 = v >> 8, y2 = v & 255;
+            bool inX = x1 <= x2 ? (int(pos.x) >= x1 && int(pos.x) < x2) : (int(pos.x) >= x1 || int(pos.x) < x2);
+            bool inY = y1 <= y2 ? (int(pos.y) >= y1 && int(pos.y) < y2) : (int(pos.y) >= y1 || int(pos.y) < y2);
+            if (inX && inY) enable = (in >> (w*8)) & 0x3f;
+        }
+    }
+    uint top = 5, second = 5, topColor = pal(l, 0), secondColor = topColor;
+    for (uint pr = 0; pr < 4 && second == 5; pr++) {
+        if ((enable & 16) && obj.color != 0xffff && obj.priority == pr) {
+            if (top == 5) { top = 4; topColor = obj.color; }
+            else { second = 4; secondColor = obj.color; }
+        }
+        for (uint bg = 0; bg < 4 && second == 5; bg++) {
+            if (!(enable & (1 << bg)) || colors[bg] == 0xffff || priority[bg] != pr) continue;
+            if (top == 5) { top = bg; topColor = colors[bg]; }
+            else { second = bg; secondColor = colors[bg]; }
+        }
+    }
+    uint bld = reg(l, 0x50), alpha = reg(l, 0x52), effect = (bld >> 6) & 3;
+    uint eva = min(alpha & 31, 16u), evb = min((alpha >> 8) & 31, 16u), evy = min(reg(l, 0x54) & 31, 16u);
+    uint color = topColor;
+    if (top == 4 && obj.semi && (bld & (0x100 << second))) color = blend(topColor, secondColor, eva, evb);
+    else if ((enable & 0x20) && (bld & (1 << top))) {
+        if (effect == 1 && (bld & (0x100 << second))) color = blend(topColor, secondColor, eva, evb);
+        else if (effect == 2 || effect == 3) color = brightness(topColor, evy, effect == 2);
+    }
+    return ushort(color);
+}
+
+
 kernel void gpu_ppu(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]], device const uchar* pool [[buffer(2)]],
                     uint2 pos [[thread_position_in_grid]]) {
     if (pos.x < 240 && pos.y < 160) {
@@ -316,4 +363,60 @@ kernel void gpu_ppu_texture_raster(device const Line* lines [[buffer(0)]],
     uint3 rgb = uint3(c & 31, (c >> 5) & 31, (c >> 10) & 31);
     rgb = (rgb << 3) | (rgb >> 2);
     output.write(float4(float3(rgb) / 255.0, 1.0), pos);
+}
+
+// A separate pass stores each background's 15-bit color (0xffff = transparent).
+kernel void gpu_background_layers(device const Line* lines [[buffer(0)]], device const uchar* pool [[buffer(2)]],
+                                  texture2d_array<uint, access::write> layers [[texture(0)]],
+                                  uint3 pos [[thread_position_in_grid]]) {
+    if (pos.x >= 240 || pos.y >= 160 || pos.z >= 4) return;
+    device const Line& l = lines[pos.y];
+    uint display = reg(l, 0), mode = display & 7, bg = pos.z;
+    bool enabled = (display & (0x100 << bg)) && (l.layerMask & (1 << bg)) &&
+                   !(mode == 1 && bg == 3) && !(mode == 2 && bg < 2) && mode <= 2;
+    uint color = enabled ? background(l, pool, bg, pos.x, pos.y, mode) : 0xffff;
+    layers.write(uint4(color, 0, 0, 0), pos.xy, bg);
+}
+static float4 frame_color(uint c) {
+    uint3 rgb = uint3(c & 31, (c >> 5) & 31, (c >> 10) & 31);
+    rgb = (rgb << 3) | (rgb >> 2);
+    return float4(float3(rgb) / 255.0, 1.0);
+}
+kernel void gpu_ppu_layers(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]],
+                           device const uchar* pool [[buffer(2)]], texture2d_array<uint, access::read> layers [[texture(3)]],
+                           uint2 pos [[thread_position_in_grid]]) {
+    if (pos.x >= 240 || pos.y >= 160) return;
+    device const Line& l = lines[pos.y];
+    Obj obj = {0xffff, 4, 0, 0};
+    uint display = reg(l, 0);
+    if (display & 0x1000) obj = sprite(l, pool, pos.x, pos.y, display);
+    output[pos.y * 240 + pos.x] = gpu_color_layers(lines, pos, obj, layers);
+}
+kernel void gpu_ppu_raster_layers(device const Line* lines [[buffer(0)]], device ushort* output [[buffer(1)]],
+                                  device const uchar* pool [[buffer(2)]], texture2d<float, access::read> colors [[texture(0)]],
+                                  texture2d<float, access::read> windows [[texture(1)]],
+                                  texture2d_array<uint, access::read> layers [[texture(3)]],
+                                  uint2 pos [[thread_position_in_grid]]) {
+    if (pos.x < 240 && pos.y < 160)
+        output[pos.y * 240 + pos.x] = gpu_color_layers(lines, pos, raster_sprite(pos, colors, windows), layers);
+}
+kernel void gpu_ppu_texture_layers(device const Line* lines [[buffer(0)]], device const uchar* pool [[buffer(2)]],
+                                   texture2d<float, access::write> output [[texture(0)]],
+                                   texture2d_array<uint, access::read> layers [[texture(3)]],
+                                   uint2 pos [[thread_position_in_grid]]) {
+    if (pos.x >= 240 || pos.y >= 160) return;
+    device const Line& l = lines[pos.y];
+    Obj obj = {0xffff, 4, 0, 0};
+    uint display = reg(l, 0);
+    if (display & 0x1000) obj = sprite(l, pool, pos.x, pos.y, display);
+    output.write(frame_color(gpu_color_layers(lines, pos, obj, layers)), pos);
+}
+kernel void gpu_ppu_texture_raster_layers(device const Line* lines [[buffer(0)]], device const uchar* pool [[buffer(2)]],
+                                          texture2d<float, access::write> output [[texture(0)]],
+                                          texture2d<float, access::read> colors [[texture(1)]],
+                                          texture2d<float, access::read> windows [[texture(2)]],
+                                          texture2d_array<uint, access::read> layers [[texture(3)]],
+                                          uint2 pos [[thread_position_in_grid]]) {
+    if (pos.x < 240 && pos.y < 160)
+        output.write(frame_color(gpu_color_layers(lines, pos, raster_sprite(pos, colors, windows), layers)), pos);
 }

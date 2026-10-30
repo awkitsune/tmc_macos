@@ -969,9 +969,9 @@ asynchronously and can overlap game-thread work, so its times are not added to
 the bar. GPU timing is shown only when Metal supplies it. Reset clears the
 samples; collection stops when the window closes.
 
-**Debug → GPU PPU (Experimental)** switches the displayed game picture to the
-Metal PPU; select it again to return to software. If the Debug menu is hidden,
-enable it in Settings → Debug. The option starts off each launch. While enabled,
+**Settings → Rendering → GPU PPU (experimental)** switches the displayed game
+picture to the Metal PPU; turn it off to return to software. The option starts
+off each launch. While enabled,
 the GPU draws the game pixels; the CPU still runs display timing and captures
 hardware state for every scanline. The capture uses substantial CPU time
 and memory, so this experiment may not be faster than software rendering. In the
@@ -981,13 +981,13 @@ Switching to GPU while paused takes effect when the next game frame is drawn;
 switching back to software redraws the paused picture. Details and the offline pixel comparison tool are in
 [GPU PPU prototype](port/notes/gpu-ppu-prototype.md).
 
-With GPU PPU enabled, **Debug → GPU Sprite Quads (Experimental)** switches sprites
+With GPU PPU enabled, **Settings → Rendering → Sprite quads** switches sprites
 to an alternative batched-quad renderer. Turn it off to compare the original GPU
 sprite scan. Both use the same per-line capture and background compositor. The
 option resets to off on launch and may be slower; use GPU execution time and
 reset the Performance samples after switching to compare.
 
-With GPU PPU enabled, **Debug → Compact GPU Capture (Experimental)** shares
+With GPU PPU enabled, **Settings → Rendering → Compact scanline capture** shares
 unchanged VRAM pages between scanlines. Turn it off to compare full snapshots;
 it also works with sprite quads and resets to off on launch. The Performance
 window shows the most recent GPU capture size. Reset its samples after switching
@@ -995,6 +995,12 @@ and compare both game-thread and GPU time. Compact mode reuses VRAM state when
 no interrupt or DMA ran between lines and checks for changes otherwise. It
 reserves enough space for a worst-case frame, so smaller transfers do not
 necessarily mean lower CPU time or peak memory.
+
+**Settings → Rendering → Separate background layers** renders BG0–BG3 into
+separate GPU textures before composing them with sprites, windows and effects.
+It is an optional experiment, starts off each launch, and can be combined with
+either capture and sprite mode. It does not extend the game's viewport. Compare
+GPU execution time with the option off; the additional pass can be slower.
 
 ## Graphics debugging
 

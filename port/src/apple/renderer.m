@@ -2,6 +2,7 @@
 #include "port/performance.h"
 #import "selftestlog.h"
 #import "spritepass.h"
+#import "backgroundpass.h"
 
 #include <os/lock.h>
 #include <stdatomic.h>
@@ -218,9 +219,13 @@ typedef struct {
     id<MTLComputePipelineState> _gpuPpuPipeline, _gpuSpritePipeline, _gpuCompactPipeline, _gpuCompactSpritePipeline;
     SpritePass* _spritePass;
     SpritePass* _compactSpritePass;
+    BackgroundPass* _backgroundPass;
+    BackgroundPass* _compactBackgroundPass;
+    id<MTLComputePipelineState> _gpuLayerPipeline, _gpuLayerSpritePipeline;
+    id<MTLComputePipelineState> _gpuCompactLayerPipeline, _gpuCompactLayerSpritePipeline;
     id<MTLBuffer> _gpuPpuInputs[IN_FLIGHT], _gpuCompactInputs[IN_FLIGHT];
     id<MTLTexture> _gpuPpuTextures[IN_FLIGHT];
-    BOOL _gpuPpuEnabled, _gpuSpriteQuadsEnabled, _compactGpuCaptureEnabled;
+    BOOL _gpuPpuEnabled, _gpuSpriteQuadsEnabled, _compactGpuCaptureEnabled, _gpuBackgroundLayersEnabled;
     BOOL _lastFrameGpu, _gpuSelfTestChecked, _gpuOnlyTestChecked, _gpuFallbackTestChecked;
     NSUInteger _gpuPpuGeneration;
     // LCD response: what the simulated LCD shows, in linear light (ping-pong,
@@ -481,6 +486,10 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         FrontendSetGpuPpuEnabled(false);
         _gpuSpriteQuadsEnabled = NO;
         _compactGpuCaptureEnabled = NO;
+        _gpuBackgroundLayersEnabled = NO;
+        _backgroundPass = _compactBackgroundPass = nil;
+        _gpuLayerPipeline = _gpuLayerSpritePipeline = nil;
+        _gpuCompactLayerPipeline = _gpuCompactLayerSpritePipeline = nil;
         _gpuSpritePipeline = _gpuCompactPipeline = _gpuCompactSpritePipeline = nil;
         _spritePass = _compactSpritePass = nil;
         _gpuPpuLibrary = _gpuCompactLibrary = nil;
@@ -555,7 +564,17 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
             id<MTLFunction> spriteFunction = [library newFunctionWithName:@"gpu_ppu_texture_raster"];
             spritePipeline = spriteFunction ? [_device newComputePipelineStateWithFunction:spriteFunction error:&error] : nil;
         }
-        if (!pipeline || (_gpuSpriteQuadsEnabled && (!compactSprites || !spritePipeline))) {
+        BackgroundPass* compactBackgrounds = nil;
+        id<MTLComputePipelineState> layerPipeline = nil, layerSpritePipeline = nil;
+        if (_gpuBackgroundLayersEnabled && library) {
+            compactBackgrounds = [[BackgroundPass alloc] initWithDevice:_device library:library error:&error];
+            id<MTLFunction> f = [library newFunctionWithName:@"gpu_ppu_texture_layers"];
+            id<MTLFunction> sf = [library newFunctionWithName:@"gpu_ppu_texture_raster_layers"];
+            layerPipeline = f ? [_device newComputePipelineStateWithFunction:f error:&error] : nil;
+            layerSpritePipeline = sf ? [_device newComputePipelineStateWithFunction:sf error:&error] : nil;
+        }
+        if (!pipeline || (_gpuSpriteQuadsEnabled && (!compactSprites || !spritePipeline)) ||
+            (_gpuBackgroundLayersEnabled && (!compactBackgrounds || !layerPipeline || !layerSpritePipeline))) {
             NSLog(@"Compact GPU capture shader unavailable: %@", error);
             return NO;
         }
@@ -574,14 +593,63 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
         _gpuCompactPipeline = pipeline;
         _compactSpritePass = compactSprites;
         _gpuCompactSpritePipeline = spritePipeline;
+        _compactBackgroundPass = compactBackgrounds;
+        _gpuCompactLayerPipeline = layerPipeline;
+        _gpuCompactLayerSpritePipeline = layerSpritePipeline;
     } else {
         FrontendSetCompactGpuCapture(false);
+        _compactBackgroundPass = nil;
+        _gpuCompactLayerPipeline = _gpuCompactLayerSpritePipeline = nil;
         _gpuCompactLibrary = nil;
         _gpuCompactPipeline = _gpuCompactSpritePipeline = nil;
         _compactSpritePass = nil;
         for (int j = 0; j < IN_FLIGHT; j++) _gpuCompactInputs[j] = nil;
     }
     _compactGpuCaptureEnabled = enabled;
+    _gpuPpuGeneration++;
+    _sequence = 0;
+    _historyValid = NO;
+    return YES;
+}
+
+- (BOOL)gpuBackgroundLayersEnabled { return _gpuBackgroundLayersEnabled; }
+
+- (BOOL)enableGpuBackgroundLayers:(BOOL)enabled {
+    if (enabled == _gpuBackgroundLayersEnabled) return YES;
+    if (enabled) {
+        if (!_gpuPpuEnabled) return NO;
+        NSError* error = nil;
+        BackgroundPass* backgrounds = [[BackgroundPass alloc] initWithDevice:_device library:_gpuPpuLibrary error:&error];
+        id<MTLFunction> f = [_gpuPpuLibrary newFunctionWithName:@"gpu_ppu_texture_layers"];
+        id<MTLFunction> sf = [_gpuPpuLibrary newFunctionWithName:@"gpu_ppu_texture_raster_layers"];
+        id<MTLComputePipelineState> pipeline = f ? [_device newComputePipelineStateWithFunction:f error:&error] : nil;
+        id<MTLComputePipelineState> spritePipeline = sf ? [_device newComputePipelineStateWithFunction:sf error:&error] : nil;
+        BackgroundPass* compactBackgrounds = nil;
+        id<MTLComputePipelineState> compactPipeline = nil, compactSpritePipeline = nil;
+        if (_compactGpuCaptureEnabled) {
+            compactBackgrounds = [[BackgroundPass alloc] initWithDevice:_device library:_gpuCompactLibrary error:&error];
+            id<MTLFunction> cf = [_gpuCompactLibrary newFunctionWithName:@"gpu_ppu_texture_layers"];
+            id<MTLFunction> csf = [_gpuCompactLibrary newFunctionWithName:@"gpu_ppu_texture_raster_layers"];
+            compactPipeline = cf ? [_device newComputePipelineStateWithFunction:cf error:&error] : nil;
+            compactSpritePipeline = csf ? [_device newComputePipelineStateWithFunction:csf error:&error] : nil;
+        }
+        if (!backgrounds || !pipeline || !spritePipeline ||
+            (_compactGpuCaptureEnabled && (!compactBackgrounds || !compactPipeline || !compactSpritePipeline))) {
+            NSLog(@"GPU background layers unavailable: %@", error);
+            return NO;
+        }
+        _backgroundPass = backgrounds;
+        _gpuLayerPipeline = pipeline;
+        _gpuLayerSpritePipeline = spritePipeline;
+        _compactBackgroundPass = compactBackgrounds;
+        _gpuCompactLayerPipeline = compactPipeline;
+        _gpuCompactLayerSpritePipeline = compactSpritePipeline;
+    } else {
+        _backgroundPass = _compactBackgroundPass = nil;
+        _gpuLayerPipeline = _gpuLayerSpritePipeline = nil;
+        _gpuCompactLayerPipeline = _gpuCompactLayerSpritePipeline = nil;
+    }
+    _gpuBackgroundLayersEnabled = enabled;
     _gpuPpuGeneration++;
     _sequence = 0;
     _historyValid = NO;
@@ -633,15 +701,20 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
             id<MTLBuffer> input = _compactGpuCaptureEnabled ? _gpuCompactInputs[next] : _gpuPpuInputs[next];
             NSUInteger poolOffset = _compactGpuCaptureEnabled ? offsetof(PpuCompactCapture, pages) : 0;
             SpritePass* spritePass = _compactGpuCaptureEnabled ? _compactSpritePass : _spritePass;
+            BackgroundPass* backgrounds = _compactGpuCaptureEnabled ? _compactBackgroundPass : _backgroundPass;
             if (_gpuSpriteQuadsEnabled) [spritePass encode:commands lines:input poolOffset:poolOffset slot:next];
+            if (_gpuBackgroundLayersEnabled) [backgrounds encode:commands lines:input poolOffset:poolOffset slot:next];
             id<MTLComputeCommandEncoder> encoder = [commands computeCommandEncoder];
-            id<MTLComputePipelineState> pipeline = _compactGpuCaptureEnabled
-                ? (_gpuSpriteQuadsEnabled ? _gpuCompactSpritePipeline : _gpuCompactPipeline)
-                : (_gpuSpriteQuadsEnabled ? _gpuSpritePipeline : _gpuPpuPipeline);
+            id<MTLComputePipelineState> pipeline = _gpuBackgroundLayersEnabled
+                ? (_compactGpuCaptureEnabled ? (_gpuSpriteQuadsEnabled ? _gpuCompactLayerSpritePipeline : _gpuCompactLayerPipeline)
+                                             : (_gpuSpriteQuadsEnabled ? _gpuLayerSpritePipeline : _gpuLayerPipeline))
+                : (_compactGpuCaptureEnabled ? (_gpuSpriteQuadsEnabled ? _gpuCompactSpritePipeline : _gpuCompactPipeline)
+                                             : (_gpuSpriteQuadsEnabled ? _gpuSpritePipeline : _gpuPpuPipeline));
             [encoder setComputePipelineState:pipeline];
             [encoder setBuffer:input offset:0 atIndex:0];
             [encoder setBuffer:input offset:poolOffset atIndex:2];
             [encoder setTexture:_gpuPpuTextures[next] atIndex:0];
+            if (_gpuBackgroundLayersEnabled) [encoder setTexture:[backgrounds layers:next] atIndex:3];
             if (_gpuSpriteQuadsEnabled) {
                 [encoder setTexture:[spritePass colors:next] atIndex:1];
                 [encoder setTexture:[spritePass windows:next] atIndex:2];

@@ -2,7 +2,7 @@
 
 The standalone `gpu_ppu_test` renders a captured frame on Metal and compares all
 38,400 15-bit pixels against the software PPU. This is a correctness and timing
-experiment. On macOS, **Debug → GPU PPU (Experimental)** displays the Metal
+experiment. On macOS, **Settings → Rendering → GPU PPU (experimental)** displays the Metal
 picture during gameplay, without also drawing the frame on the CPU. The CPU
 still handles display timing and scanline capture; software rendering remains
 available for fallback and paused redraws. The option resets to off on launch.
@@ -48,7 +48,7 @@ overhead; the sample is one frame, so repeat runs and compare like builds.
 
 ## Compact scanline capture experiment
 
-With GPU PPU enabled, **Debug → Compact GPU Capture (Experimental)** shares
+With GPU PPU enabled, **Settings → Rendering → Compact scanline capture** shares
 unchanged 1 KiB VRAM pages between scanlines. If no HBlank DMA, HBlank interrupt
 or VCOUNT interrupt ran since the previous line, the game thread cannot have
 changed VRAM and the page indices are reused directly. After any such event, the
@@ -81,7 +81,7 @@ VRAM writes from HBlank and VCOUNT interrupt handlers. The app's live comparison
 
 ## Sprite quad experiment
 
-With GPU PPU enabled, **Debug → GPU Sprite Quads (Experimental)** replaces the
+With GPU PPU enabled, **Settings → Rendering → Sprite quads** replaces the
 original per-pixel scan of all 128 sprite entries. Metal draws one thin quad for
 each potentially visible sprite on each scanline; this uses each line's OAM and
 memory snapshot, including mid-frame changes. A depth buffer selects the winner
@@ -101,6 +101,28 @@ The one-line quads preserve timing simply but still submit 128 instances for
 each line in each pass; preparing fewer instances is a possible next experiment.
 The sprite pass works with full or compact scanline capture. The live app check can be run with both
 `TMC_GPU_PPU_SELFTEST=1` and `TMC_GPU_SPRITE_SELFTEST=1`.
+
+## Separate background layers
+
+**Settings → Rendering → Separate background layers** draws each active BG to
+its own 240×160 R16Uint texture. A final shader selects the top two visible
+layers using per-line priorities, sprite data and windows, then applies GBA
+blending and brightness. Affine sampling and mosaic remain part of each BG's
+shader. Per-line display state, VRAM and palette changes are preserved. This
+path combines with either sprite path and either full or compact capture. It
+starts off each launch and does not implement widescreen.
+
+Set `TMC_GPU_BG_LAYERS=1` with `gpu_ppu_test` to compare against software;
+combine it with `TMC_GPU_COMPACT_CAPTURE=1` and/or `TMC_GPU_SPRITE_QUADS=1`.
+On an M4, three captured replay frames matched exactly. With compact capture
+and the original sprite scan, isolated GPU times were 0.61–0.72 ms for separate
+layers versus 0.57–0.66 ms for the existing single pass. These are small,
+scene-specific samples that exclude display filters and frame capture. The
+extra pass and texture traffic may outweigh its parallelism; use the app's
+Performance window to compare actual workloads. The app's live frame comparison
+accepts `TMC_GPU_PPU_SELFTEST=1 TMC_GPU_BACKGROUND_SELFTEST=1`, optionally with
+`TMC_GPU_COMPACT_SELFTEST=1` and `TMC_GPU_SPRITE_SELFTEST=1`. The session-only
+Rendering settings controls can be checked with `TMC_GPU_SETTINGS_SELFTEST=1`.
 
 ## Initial measurement
 

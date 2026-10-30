@@ -266,6 +266,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         if (!strongSelf) return;
         strongSelf->_subtitleDirty = YES;
         [strongSelf updateSubtitle];
+        [strongSelf->_settings refresh];
         NSAlert* alert = [NSAlert new];
         alert.messageText = @"GPU PPU stopped";
         alert.informativeText = [NSString stringWithFormat:@"The software renderer was restored. %@", message];
@@ -280,6 +281,22 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     FrontendSetFrameHandler(FramePublished, (__bridge void*)self);
     _debugWindows = [[DebugWindows alloc] initWithRenderer:_renderer];
     _view.delegate = _renderer;
+    if (getenv("TMC_GPU_SETTINGS_SELFTEST")) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            AppDelegate* strongSelf = weakSelf;
+            if (!strongSelf) return;
+            id previousTab = [NSUserDefaults.standardUserDefaults objectForKey:@"SettingsTab"];
+            [strongSelf showSettings:nil];
+            [strongSelf->_settings.tabView selectTabViewItemWithIdentifier:@"Rendering"];
+            [strongSelf->_settings.window.contentView layoutSubtreeIfNeeded];
+            SelfTestSnapshotWindow(strongSelf->_settings.window, @"settings_rendering");
+            BOOL ok = [strongSelf->_settings checkRenderingControls];
+            NSLog(@"Rendering settings self-test: %@", ok ? @"ok" : @"FAILED");
+            [strongSelf->_settings close];
+            if (previousTab) [NSUserDefaults.standardUserDefaults setObject:previousTab forKey:@"SettingsTab"];
+            else [NSUserDefaults.standardUserDefaults removeObjectForKey:@"SettingsTab"];
+        });
+    }
     if (getenv("TMC_GPU_PPU_SELFTEST")) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             AppDelegate* strongSelf = weakSelf;
@@ -299,6 +316,22 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
                         if (!target) return;
                         [target toggleCompactGpuCapture:nil];
                         NSLog(@"GPU compact self-test: switch %@", target->_renderer.compactGpuCaptureEnabled ? @"on" : @"FAILED");
+                    });
+                });
+            }
+            if (getenv("TMC_GPU_BACKGROUND_SELFTEST")) {
+                [strongSelf toggleGpuBackgroundLayers:nil];
+                NSLog(@"GPU background self-test: switch %@", strongSelf->_renderer.gpuBackgroundLayersEnabled ? @"on" : @"FAILED");
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                    AppDelegate* target = weakSelf;
+                    if (!target) return;
+                    [target toggleGpuBackgroundLayers:nil];
+                    NSLog(@"GPU background self-test: switch %@", target->_renderer.gpuBackgroundLayersEnabled ? @"FAILED" : @"off");
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{
+                        AppDelegate* target = weakSelf;
+                        if (!target) return;
+                        [target toggleGpuBackgroundLayers:nil];
+                        NSLog(@"GPU background self-test: switch %@", target->_renderer.gpuBackgroundLayersEnabled ? @"on" : @"FAILED");
                     });
                 });
             }
@@ -570,6 +603,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         [parts addObject:@"GPU PPU (experimental)"];
         if (_renderer.gpuSpriteQuadsEnabled) [parts addObject:@"Sprite quads"];
         if (_renderer.compactGpuCaptureEnabled) [parts addObject:@"Compact capture"];
+        if (_renderer.gpuBackgroundLayersEnabled) [parts addObject:@"BG layers"];
     }
     NSString* text = [parts componentsJoinedByString:@" · "];
     if (![_window.subtitle isEqualToString:text]) {
@@ -663,6 +697,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     }
     _subtitleDirty = YES;
     [self updateSubtitle];
+    [_settings refresh];
     [_view setNeedsDisplay:YES];
 }
 
@@ -676,6 +711,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     }
     _subtitleDirty = YES;
     [self updateSubtitle];
+    [_settings refresh];
     [_view setNeedsDisplay:YES];
 }
 
@@ -689,17 +725,27 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     }
     _subtitleDirty = YES;
     [self updateSubtitle];
+    [_settings refresh];
+    [_view setNeedsDisplay:YES];
+}
+
+- (void)toggleGpuBackgroundLayers:(id)sender {
+    if (![_renderer enableGpuBackgroundLayers:!_renderer.gpuBackgroundLayersEnabled]) {
+        NSAlert* alert = [NSAlert new];
+        alert.messageText = @"GPU background layers unavailable";
+        alert.informativeText = @"The existing GPU background renderer is still in use.";
+        [alert beginSheetModalForWindow:_window completionHandler:nil];
+        return;
+    }
+    _subtitleDirty = YES;
+    [self updateSubtitle];
+    [_settings refresh];
     [_view setNeedsDisplay:YES];
 }
 
 - (void)debugMenuChanged:(NSNotification*)note {
     [self buildMenus];
     if (![NSUserDefaults.standardUserDefaults boolForKey:kDebugMenuDefault]) {
-        if (_renderer.gpuPpuEnabled) {
-            [_renderer enableGpuPpu:NO];
-            _subtitleDirty = YES;
-            [self updateSubtitle];
-        }
         [_debugWindows closeAll];
     }
 }
@@ -952,12 +998,6 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     NSString* f8 = [NSString stringWithFormat:@"%C", (unichar)NSF8FunctionKey];
     [menu addItemWithTitle:@"Step Frame" action:@selector(stepFrame:) keyEquivalent:f8].keyEquivalentModifierMask = 0;
     [menu addItemWithTitle:@"Show Frame Counter" action:@selector(toggleFrameCounter:) keyEquivalent:@""];
-    NSMenuItem* gpuPpu = [menu addItemWithTitle:@"GPU PPU (Experimental)" action:@selector(toggleGpuPpu:) keyEquivalent:@""];
-    gpuPpu.toolTip = @"Render gameplay on the GPU; scanline state capture still uses CPU time and memory.";
-    NSMenuItem* sprites = [menu addItemWithTitle:@"GPU Sprite Quads (Experimental)" action:@selector(toggleGpuSpriteQuads:) keyEquivalent:@""];
-    sprites.toolTip = @"Draw sprites as batched quads for comparison with the original GPU sprite renderer.";
-    NSMenuItem* compact = [menu addItemWithTitle:@"Compact GPU Capture (Experimental)" action:@selector(toggleCompactGpuCapture:) keyEquivalent:@""];
-    compact.toolTip = @"Share unchanged VRAM pages between scanlines to reduce CPU-to-GPU copies.";
     [menu addItem:NSMenuItem.separatorItem];
     NSMenu* checkpoints = [[NSMenu alloc] initWithTitle:@"Load Checkpoint"];
     checkpoints.delegate = self; // filled when opened (menuNeedsUpdate:)
@@ -993,14 +1033,6 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     } else if (item.action == @selector(toggleFrameCounter:)) {
         item.state = [NSUserDefaults.standardUserDefaults boolForKey:kFrameCounterDefault] ? NSControlStateValueOn
                                                                                            : NSControlStateValueOff;
-    } else if (item.action == @selector(toggleGpuPpu:)) {
-        item.state = _renderer.gpuPpuEnabled ? NSControlStateValueOn : NSControlStateValueOff;
-    } else if (item.action == @selector(toggleGpuSpriteQuads:)) {
-        item.state = _renderer.gpuSpriteQuadsEnabled ? NSControlStateValueOn : NSControlStateValueOff;
-        return _window != nil && _renderer.gpuPpuEnabled;
-    } else if (item.action == @selector(toggleCompactGpuCapture:)) {
-        item.state = _renderer.compactGpuCaptureEnabled ? NSControlStateValueOn : NSControlStateValueOff;
-        return _window != nil && _renderer.gpuPpuEnabled;
     } else if (item.action == @selector(togglePause:)) {
         item.title = FrontendIsPaused() ? @"Resume" : @"Pause";
     } else if (item.action == @selector(changeRom:) || item.action == @selector(reextractGameData:)) {
