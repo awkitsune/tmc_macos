@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 393 852" width="393" height="852">
+<title>Indigo skin, portrait, 393x852 pt</title>
+<defs>
+  <linearGradient id="indigo-portrait-shell" x1="0" y1="0" x2="0.3" y2="1">
+    <stop offset="0" stop-color="#6a5fc4"/><stop offset="0.55" stop-color="#4a3fa3"/><stop offset="1" stop-color="#372e85"/>
+  </linearGradient>
+  <linearGradient id="indigo-portrait-lens" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#353747"/><stop offset="1" stop-color="#22232e"/>
+  </linearGradient>
+  <radialGradient id="indigo-portrait-face" cx="0.38" cy="0.32" r="0.75">
+    <stop offset="0" stop-color="#5b5b70"/><stop offset="1" stop-color="#3c3c4b"/>
+  </radialGradient>
+  <filter id="indigo-portrait-drop" x="-20%" y="-20%" width="140%" height="140%">
+    <feDropShadow dx="0" dy="2" stdDeviation="1.6" flood-color="#000" flood-opacity="0.45"/>
+  </filter>
+  <filter id="indigo-portrait-sunk" x="-10%" y="-10%" width="120%" height="120%">
+    <feOffset dy="1.5"/><feGaussianBlur stdDeviation="1.5" result="b"/>
+    <feComposite in="SourceGraphic" in2="b" operator="arithmetic" k2="1" k3="-0.35"/>
+  </filter>
+</defs>
+<g id="shell">
+  <rect x="0" y="0" width="393" height="852" rx="55" fill="url(#indigo-portrait-shell)" fill-opacity="1"/>
+  <rect x="1" y="1" width="391" height="850" rx="54" fill="none" stroke="#2a226a" stroke-width="2"/>
+  <rect x="7" y="7" width="379" height="838" rx="49" fill="none" stroke="#8e84dc" stroke-opacity="0.35" stroke-width="1"/>
+  <rect x="0" y="422" width="393" height="8" rx="0" fill="#2a226a" fill-opacity="0.55"/>
+  <path d="M0 422 H393" stroke="#8e84dc" stroke-opacity="0.4"/>
+</g>
+<g id="grille">
+    <circle cx="318.9" cy="714.8" r="2.6" fill="#271f66"/>
+    <circle cx="327.9" cy="712.5" r="2.6" fill="#271f66"/>
+    <circle cx="336.9" cy="710.2" r="2.6" fill="#271f66"/>
+    <circle cx="313.9" cy="726" r="2.6" fill="#271f66"/>
+    <circle cx="322.9" cy="723.8" r="2.6" fill="#271f66"/>
+    <circle cx="331.9" cy="721.5" r="2.6" fill="#271f66"/>
+    <circle cx="340.9" cy="719.2" r="2.6" fill="#271f66"/>
+    <circle cx="349.9" cy="717" r="2.6" fill="#271f66"/>
+    <circle cx="313.5" cy="736.1" r="2.6" fill="#271f66"/>
+    <circle cx="322.5" cy="733.9" r="2.6" fill="#271f66"/>
+    <circle cx="331.5" cy="731.6" r="2.6" fill="#271f66"/>
+    <circle cx="340.5" cy="729.4" r="2.6" fill="#271f66"/>
+    <circle cx="349.5" cy="727.1" r="2.6" fill="#271f66"/>
+    <circle cx="358.5" cy="724.9" r="2.6" fill="#271f66"/>
+    <circle cx="317.5" cy="745.1" r="2.6" fill="#271f66"/>
+    <circle cx="326.5" cy="742.9" r="2.6" fill="#271f66"/>
+    <circle cx="335.5" cy="740.6" r="2.6" fill="#271f66"/>
+    <circle cx="344.5" cy="738.4" r="2.6" fill="#271f66"/>
+    <circle cx="353.5" cy="736.1" r="2.6" fill="#271f66"/>
+    <circle cx="362.5" cy="733.9" r="2.6" fill="#271f66"/>
+    <circle cx="326.1" cy="753" r="2.6" fill="#271f66"/>
+    <circle cx="335.1" cy="750.8" r="2.6" fill="#271f66"/>
+    <circle cx="344.1" cy="748.5" r="2.6" fill="#271f66"/>
+    <circle cx="353.1" cy="746.2" r="2.6" fill="#271f66"/>
+    <circle cx="362.1" cy="744" r="2.6" fill="#271f66"/>
+    <circle cx="339.1" cy="759.8" r="2.6" fill="#271f66"/>
+    <circle cx="348.1" cy="757.5" r="2.6" fill="#271f66"/>
+    <circle cx="357.1" cy="755.2" r="2.6" fill="#271f66"/>
+</g>
+<g id="lens">
+  <rect x="22.5" y="119.8" width="348" height="245.3" rx="14" fill="url(#indigo-portrait-lens)" stroke="#2a226a" stroke-width="1.5"/>
+  <circle cx="32.5" cy="127.8" r="2.6" fill="#ff5a4e"/>
+  <circle cx="32.5" cy="127.8" r="5" fill="#ff5a4e" fill-opacity="0.25"/>
+</g>
+<g id="cutout" data-gba="240x160" data-scale="4">
+  <rect x="36.5" y="135.8" width="320" height="213.3" rx="0" fill="#000"/>
+  <rect x="36.5" y="135.8" width="320" height="213.3" rx="0" fill="none" stroke="#9aa0ff" stroke-width="1" stroke-dasharray="6 4"/>
+  <text x="196.5" y="238.5" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="600" letter-spacing="0.04em" text-anchor="middle" fill="#9aa0ff">240 × 160</text>
+  <text x="196.5" y="258.5" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="500" letter-spacing="0.04em" text-anchor="middle" fill="#9aa0ff">×4 = 960 × 640 px</text>
+</g>
+<g id="wells">
+  <circle cx="78" cy="622" r="73" fill="#3b3289" filter="url(#indigo-portrait-sunk)"/>
+  <g transform="rotate(-27.9 315 622)"><rect x="236.5" y="582" width="156.9" height="80" rx="40" fill="#3b3289" filter="url(#indigo-portrait-sunk)"/></g>
+  <rect x="208.5" y="767" width="60" height="22" rx="11" fill="#3b3289" filter="url(#indigo-portrait-sunk)"/>
+  <rect x="124.5" y="767" width="60" height="22" rx="11" fill="#3b3289" filter="url(#indigo-portrait-sunk)"/>
+</g>
+<g id="caps">
+  <g id="cap-dpad"><path d="M56.2 562.6 L99.8 562.6 L99.8 600.2 L137.4 600.2 L137.4 643.8 L99.8 643.8 L99.8 681.4 L56.2 681.4 L56.2 643.8 L18.6 643.8 L18.6 600.2 L56.2 600.2 Z" fill="#2b2b35" filter="url(#indigo-portrait-drop)"/>
+    <circle cx="78" cy="622" r="11.9" fill="#000" fill-opacity="0.25"/>
+    <path d="M131.5 622 L120.9 625.9 L120.9 618.1 Z" fill="#9e9db4"/>
+    <path d="M78 675.5 L74.1 664.9 L81.9 664.9 Z" fill="#9e9db4"/>
+    <path d="M24.5 622 L35.1 618.1 L35.1 625.9 Z" fill="#9e9db4"/>
+    <path d="M78 568.5 L81.9 579.1 L74.1 579.1 Z" fill="#9e9db4"/>
+  </g>
+  <g id="cap-a"><circle cx="349" cy="604" r="32" fill="url(#indigo-portrait-face)" filter="url(#indigo-portrait-drop)"/><text x="349" y="611" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" letter-spacing="0em" text-anchor="middle" fill="#9e9db4">A</text></g>
+  <g id="cap-b"><circle cx="281" cy="640" r="32" fill="url(#indigo-portrait-face)" filter="url(#indigo-portrait-drop)"/><text x="281" y="647" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" letter-spacing="0em" text-anchor="middle" fill="#9e9db4">B</text></g>
+  <g id="cap-start"><rect x="214.5" y="771" width="48" height="14" rx="7" fill="#2b2b35" filter="url(#indigo-portrait-drop)"/></g>
+  <g id="cap-select"><rect x="130.5" y="771" width="48" height="14" rx="7" fill="#2b2b35" filter="url(#indigo-portrait-drop)"/></g>
+  <g id="cap-l"><rect x="12" y="438" width="140" height="44" rx="12" fill="#3b3289" filter="url(#indigo-portrait-drop)"/></g>
+  <g id="cap-r"><rect x="241" y="438" width="140" height="44" rx="12" fill="#3b3289" filter="url(#indigo-portrait-drop)"/></g>
+  <g id="cap-menu"><circle cx="196.5" cy="728" r="17" fill="#3b3289" filter="url(#indigo-portrait-drop)"/><rect x="188.5" y="722" width="16" height="2" rx="1" fill="#d5d0f6"/><rect x="188.5" y="727" width="16" height="2" rx="1" fill="#d5d0f6"/><rect x="188.5" y="732" width="16" height="2" rx="1" fill="#d5d0f6"/></g>
+</g>
+<g id="labels">
+  <text x="238.5" y="802" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="0.14em" text-anchor="middle" fill="#d5d0f6">START</text>
+  <text x="154.5" y="802" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="0.14em" text-anchor="middle" fill="#d5d0f6">SELECT</text>
+  <text x="82" y="466" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" letter-spacing="0em" text-anchor="middle" fill="#d5d0f6">L</text>
+  <text x="311" y="466" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" letter-spacing="0em" text-anchor="middle" fill="#d5d0f6">R</text>
+</g>
+<g id="touch-targets" display="none" fill="none" stroke="#ff2d55" stroke-width="1">
+  <rect x="12" y="438" width="140" height="44" rx="0"/>
+  <rect x="241" y="438" width="140" height="44" rx="0"/>
+  <rect x="116.5" y="762" width="76" height="44" rx="0"/>
+  <rect x="200.5" y="762" width="76" height="44" rx="0"/>
+  <rect x="174.5" y="706" width="44" height="44" rx="0"/>
+  <circle cx="78" cy="622" r="66"/>
+  <circle cx="349" cy="604" r="32"/>
+  <circle cx="281" cy="640" r="32"/>
+</g>
+</svg>
