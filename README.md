@@ -889,8 +889,8 @@ that need a pointer type natively (e.g. pointer tables declared as `u32[]`).
 
 ## Status
 
-The game is playable on the Mac and on iPhone and iPad, and is being played
-through by hand. Every function in `asm/src` has a C version, the BIOS calls
+The game is playable on the Mac and on iPhone and iPad, and has been played
+by hand from a new game to the end credits on the Mac. Every function in `asm/src` has a C version, the BIOS calls
 are in C, the save EEPROM is emulated, and sound is a C version of the m4a
 engine. Rendering and sound follow the hardware (`port/notes/ppu-audit.md`,
 `port/notes/audio-audit.md`), with one known difference: every sprite on a
