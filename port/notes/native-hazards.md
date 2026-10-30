@@ -1,8 +1,9 @@
 # Native hazards: patterns that work on the GBA and can crash or misbehave natively
 
 Static audit of `src/` and `port/src/` against the seven patterns in the task, with a
-UBSan run as runtime evidence. Nothing here is fixed; each hit has a suggested fix.
-Branch base: `macos` at 29154401. Line numbers refer to that tree.
+UBSan run as runtime evidence. The initial audit recorded hits and suggested fixes;
+the status below and later sections describe subsequent work. Branch base: `macos`
+at 29154401. Line numbers refer to that tree.
 
 **Status:** every hit below is fixed except the ones listed as left alone. H1, H2, M1-M5 are in the first fix commit and
 the Low items in the second, all under `#ifdef PLATFORM_NATIVE` (the preprocessed GBA source of each touched game file is
@@ -141,7 +142,7 @@ Reachable in normal play (removable dust), no crash seen.
   TempleOfDropletsManager `*_Actions[0]`, [src/projectile/dirtParticle.c](../../src/projectile/dirtParticle.c) `DirtParticle_Actions[2]`,
   [src/playerItem/linkEmptyingBottle.c](../../src/playerItem/linkEmptyingBottle.c) `gUnk_08122A20[0]`, [src/playerItem/itemBomb.c](../../src/playerItem/itemBomb.c) `stateFuncs[1]`.
   Index 0 is the "uninitialised" action and each of these is only reached after the init state ran, as on the GBA.
-- Open items from `port/notes/crash-patterns.md` that I did not re-check: `movement.c` gSineTable[64], `gleerok.c:385`, `vaatiArm.c:1388`.
+- Earlier findings in `movement.c` gSineTable[64], `gleerok.c:385` and `vaatiArm.c:1388` are no longer reported by `-Warray-bounds`.
 
 ### L4. Room-property consumers that dereference a NULL result
 `GetCurrentRoomProperty` returns NULL when the room has no such property (it never reads garbage natively;
@@ -196,7 +197,9 @@ New game to frame 24000 plus 5 checkpoints x 3000 frames: no crash, no `null`, n
    declarations typed as integer arrays that hold pointers (gSpriteAnimations_*, gUnk_080B44B8, gUnk_080C8F7C, Area_HyruleTown); they work
    because datagen widens them as pointer tables, but they should be given pointer types in C.
 
-## Suggested order
+## Original suggested order
+
+This was the proposed order at the time of the audit; see the status above for what was subsequently fixed.
 
 1. H1, H2: native-only initialisation (small, certain); M1: `u32 tmp = 0` (removes a nondeterminism that exists every frame outside dungeons).
 2. M2: guard `ManagerUpdate` (and add a log of the id), because the failure is a silent NULL call.

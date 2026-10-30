@@ -809,6 +809,8 @@ natively to the host buffer or variable at that address.
 
 ## Phase 0 results
 
+These are historical results from the initial port investigation, not the current build status.
+
 **Compile:** 608 of 619 C files build for arm64. The other 11 (`cutscene.c` and
 ten `worldEvent*.c`) are listed in `TMC_NATIVE_PENDING`: their static
 `EntityData` tables store pointers in the `u32 spritePtr` field, which cannot be
@@ -892,10 +894,13 @@ every-room warp test (`port/scripts/room_smoke.sh`).
 
 Checks after any change: `make -j4` prints `tmc.gba: OK`, the headless
 new-game playthrough (`port/scripts/play/01_new_game.txt`, 24000 frames) ends
-on the same frame hash, and the room smoke test reaches every room.
+on the same frame hash, and the room smoke test reaches all 576 valid rooms.
+The smoke test does not cover every story state or gameplay interaction; see
+[its coverage limits](port/notes/room-smoke.md#what-the-smoke-test-cannot-see).
 
-Not done yet: fixes for Zelda following Link and the Golden Octorok have no
-in-game check, and the shared app is ad-hoc signed (`port/notes/improvements.md`).
+Not done yet: the late-game Zelda following Link fix has no in-game check, and
+the shared app is ad-hoc signed. See [improvements](port/notes/improvements.md)
+for this work.
 
 ## Mid-frame effects
 
