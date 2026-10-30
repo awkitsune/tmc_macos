@@ -6,6 +6,7 @@
 NSString* const kFilterDefault = @"Filter";
 NSString* const kIntegerScalingDefault = @"IntegerScaling";
 NSString* const kGamepadLayoutDefault = @"GamepadLayout";
+NSString* const kGpuPpuDefault = @"GpuPpu";
 NSString* const kLcdResponseDefault = @"LCDResponse";
 NSString* const kPacingDefault = @"FramePacing";
 NSString* const kPacingChangedNotification = @"TMCPacingChanged";
@@ -49,7 +50,7 @@ float KnobSnap(const Knob* knob, float value) {
 NSArray<NSString*>* SettingsKeys(void) {
     NSMutableArray* keys = [NSMutableArray arrayWithObjects:kFilterDefault, kIntegerScalingDefault, kLcdResponseDefault,
                                                             kPacingDefault, kGamepadLayoutDefault, kDebugMenuDefault,
-                                                            kDebugToolbarDefault, nil];
+                                                            kDebugToolbarDefault, kGpuPpuDefault, nil];
     for (size_t i = 0; i < KNOB_COUNT; i++) {
         [keys addObject:kKnobs[i].key];
     }

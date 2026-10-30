@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString* const kFilterDefault;
 extern NSString* const kIntegerScalingDefault;
 extern NSString* const kGamepadLayoutDefault;
+extern NSString* const kGpuPpuDefault;
 // LCD response (pixel ghosting) on or off; its times are filter knobs.
 extern NSString* const kLcdResponseDefault;
 // How the game keeps its frame rate: 0 accurate (59.73 Hz timer), 1 display sync.

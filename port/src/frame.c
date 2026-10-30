@@ -216,11 +216,12 @@ void HwRunFrame(uint16_t* framebuffer) {
         if (hblankInterrupt) {
             HwRaiseInterrupt(INTR_HBLANK);
         }
-        int hblankDma = HwDmaHBlank();
+        bool dmaMayWriteVram = false;
+        HwDmaHBlank(compactCapture ? &dmaMayWriteVram : NULL);
         // No game code runs between lines unless one of these occurs. On the
         // game thread VRAM must therefore be unchanged; a VCOUNT interrupt at
         // the next line invalidates this proof before its state is captured.
-        vramUnchanged = !hblankInterrupt && !hblankDma;
+        vramUnchanged = !hblankInterrupt && !dmaMayWriteVram;
         REG_DISPSTAT &= ~DISPSTAT_HBLANK;
     }
     if (watch.stats) {

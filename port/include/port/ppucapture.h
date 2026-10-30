@@ -50,7 +50,7 @@ typedef struct {
 // Game thread only. NULL disables capturing. Starting a compact capture resets it.
 void PpuCaptureTo(PpuCaptureLine* lines);
 void PpuCompactCaptureTo(PpuCompactCapture* capture);
-/* Frame loop only: no interrupt or DMA ran since the preceding line. */
+/* Frame loop only: VRAM cannot have changed since the preceding line. */
 bool PpuCompactCaptureActive(void);
 void PpuCompactVramUnchanged(void);
 void PpuCompactAppend(PpuCompactCapture* capture, int line, const uint8_t* vram, const PpuCaptureMeta* meta);

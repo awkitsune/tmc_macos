@@ -970,8 +970,8 @@ the bar. GPU timing is shown only when Metal supplies it. Reset clears the
 samples; collection stops when the window closes.
 
 **Settings → Rendering → GPU PPU (experimental)** switches the displayed game
-picture to the Metal PPU; turn it off to return to software. The option starts
-off each launch. While enabled,
+picture to the Metal PPU; turn it off to return to software. The choice is saved
+between launches. While enabled,
 the GPU draws the game pixels; the CPU still runs display timing and captures
 hardware state for every scanline. The capture uses substantial CPU time
 and memory, so this experiment may not be faster than software rendering. In the
@@ -992,7 +992,8 @@ unchanged VRAM pages between scanlines. Turn it off to compare full snapshots;
 it also works with sprite quads and resets to off on launch. The Performance
 window shows the most recent GPU capture size. Reset its samples after switching
 and compare both game-thread and GPU time. Compact mode reuses VRAM state when
-no interrupt or DMA ran between lines and checks for changes otherwise. It
+no interrupt ran and DMA did not write outside I/O registers between lines; it
+checks for changes otherwise. It
 reserves enough space for a worst-case frame, so smaller transfers do not
 necessarily mean lower CPU time or peak memory.
 

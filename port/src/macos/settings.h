@@ -12,7 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
  * experiments), Timing (frame pacing), Controls (the gamepad button layout) and Debug (the Debug menu and its
  * toolbar button). Each tab scrolls, so the window fits short screens; it
  * reopens on the last tab. Changes apply to the running game immediately and
- * are saved except the experimental rendering options, which reset on launch.
+ * are saved except the optional GPU rendering experiments, which reset on launch.
  * Each saved setting's control has its NSUserDefaults key as identifier.
  */
 @interface SettingsWindowController : NSWindowController
@@ -23,7 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 // screen's visible frame); the tabs scroll.
 - (void)fitToHeight:(CGFloat)maxHeight;
 @property(nonatomic, readonly) NSTabView* tabView;
-// Self-test the session-only controls and their enabled states.
+// Self-test the rendering controls and their enabled states.
 - (BOOL)checkRenderingControls;
 @end
 

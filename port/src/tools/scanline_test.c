@@ -318,6 +318,20 @@ static int TestVram(uint16_t* frame) {
 }
 
 static uint16_t ExpectStable(int x, int line) { (void)x; (void)line; return Color(0); }
+static int TestDmaVramTracking(void) {
+    uint16_t data = 0x1234;
+    bool mayWrite = true;
+    HwDmaSet(0, &data, gHwIo + 0x20, DMA_HBLANK_REPEAT | 1);
+    int ran = HwDmaHBlank(&mayWrite);
+    int failed = !ran || mayWrite;
+    HwDmaSet(1, &data, gHwVram + 32, DMA_HBLANK_REPEAT | 1);
+    ran = HwDmaHBlank(&mayWrite);
+    failed |= !ran || !mayWrite;
+    HwDmaStop(0);
+    HwDmaStop(1);
+    printf("DMA VRAM tracking: %s\n", failed ? "FAILED" : "ok");
+    return failed;
+}
 static int TestStable(uint16_t* frame) {
     ClearHardware();
     sTable = NULL;
@@ -348,6 +362,7 @@ int main(void) {
     static uint16_t frame[PPU_WIDTH * PPU_HEIGHT];
     int failed = 0;
 
+    failed |= TestDmaVramTracking();
     failed |= TestStable(frame);
     failed |= TestScroll(frame);
     failed |= TestAffine(frame);

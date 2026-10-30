@@ -258,15 +258,18 @@ static void CheckToolbar(NSWindow* window, MTKView* view, Renderer* renderer) {
 }
 
 // The subtitle: the room's name, then the parts after it (a status, the frame counter).
-static void CheckSubtitle(NSWindow* window, NSString* room, NSString* status) {
+static void CheckSubtitle(NSWindow* window, Renderer* renderer, NSString* room, NSString* status) {
     int area = -1, index = -1;
     BOOL inRoom = RoomCurrent(&area, &index);
     NSString* expected = status ? [NSString stringWithFormat:@"%@ · %@", room, status] : room;
     BOOL counter = [NSUserDefaults.standardUserDefaults boolForKey:@"ShowFrameCounter"];
     NSString* subtitle = window.subtitle;
-    BOOL ok = counter ? [subtitle hasPrefix:[expected stringByAppendingString:@" · Frame "]] : [subtitle isEqualToString:expected];
+    NSString* render = renderer.gpuPpuEnabled ? @"GPU render" : @"CPU render";
+    BOOL ok = counter ? [subtitle hasPrefix:[expected stringByAppendingString:@" · Frame "]] &&
+                            [subtitle hasSuffix:[@" · " stringByAppendingString:render]]
+                      : [subtitle isEqualToString:[NSString stringWithFormat:@"%@ · %@", expected, render]];
     NSLog(@"selftest: subtitle \"%@\" in area %d room %d (%s) %@", subtitle, area, index, inRoom ? "game" : "not in game",
-          ok ? @"ok" : [NSString stringWithFormat:@"FAILED, expected \"%@\"%@", expected, counter ? @" · Frame …" : @""]);
+          ok ? @"ok" : [NSString stringWithFormat:@"FAILED, expected %@%@ · %@", expected, counter ? @" · Frame …" : @"", render]);
 }
 
 static void CollectControls(NSView* view, NSMutableArray<NSControl*>* out) {
@@ -601,20 +604,20 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
             }
         });
         // The subtitle names the room, then a status and the frame counter.
-        add(60, ^{ CheckSubtitle(window, @"Festival Town", nil); });
+        add(60, ^{ CheckSubtitle(window, renderer, @"Festival Town", nil); });
         __block NSString* slotStatus = nil;
         add(2, ^{
             NSMenuItem* slot = [NSMenuItem new]; // the current slot again: shows its status, changes nothing
             slot.tag = MAX(1, [NSUserDefaults.standardUserDefaults integerForKey:@"StateSlot"]);
             slotStatus = [NSString stringWithFormat:@"Slot %ld", (long)slot.tag];
             [NSApp sendAction:NSSelectorFromString(@"selectSlot:") to:nil from:slot];
-            CheckSubtitle(window, @"Festival Town", slotStatus);
+            CheckSubtitle(window, renderer, @"Festival Town", slotStatus);
         });
         add(2, ^{
             [NSApp sendAction:NSSelectorFromString(@"toggleFrameCounter:") to:nil from:nil];
-            CheckSubtitle(window, @"Festival Town", slotStatus); // with the counter (or without, if it was on)
+            CheckSubtitle(window, renderer, @"Festival Town", slotStatus); // with the counter (or without, if it was on)
             [NSApp sendAction:NSSelectorFromString(@"toggleFrameCounter:") to:nil from:nil];
-            CheckSubtitle(window, @"Festival Town", slotStatus);
+            CheckSubtitle(window, renderer, @"Festival Town", slotStatus);
         });
         add(26, ^{ // 90 frames after the load, as before
             [debug selectSprite:0 highlight:YES];
@@ -657,7 +660,7 @@ void SelfTestStart(NSWindow* window, MTKView* view, Renderer* renderer, Input* i
         [NSUserDefaults.standardUserDefaults setObject:tab forKey:@"SettingsTab"];
     });
     if ([NSFileManager.defaultManager fileExistsAtPath:town]) {
-        add(90, ^{ CheckSubtitle(window, @"Festival Town", nil); }); // the status is over
+        add(90, ^{ CheckSubtitle(window, renderer, @"Festival Town", nil); }); // the status is over
     }
     add(5, ^{
         int failed = atomic_load(&sFailures);

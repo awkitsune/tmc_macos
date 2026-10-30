@@ -176,6 +176,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         kPacingDefault : @(FRONTEND_PACING_DISPLAY_SYNC),
         kDebugMenuDefault : @(TMC_DEBUG_MENU_DEFAULT),
         kDebugToolbarDefault : @NO,
+        kGpuPpuDefault : @NO,
     }];
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(applyPacing)
@@ -264,6 +265,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     _renderer.gpuPpuFailed = ^(NSString* message) {
         AppDelegate* strongSelf = weakSelf;
         if (!strongSelf) return;
+        [NSUserDefaults.standardUserDefaults setBool:NO forKey:kGpuPpuDefault];
         strongSelf->_subtitleDirty = YES;
         [strongSelf updateSubtitle];
         [strongSelf->_settings refresh];
@@ -303,6 +305,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
             if (!strongSelf) return;
             [strongSelf toggleGpuPpu:nil];
             NSLog(@"GPU PPU self-test: switch %@", strongSelf->_renderer.gpuPpuEnabled ? @"on" : @"FAILED");
+            NSLog(@"GPU PPU self-test: subtitle %@", [strongSelf->_window.subtitle hasSuffix:@"GPU render"] ? @"ok" : @"FAILED");
             if (getenv("TMC_GPU_COMPACT_SELFTEST")) {
                 [strongSelf toggleCompactGpuCapture:nil];
                 NSLog(@"GPU compact self-test: switch %@", strongSelf->_renderer.compactGpuCaptureEnabled ? @"on" : @"FAILED");
@@ -360,12 +363,20 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
                 }
                 [strongSelf toggleGpuPpu:nil];
                 NSLog(@"GPU PPU self-test: switch %@", strongSelf->_renderer.gpuPpuEnabled ? @"FAILED" : @"off");
+                NSLog(@"GPU PPU self-test: subtitle %@", [strongSelf->_window.subtitle hasSuffix:@"CPU render"] ? @"ok" : @"FAILED");
             });
         });
     }
     _window.contentView = _view;
     [_window makeFirstResponder:_view];
     [_window makeKeyAndOrderFront:nil];
+    if ([defaults boolForKey:kGpuPpuDefault] && !getenv("TMC_GPU_PPU_SELFTEST")) {
+        [self toggleGpuPpu:nil];
+    }
+    if (getenv("TMC_GPU_SETTINGS_SELFTEST")) {
+        NSLog(@"GPU PPU startup preference self-test: %@",
+              _renderer.gpuPpuEnabled == [defaults boolForKey:kGpuPpuDefault] ? @"ok" : @"FAILED");
+    }
 
     [self startLatencyTools];
     _displaySync = [DisplaySync new];
@@ -562,7 +573,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 }
 
 // The window's subtitle: the room the player is in, then a recent save/load
-// and the frame counter if shown, "Hyrule Town · Saved slot 2". Called every
+// the frame counter if shown, and the renderer. Called every
 // draw; it sets the text only when a part of it changed.
 - (void)updateSubtitle {
     int area, room;
@@ -599,12 +610,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     if (counter) {
         [parts addObject:[NSString stringWithFormat:@"Frame %llu", (unsigned long long)FrontendFrame()]];
     }
-    if (_renderer.gpuPpuEnabled) {
-        [parts addObject:@"GPU PPU (experimental)"];
-        if (_renderer.gpuSpriteQuadsEnabled) [parts addObject:@"Sprite quads"];
-        if (_renderer.compactGpuCaptureEnabled) [parts addObject:@"Compact capture"];
-        if (_renderer.gpuBackgroundLayersEnabled) [parts addObject:@"BG layers"];
-    }
+    [parts addObject:_renderer.gpuPpuEnabled ? @"GPU render" : @"CPU render"];
     NSString* text = [parts componentsJoinedByString:@" · "];
     if (![_window.subtitle isEqualToString:text]) {
         _window.subtitle = text;
@@ -689,11 +695,15 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
 
 - (void)toggleGpuPpu:(id)sender {
     if (![_renderer enableGpuPpu:!_renderer.gpuPpuEnabled]) {
+        [NSUserDefaults.standardUserDefaults setBool:NO forKey:kGpuPpuDefault];
         NSAlert* alert = [NSAlert new];
         alert.messageText = @"GPU PPU unavailable";
         alert.informativeText = @"The experimental renderer could not be initialized. The software renderer is still in use.";
         [alert beginSheetModalForWindow:_window completionHandler:nil];
         return;
+    }
+    if (!getenv("TMC_GPU_PPU_SELFTEST")) {
+        [NSUserDefaults.standardUserDefaults setBool:_renderer.gpuPpuEnabled forKey:kGpuPpuDefault];
     }
     _subtitleDirty = YES;
     [self updateSubtitle];

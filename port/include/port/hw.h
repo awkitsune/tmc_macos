@@ -10,6 +10,7 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #define HW_IO_SIZE 0x400
 #define HW_PLTT_SIZE 0x400
@@ -36,9 +37,10 @@ void HwDmaStop(int channel);
 
 /*
  * Service the latched transfers at an HBlank (after each visible line) or at the
- * start of VBlank. Return nonzero if any channel ran.
+ * start of VBlank. Return nonzero if any channel ran. HBlank also reports
+ * whether a transfer might have written VRAM (NULL skips that check).
  */
-int HwDmaHBlank(void);
+int HwDmaHBlank(bool* mayWriteVram);
 int HwDmaVBlank(void);
 
 /* A timed channel's latched transfer (for debug viewers); control is 0 if idle. */

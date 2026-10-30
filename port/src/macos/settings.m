@@ -179,6 +179,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
 
     [rendering addHeader:@"Game rendering"];
     _gpuPpu = [NSButton checkboxWithTitle:@"GPU PPU (experimental)" target:self action:@selector(renderingChanged:)];
+    _gpuPpu.identifier = kGpuPpuDefault;
     [rendering addRow:@"Renderer" control:_gpuPpu value:nil];
     _gpuCompact = [NSButton checkboxWithTitle:@"Compact scanline capture" target:self action:@selector(renderingChanged:)];
     [rendering addRow:@"Capture" control:_gpuCompact value:nil];
@@ -186,7 +187,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     [rendering addRow:@"Sprites" control:_gpuSprites value:nil];
     _gpuBackgrounds = [NSButton checkboxWithTitle:@"Separate background layers" target:self action:@selector(renderingChanged:)];
     [rendering addRow:@"Backgrounds" control:_gpuBackgrounds value:nil];
-    [rendering addRow:nil control:Note(@"Experimental options reset when the app closes.\nUse Debug → Performance to compare them.") value:nil];
+    [rendering addRow:nil control:Note(@"Capture, sprites and background options reset on exit.\nUse Debug → Performance to compare them.") value:nil];
 
     [timing addHeader:@"Timing"];
     _pacingPopup = [NSPopUpButton new];
@@ -348,11 +349,14 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
 }
 
 - (BOOL)checkRenderingControls {
-    if (_renderer.gpuPpuEnabled) return NO;
+    BOOL wasEnabled = _renderer.gpuPpuEnabled;
+    id saved = [NSUserDefaults.standardUserDefaults objectForKey:kGpuPpuDefault];
+    if (wasEnabled) [NSApp sendAction:NSSelectorFromString(@"toggleGpuPpu:") to:NSApp.delegate from:nil];
     [self refresh];
     BOOL ok = !_gpuCompact.enabled && !_gpuSprites.enabled && !_gpuBackgrounds.enabled;
     [_gpuPpu performClick:nil];
-    ok &= _renderer.gpuPpuEnabled && _gpuCompact.enabled && _gpuSprites.enabled && _gpuBackgrounds.enabled;
+    ok &= _renderer.gpuPpuEnabled && [NSUserDefaults.standardUserDefaults boolForKey:kGpuPpuDefault] &&
+          _gpuCompact.enabled && _gpuSprites.enabled && _gpuBackgrounds.enabled;
     if (_renderer.gpuPpuEnabled) {
         [_gpuCompact performClick:nil];
         [_gpuSprites performClick:nil];
@@ -360,9 +364,12 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
         ok &= _renderer.compactGpuCaptureEnabled && _renderer.gpuSpriteQuadsEnabled && _renderer.gpuBackgroundLayersEnabled;
         [self resetToDefaults:nil];
     }
-    ok &= !_renderer.gpuPpuEnabled && !_renderer.compactGpuCaptureEnabled &&
+    ok &= !_renderer.gpuPpuEnabled && ![NSUserDefaults.standardUserDefaults boolForKey:kGpuPpuDefault] && !_renderer.compactGpuCaptureEnabled &&
           !_renderer.gpuSpriteQuadsEnabled && !_renderer.gpuBackgroundLayersEnabled &&
           !_gpuCompact.enabled && !_gpuSprites.enabled && !_gpuBackgrounds.enabled;
+    if (wasEnabled) [NSApp sendAction:NSSelectorFromString(@"toggleGpuPpu:") to:NSApp.delegate from:nil];
+    if (saved) [NSUserDefaults.standardUserDefaults setObject:saved forKey:kGpuPpuDefault];
+    else [NSUserDefaults.standardUserDefaults removeObjectForKey:kGpuPpuDefault];
     return ok;
 }
 

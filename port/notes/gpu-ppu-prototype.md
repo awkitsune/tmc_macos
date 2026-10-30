@@ -5,7 +5,7 @@ The standalone `gpu_ppu_test` renders a captured frame on Metal and compares all
 experiment. On macOS, **Settings → Rendering → GPU PPU (experimental)** displays the Metal
 picture during gameplay, without also drawing the frame on the CPU. The CPU
 still handles display timing and scanline capture; software rendering remains
-available for fallback and paused redraws. The option resets to off on launch.
+available for fallback and paused redraws. The GPU PPU choice is saved between launches.
 The shader covers the CPU renderer's modes 0–2, tile and affine backgrounds,
 sprites, mosaic, windows, priorities, blending, brightness and forced blank.
 
@@ -49,9 +49,9 @@ overhead; the sample is one frame, so repeat runs and compare like builds.
 ## Compact scanline capture experiment
 
 With GPU PPU enabled, **Settings → Rendering → Compact scanline capture** shares
-unchanged 1 KiB VRAM pages between scanlines. If no HBlank DMA, HBlank interrupt
-or VCOUNT interrupt ran since the previous line, the game thread cannot have
-changed VRAM and the page indices are reused directly. After any such event, the
+unchanged 1 KiB VRAM pages between scanlines. If no HBlank or VCOUNT interrupt
+ran and HBlank DMA was absent or wrote only to I/O registers, the game thread
+cannot have changed VRAM and the page indices are reused directly. Otherwise, the
 CPU compares VRAM with a contiguous previous snapshot, then compares individual
 pages only if it changed; changed pages are copied into the frame's pool. This
 catches ordinary writes by interrupt handlers as well as DMA without modifying
