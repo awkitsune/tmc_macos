@@ -203,8 +203,10 @@ def svg(design_key, portrait):
     A, B = c["A"], c["B"]
     ang = math.degrees(math.atan2(A.cy - B.cy, A.cx - B.cx))
     dist = math.hypot(A.cx - B.cx, A.cy - B.cy)
-    lens = Rect(img.x - 14, img.y - 16, img.w + 28, img.h + 32)
-    grille_at = (338, 735) if portrait else (680, 292)
+    # In landscape the picture column leaves the controls little room: a thin side bezel.
+    side = 14 if portrait else 6
+    lens = Rect(img.x - side, img.y - 16, img.w + 2 * side, img.h + 32)
+    grille_at = (338, 735) if portrait else (690, 266)
 
     def stroke(w=1.5):
         return dict(fill="none", stroke=line, stroke_width=w)
@@ -290,10 +292,16 @@ def svg(design_key, portrait):
     # 5. wells: the recesses the caps sit in.
     o.append('<g id="wells">')
     well = stroke(1) if line else dict(fill=d["well"], filter=f"url(#{p}sunk)")
-    o.append("  " + circ(c["Dpad"].cx, c["Dpad"].cy, DPAD / 2 + 7, **well))
-    mx, my = (A.cx + B.cx) / 2, (A.cy + B.cy) / 2
-    pill = Rect(mx - (dist + FACE + 16) / 2, my - (FACE + 16) / 2, dist + FACE + 16, FACE + 16)
-    o.append(f'  <g transform="rotate({f(ang)} {f(mx)} {f(my)})">' + rect(pill, pill.h / 2, **well) + "</g>")
+    D = c["Dpad"]
+    o.append(f'  <path d="{cross_path(D.cx, D.cy, DPAD * 0.9 + 12, DPAD * 0.33 + 12)}" '
+             + " ".join(f'{k.replace("_", "-")}="{v}"' for k, v in well.items()) + "/>")
+    if portrait:  # A and B in one tilted pill
+        mx, my = (A.cx + B.cx) / 2, (A.cy + B.cy) / 2
+        pill = Rect(mx - (dist + FACE + 16) / 2, my - (FACE + 16) / 2, dist + FACE + 16, FACE + 16)
+        o.append(f'  <g transform="rotate({f(ang)} {f(mx)} {f(my)})">' + rect(pill, pill.h / 2, **well) + "</g>")
+    else:  # a ring each, to keep clear of the picture
+        for r in (A, B):
+            o.append("  " + circ(r.cx, r.cy, FACE / 2 + 5, **well))
     for k in ("Start", "Select"):
         r = c[k]
         o.append("  " + rect(Rect(r.cx - 30, r.y + 5, 60, 22), 11, **well))

@@ -24,39 +24,39 @@
   <rect x="7" y="7" width="838" height="379" rx="49" fill="none" stroke="#4b4b53" stroke-opacity="0.35" stroke-width="1"/>
 </g>
 <g id="grille">
-    <circle cx="660.9" cy="271.8" r="2.6" fill="#0a0a0c"/>
-    <circle cx="669.9" cy="269.5" r="2.6" fill="#0a0a0c"/>
-    <circle cx="678.9" cy="267.2" r="2.6" fill="#0a0a0c"/>
-    <circle cx="655.9" cy="283" r="2.6" fill="#0a0a0c"/>
-    <circle cx="664.9" cy="280.8" r="2.6" fill="#0a0a0c"/>
-    <circle cx="673.9" cy="278.5" r="2.6" fill="#0a0a0c"/>
-    <circle cx="682.9" cy="276.2" r="2.6" fill="#0a0a0c"/>
-    <circle cx="691.9" cy="274" r="2.6" fill="#0a0a0c"/>
-    <circle cx="655.5" cy="293.1" r="2.6" fill="#0a0a0c"/>
-    <circle cx="664.5" cy="290.9" r="2.6" fill="#0a0a0c"/>
-    <circle cx="673.5" cy="288.6" r="2.6" fill="#0a0a0c"/>
-    <circle cx="682.5" cy="286.4" r="2.6" fill="#0a0a0c"/>
-    <circle cx="691.5" cy="284.1" r="2.6" fill="#0a0a0c"/>
-    <circle cx="700.5" cy="281.9" r="2.6" fill="#0a0a0c"/>
-    <circle cx="659.5" cy="302.1" r="2.6" fill="#0a0a0c"/>
-    <circle cx="668.5" cy="299.9" r="2.6" fill="#0a0a0c"/>
-    <circle cx="677.5" cy="297.6" r="2.6" fill="#0a0a0c"/>
-    <circle cx="686.5" cy="295.4" r="2.6" fill="#0a0a0c"/>
-    <circle cx="695.5" cy="293.1" r="2.6" fill="#0a0a0c"/>
-    <circle cx="704.5" cy="290.9" r="2.6" fill="#0a0a0c"/>
-    <circle cx="668.1" cy="310" r="2.6" fill="#0a0a0c"/>
-    <circle cx="677.1" cy="307.8" r="2.6" fill="#0a0a0c"/>
-    <circle cx="686.1" cy="305.5" r="2.6" fill="#0a0a0c"/>
-    <circle cx="695.1" cy="303.2" r="2.6" fill="#0a0a0c"/>
-    <circle cx="704.1" cy="301" r="2.6" fill="#0a0a0c"/>
-    <circle cx="681.1" cy="316.8" r="2.6" fill="#0a0a0c"/>
-    <circle cx="690.1" cy="314.5" r="2.6" fill="#0a0a0c"/>
-    <circle cx="699.1" cy="312.2" r="2.6" fill="#0a0a0c"/>
+    <circle cx="670.9" cy="245.8" r="2.6" fill="#0a0a0c"/>
+    <circle cx="679.9" cy="243.5" r="2.6" fill="#0a0a0c"/>
+    <circle cx="688.9" cy="241.2" r="2.6" fill="#0a0a0c"/>
+    <circle cx="665.9" cy="257" r="2.6" fill="#0a0a0c"/>
+    <circle cx="674.9" cy="254.8" r="2.6" fill="#0a0a0c"/>
+    <circle cx="683.9" cy="252.5" r="2.6" fill="#0a0a0c"/>
+    <circle cx="692.9" cy="250.2" r="2.6" fill="#0a0a0c"/>
+    <circle cx="701.9" cy="248" r="2.6" fill="#0a0a0c"/>
+    <circle cx="665.5" cy="267.1" r="2.6" fill="#0a0a0c"/>
+    <circle cx="674.5" cy="264.9" r="2.6" fill="#0a0a0c"/>
+    <circle cx="683.5" cy="262.6" r="2.6" fill="#0a0a0c"/>
+    <circle cx="692.5" cy="260.4" r="2.6" fill="#0a0a0c"/>
+    <circle cx="701.5" cy="258.1" r="2.6" fill="#0a0a0c"/>
+    <circle cx="710.5" cy="255.9" r="2.6" fill="#0a0a0c"/>
+    <circle cx="669.5" cy="276.1" r="2.6" fill="#0a0a0c"/>
+    <circle cx="678.5" cy="273.9" r="2.6" fill="#0a0a0c"/>
+    <circle cx="687.5" cy="271.6" r="2.6" fill="#0a0a0c"/>
+    <circle cx="696.5" cy="269.4" r="2.6" fill="#0a0a0c"/>
+    <circle cx="705.5" cy="267.1" r="2.6" fill="#0a0a0c"/>
+    <circle cx="714.5" cy="264.9" r="2.6" fill="#0a0a0c"/>
+    <circle cx="678.1" cy="284" r="2.6" fill="#0a0a0c"/>
+    <circle cx="687.1" cy="281.8" r="2.6" fill="#0a0a0c"/>
+    <circle cx="696.1" cy="279.5" r="2.6" fill="#0a0a0c"/>
+    <circle cx="705.1" cy="277.2" r="2.6" fill="#0a0a0c"/>
+    <circle cx="714.1" cy="275" r="2.6" fill="#0a0a0c"/>
+    <circle cx="691.1" cy="290.8" r="2.6" fill="#0a0a0c"/>
+    <circle cx="700.1" cy="288.5" r="2.6" fill="#0a0a0c"/>
+    <circle cx="709.1" cy="286.2" r="2.6" fill="#0a0a0c"/>
 </g>
 <g id="lens">
-  <rect x="212" y="36.7" width="428" height="298.7" rx="14" fill="url(#onyx-landscape-lens)" stroke="#08080a" stroke-width="1.5"/>
-  <circle cx="222" cy="44.7" r="2.6" fill="#d39a6a"/>
-  <circle cx="222" cy="44.7" r="5" fill="#d39a6a" fill-opacity="0.25"/>
+  <rect x="220" y="36.7" width="412" height="298.7" rx="14" fill="url(#onyx-landscape-lens)" stroke="#08080a" stroke-width="1.5"/>
+  <circle cx="230" cy="44.7" r="2.6" fill="#d39a6a"/>
+  <circle cx="230" cy="44.7" r="5" fill="#d39a6a" fill-opacity="0.25"/>
 </g>
 <g id="cutout" data-gba="240x160" data-scale="5">
   <rect x="226" y="52.7" width="400" height="266.7" rx="0" fill="#000"/>
@@ -65,8 +65,9 @@
   <text x="426" y="202" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="500" letter-spacing="0.04em" text-anchor="middle" fill="#d39a6a">×5 = 1200 × 800 px</text>
 </g>
 <g id="wells">
-  <circle cx="142.5" cy="160" r="73" fill="#0f0f12" filter="url(#onyx-landscape-sunk)"/>
-  <g transform="rotate(-27.9 709.5 160)"><rect x="631" y="120" width="156.9" height="80" rx="40" fill="#0f0f12" filter="url(#onyx-landscape-sunk)"/></g>
+  <path d="M114.7 94.6 L170.3 94.6 L170.3 132.2 L207.9 132.2 L207.9 187.8 L170.3 187.8 L170.3 225.4 L114.7 225.4 L114.7 187.8 L77.1 187.8 L77.1 132.2 L114.7 132.2 Z" fill="#0f0f12" filter="url(#onyx-landscape-sunk)"/>
+  <circle cx="743.5" cy="142" r="37" fill="#0f0f12" filter="url(#onyx-landscape-sunk)"/>
+  <circle cx="675.5" cy="178" r="37" fill="#0f0f12" filter="url(#onyx-landscape-sunk)"/>
   <rect x="112.5" y="247" width="60" height="22" rx="11" fill="#0f0f12" filter="url(#onyx-landscape-sunk)"/>
   <rect x="112.5" y="299" width="60" height="22" rx="11" fill="#0f0f12" filter="url(#onyx-landscape-sunk)"/>
 </g>

@@ -46,7 +46,7 @@
   <text x="196.5" y="258.5" font-family="-apple-system, 'SF Pro Rounded', 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="500" letter-spacing="0.04em" text-anchor="middle" fill="#8f88d8">×4 = 960 × 640 px</text>
 </g>
 <g id="wells">
-  <circle cx="78" cy="622" r="73" fill="none" stroke="#8f88d8" stroke-width="1"/>
+  <path d="M50.2 556.6 L105.8 556.6 L105.8 594.2 L143.4 594.2 L143.4 649.8 L105.8 649.8 L105.8 687.4 L50.2 687.4 L50.2 649.8 L12.6 649.8 L12.6 594.2 L50.2 594.2 Z" fill="none" stroke="#8f88d8" stroke-width="1"/>
   <g transform="rotate(-27.9 315 622)"><rect x="236.5" y="582" width="156.9" height="80" rx="40" fill="none" stroke="#8f88d8" stroke-width="1"/></g>
   <rect x="208.5" y="767" width="60" height="22" rx="11" fill="none" stroke="#8f88d8" stroke-width="1"/>
   <rect x="124.5" y="767" width="60" height="22" rx="11" fill="none" stroke="#8f88d8" stroke-width="1"/>
