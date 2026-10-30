@@ -664,15 +664,31 @@ static SettingsPage* ControlsPage(id<SettingsHost> host) {
         [weakPage refresh];
     });
     resetTouch.destructive = YES;
+    NSMutableArray<NSString*>* styles = [NSMutableArray array];
+    for (NSInteger style = 0; style < TouchStyleCount; style++) {
+        [styles addObject:TouchStyleName(style)];
+    }
+    SettingsRow* style = Choice(
+        @"Button style", styles,
+        ^NSInteger {
+            NSInteger saved = [NSUserDefaults.standardUserDefaults integerForKey:kTouchStyleDefault];
+            return saved >= 0 && saved < TouchStyleCount ? saved : TouchStylePlain;
+        },
+        ^(NSInteger index) {
+            [NSUserDefaults.standardUserDefaults setInteger:index forKey:kTouchStyleDefault];
+            [NSNotificationCenter.defaultCenter postNotificationName:kTouchControlsChangedNotification object:nil];
+        });
     resetTouch.confirmTitle = @"Reset Opacity, Size and Places?";
     page.sections = @[
         [SettingsSection header:@"Touch"
                            rows:@[
                                DefaultsToggle(@"Touch controls", kTouchControlsDefault, touchChanged),
                                DefaultsToggle(@"Haptics", kTouchHapticsDefault, touchChanged),
+                               style,
                            ]
                          footer:@"On-screen buttons, hidden while a gamepad is connected. Their ☰ opens the settings; "
-                                @"⏩ switches fast-forward, or holds it while held."],
+                                @"⏩ switches fast-forward, or holds it while held. Button style: plain shapes, or "
+                                @"Indigo or Outline buttons."],
         [SettingsSection header:host.portrait ? @"Touch Layout (Portrait)" : @"Touch Layout (Landscape)"
                            rows:@[
                                TouchSlider(host, &kTouchOpacityKnob),

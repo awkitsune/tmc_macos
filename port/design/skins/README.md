@@ -13,6 +13,9 @@ with its safe area, 3 pixels per point. Every cap sits on the touch target `port
 control for that screen. `generate.py` holds a copy of that layout and writes all four files; run it again
 (`python3 port/design/skins/generate.py`) when the layout changes.
 
+The app draws the buttons of `indigo` and `outline` (Settings > Controls > Touch > Button style, in
+`port/src/ios/touchcontrols.m`): the wells, caps and labels, not the shell, grille or lens.
+
 ## Layers
 
 Each SVG has these top-level groups, drawn in this order. An implementation would draw them the same way with

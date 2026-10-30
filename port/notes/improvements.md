@@ -24,8 +24,8 @@ drawing every sprite there is kept on purpose (`ppu-audit.md`).
 
 - TestFlight or the App Store need the paid Apple Developer Program. With a free Apple ID the app is installed from
   Xcode and has to be installed again every 7 days (`port/scripts/ios_install.sh`).
-- The touch controls are flat shapes drawn in code. A skin like the GBA's shell (the purple plastic, the speaker
-  grille) drawn around them would be a possible later option.
+- The touch controls' Button style draws only the buttons (Plain, Indigo, Outline). The shell around them in the
+  prototypes (`port/design/skins/`: the plastic, the speaker grille) is not drawn in the app.
 - The settings sheet is driven by a controller through its own polling (`port/src/ios/settingsview.m`), not UIKit's
   focus system (kept: the rows are custom and the polling is small).
 - ☰ gives Start on release (so a held ☰ can open the settings without it): a quick press reaches the game a little

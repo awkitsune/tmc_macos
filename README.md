@@ -495,6 +495,8 @@ Escape still work).
   middle at the bottom and ⏩ in the bottom left corner.
 - The buttons are the same size in points on iPhone and iPad, and the picture never sits under them: with Integer
   scaling it gets the largest whole-number scale that leaves them room, without it all the room they leave.
+- **Button style**: Plain (flat translucent shapes, the default), Indigo (dark caps in purple recesses) or Outline
+  (a line drawing). The art is from `port/design/skins/`; only the buttons are drawn, not a shell around them.
 - **⏩** switches fast-forward with a tap (as Game > Fast-forward) and holds it while held.
 - **Touch Layout** (per orientation, for the one shown): **Opacity** and **Size** sliders, **Move Controls…** (the game
   pauses; drag the D-pad, A and B, L, R, Start and Select, ☰ and ⏩ anywhere on the screen; Reset puts them back,

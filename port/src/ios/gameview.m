@@ -125,6 +125,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
         kPacingDefault : @(FRONTEND_PACING_DISPLAY_SYNC),
         kTouchControlsDefault : @NO,
         kTouchHapticsDefault : @YES,
+        kTouchStyleDefault : @(TouchStylePlain),
         kGpuPpuDefault : @YES,
     }];
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -505,6 +506,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     BOOL touch = self.touchControlsOn;
     _tap.enabled = !touch;
     _touch.haptics = [NSUserDefaults.standardUserDefaults boolForKey:kTouchHapticsDefault];
+    _touch.style = (TouchStyle)[NSUserDefaults.standardUserDefaults integerForKey:kTouchStyleDefault];
     _touch.hidden = !touch || _input.hasGamepad || _renderer == nil;
     if (_touch.hidden) {
         [self endTouchEditing];

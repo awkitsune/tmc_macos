@@ -9,6 +9,8 @@ NS_ASSUME_NONNULL_BEGIN
 // haptics (on by default).
 extern NSString* const kTouchControlsDefault;
 extern NSString* const kTouchHapticsDefault;
+// Settings > Controls > Touch > Button style (a TouchStyle, plain by default).
+extern NSString* const kTouchStyleDefault;
 // Posted when either changes, or the settings below.
 extern NSString* const kTouchControlsChangedNotification;
 
@@ -24,9 +26,20 @@ TouchSettings TouchSettingsLoad(BOOL portrait);
 void TouchSettingsSave(BOOL portrait, const TouchSettings* settings);
 void TouchSettingsReset(BOOL portrait);
 
+// How the buttons are drawn: flat translucent shapes, or one of the skins
+// (port/design/skins): indigo plastic caps in recesses, or a line drawing.
+typedef NS_ENUM(NSInteger, TouchStyle) {
+    TouchStylePlain,
+    TouchStyleIndigo,
+    TouchStyleOutline,
+    TouchStyleCount,
+};
+
+NSString* TouchStyleName(TouchStyle style);
+
 /*
- * The on-screen controls, drawn flat in code over the game view where the
- * layout (touchlayout.h) puts them, lit while pressed. Every touch is tracked
+ * The on-screen controls, drawn in code in the chosen style over the game
+ * view where the layout (touchlayout.h) puts them, lit while pressed. Every touch is tracked
  * on its own: one that starts on the D-pad steers by its angle until it lifts,
  * one that starts on a button presses whatever button it is over as it slides
  * (A and B, both between them), and ☰ opens the settings when let go on it. The
@@ -43,6 +56,7 @@ void TouchSettingsReset(BOOL portrait);
 @property(nonatomic) TouchLayout layout;
 @property(nonatomic) BOOL haptics;
 @property(nonatomic) CGFloat opacity;
+@property(nonatomic) TouchStyle style;
 @property(nonatomic) BOOL editing;
 // Edit mode: a cluster dragged to this offset (the owner relayouts), Reset and Done.
 @property(nonatomic, copy, nullable) void (^clusterMoved)(TouchCluster cluster, CGPoint offset);
