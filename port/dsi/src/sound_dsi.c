@@ -12,8 +12,10 @@
  * period of the channels (the sound clock is the bus clock halved, so the same
  * crystal), and timer 3 counts its overflows. Writing stays a few frames ahead
  * of that; a sample is dropped or repeated when the lead drifts, and after a
- * stall (a long frame, a save) the ring is silenced and writing starts over
- * ahead of the channels.
+ * stall (a save) the ring is silenced and writing starts over ahead of the
+ * channels. A long game frame (a room load) does not stall the sound:
+ * DsiSoundVBlank runs the game's sound from the DS VBlank interrupt, as the
+ * GBA's interrupt does (platform_dsi.c).
  */
 
 #include <nds.h>
@@ -34,6 +36,9 @@ static int16_t sRing[2][RING] __attribute__((aligned(32)));
 static bool sPlaying;
 static int sFrameLength;
 static uint16_t sWrite; // samples written, mod 65536, as timer 3 counts played ones
+static volatile bool sFrameSince; // a frame came since the last DS VBlank
+
+void m4aSoundMain(void);
 
 static uint16_t Played(void) {
     return TIMER_DATA(3);
@@ -89,10 +94,18 @@ void DsiSoundStop(void) {
     sPlaying = false;
 }
 
+void DsiSoundVBlank(bool mayRun) {
+    if (mayRun && sPlaying && !sFrameSince) {
+        m4aSoundMain();
+    }
+    sFrameSince = false;
+}
+
 void DsiSoundFrame(const int16_t* stereo, int frames) {
     int16_t lead;
     int count;
 
+    sFrameSince = true;
     if (frames <= 0 || frames > RING / 4) {
         return;
     }

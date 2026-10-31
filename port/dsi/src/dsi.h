@@ -88,6 +88,11 @@ void DsiSha1Final(DsiSha1* ctx, uint8_t digest[20]);
  */
 void DsiSoundFrame(const int16_t* stereo, int frames);
 void DsiSoundStop(void);
+/*
+ * From the DS VBlank interrupt: with mayRun (the game's sound interrupt on, the
+ * game in its own code), runs m4aSoundMain if no frame came since the last one.
+ */
+void DsiSoundVBlank(bool mayRun);
 
 /* Run the game from AgbMain; a BIOS SoftReset comes back here. */
 _Noreturn void DsiRunGame(void);

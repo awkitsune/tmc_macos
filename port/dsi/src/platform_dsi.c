@@ -27,10 +27,25 @@ static jmp_buf sResetPoint;
 static volatile uint32_t sVBlanks; // DS VBlanks, counted by the IRQ
 static uint32_t sLastVBlank;
 static uint32_t sLeft;             // timer ticks when the game got its frame back
+static volatile bool sFrameWork;   // in PlatformVBlank: the frame's lines, VBlank, present
+
+/*
+ * TMC runs m4aSoundMain from its VCount interrupt, so on the GBA the music
+ * goes on through a frame that takes several (a room load). Here interrupts
+ * come at the frame boundary; a DS VBlank that finds the game still in its
+ * frame, with no sound frame since the last one, runs the sound as the GBA's
+ * interrupt would, if the game has that interrupt on (IME, IE, DISPSTAT).
+ * The m4a engine guards itself against this, as on the GBA (its ident locks).
+ * Not with DSI_CHECKS, whose records follow the Mac frame by frame.
+ */
+static bool SoundInterruptOn(void) {
+    return !DSI_CHECKS && !sFrameWork && (gHwIo[0x208] & 1) && (gHwIo[0x200] & 4) && (gHwIo[0x004] & 0x20);
+}
 
 static void OnVBlank(void) {
     sVBlanks++;
     DsiPresentVBlank();
+    DsiSoundVBlank(SoundInterruptOn());
 }
 
 static void Track(uint32_t* min, uint32_t* max, uint64_t* sum, uint32_t value) {
@@ -144,6 +159,7 @@ void PlatformVBlank(void) {
     uint32_t frame = gPlatformFrame;
     uint32_t start = cpuGetTiming(), work, t, line, vblanks;
 
+    sFrameWork = true;
     if (frame != s->first) {
         Track(&s->gameMin, &s->gameMax, &s->gameSum, start - sLeft);
     }
@@ -225,9 +241,13 @@ void PlatformVBlank(void) {
         DC_FlushAll();
     }
     sLeft = cpuGetTiming();
+    sFrameWork = false;
 }
 
 _Noreturn void PlatformSoftReset(void) {
+    // The game starts its sound over; nothing may run it from the interrupt
+    // until its first frame.
+    DsiSoundStop();
     longjmp(sResetPoint, 1);
 }
 
