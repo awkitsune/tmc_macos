@@ -215,6 +215,9 @@ void sub_080573AC(LightRayManager* this) {
     gRoomControls.bg3OffsetX.WORD -= 0x2000;
     gRoomControls.bg3OffsetY.WORD -= 0x1000;
     gScreen.bg3.xOffset = ((gRoomControls.scroll_x - gRoomControls.origin_x) >> 1) + gRoomControls.bg3OffsetX.HALF.HI;
+#ifdef PORT_HOSTED
+    PortViewStreamBg(&gScreen.bg3, NULL, 0, 0, 0, 0); // the picture of sub_08057450 ends
+#endif
     gScreen.bg3.yOffset = ((gRoomControls.scroll_y - gRoomControls.origin_y) >> 1) + gRoomControls.bg3OffsetY.HALF.HI;
     sin = gSineTable[(gRoomTransition.frameCount & 0xff) + 0x40];
     sub_0805732C((sin >> 5) + 0x10, gRoomTransition.frameCount);
@@ -235,6 +238,15 @@ void sub_08057450(LightRayManager* this) {
 
     gScreen.bg3.yOffset = y & 0x3f;
     gScreen.bg3.subTileMap = &gBG3Buffer[(y / 0x40) << 8];
+#ifdef PORT_HOSTED
+    // Extended view: the rays come in at the top right of the GBA's screen, its
+    // right edge at map column 31. The picture goes into the right half of a wide
+    // map with nothing left of it, its right edge at the view's.
+    if (PORT_VIEW_EXTENDED) {
+        gScreen.bg3.xOffset = 512 - PORT_SCREEN_W;
+        PortViewStreamBg(&gScreen.bg3, (u16*)gScreen.bg3.subTileMap, 0x20, -0x20, 0x20, 0x20);
+    }
+#endif
 #ifdef PORT_LAYOUT_64
     if (this->unk_34 != (u32)(uintptr_t)gScreen.bg3.subTileMap) {
         this->unk_34 = (u32)(uintptr_t)gScreen.bg3.subTileMap;

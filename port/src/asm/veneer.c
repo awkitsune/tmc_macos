@@ -214,11 +214,13 @@ static void CopyStreams(void) {
             sStreams[bg].src = NULL;
             continue;
         }
-        for (s32 r = 0; r < HW_WIDE_MAP_ROWS; r++) { // their own vertical scroll
-            for (s32 c = 0; c < ViewCols(); c++) {
+        // All of the map: these layers have their own scroll.
+        for (s32 r = 0; r < HW_WIDE_MAP_ROWS; r++) {
+            for (s32 c = 0; c < HW_WIDE_MAP_COLS; c++) {
                 s32 col = sStreams[bg].col0 + c;
-                sStreams[bg].map[HwWideMapAt(c, r)] =
-                    r < sStreams[bg].rows && col < sStreams[bg].cols ? sStreams[bg].src[r * sStreams[bg].stride + col] : 0;
+                sStreams[bg].map[HwWideMapAt(c, r)] = r < sStreams[bg].rows && col >= 0 && col < sStreams[bg].cols
+                                                          ? sStreams[bg].src[r * sStreams[bg].stride + col]
+                                                          : 0;
             }
         }
         gHwWideMap[bg] = sStreams[bg].map;
@@ -256,12 +258,11 @@ static void SetViewClip(void) {
 // centred; elsewhere (menus, title, file select) the whole picture is a centred
 // GBA screen.
 void PortViewUpdate(void) {
-    // Subtasks are the menus (pause, maps, kinstones, figurines), laid out for
-    // 240x160, and a few cutscenes in the world. The world is on screen while a
-    // menu fades in (Subtask_FadeIn, 0) and after it (Subtask_Die, 4).
+    // Subtasks are the menus (pause, maps, kinstones, figurines) and the portal's
+    // vortex, laid out for 240x160, and two cutscenes in the world. The world is on
+    // screen while a menu fades in (Subtask_FadeIn, 0) and after it (Subtask_Die, 4).
     u32 menu = gMain.substate == GAMEMAIN_SUBTASK && gUI.nextToLoad != 0 && gUI.nextToLoad != 4 &&
-               gUI.lastState != SUBTASK_AUXCUTSCENE && gUI.lastState != SUBTASK_PORTALCUTSCENE &&
-               gUI.lastState != SUBTASK_WORLDEVENT;
+               gUI.lastState != SUBTASK_AUXCUTSCENE && gUI.lastState != SUBTASK_WORLDEVENT;
     u32 world = gMain.task == TASK_GAME && !menu && (gMapBottom.bgSettings != NULL || gMapTop.bgSettings != NULL);
 
     gHwWideMapMask = 0;
