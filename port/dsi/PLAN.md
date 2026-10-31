@@ -354,7 +354,7 @@ Hosted behaviour that milestone 2 has to provide on the DSi:
 | `port/src/asm/*.c` | as is (check for 64-bit assumptions) |
 | `port/src/interrupts.c` (IntrMain dispatch) | as is, called from a libnds VBlank/HBlank IRQ handler |
 | `port/src/eeprom.c` (8 KB EEPROM emulation, file-backed) | as is, file on `sd:/` |
-| `port/src/sound/m4a_engine.c`, `m4a_mixer.c`, `psg.c` | the sequencer and the integer (authentic) mixer run on the ARM9, so the engine's state evolves exactly as on the Mac; under `PLATFORM_DSI` `SoundMain` stops there and `PsgAdvance` steps the CGB channels' lengths, sweep, envelopes and NR52 with the same clock as `PsgRender`, without synthesising (milestone 4: 54 ms of soft-float mixing a frame became 3.3 ms of frame work). Later the ARM7 plays the sound |
+| `port/src/sound/m4a_engine.c`, `m4a_mixer.c`, `psg.c` | the sequencer and the integer (authentic) mixer run on the ARM9, so the engine's state evolves exactly as on the Mac; under `PLATFORM_DSI` `SoundMain` then calls `PsgRenderDsi`, the CGB channels and output stage in integers, and streams the frame ([Sound](#sound); milestone 4: 54 ms of soft-float mixing a frame became 3.3 ms of frame work) |
 | `port/src/headless.c` input script (`TMC_INPUT` syntax) and frame-hash output | parser moved to a shared file, read from `sd:/tmc/input.txt`; hashes into a RAM ring buffer |
 | `port/src/ppu.c` (software PPU) | not used at run time; the Mac's picture is the reference for the DS's (milestone 5). `TMC_PPU_DS_EFFECTS=1` makes it blend and fade with the DS's rounding |
 | `port/src/frame.c` (per-line timing) | **as is**: `HwRunFrame` is `HwRunLines` then `HwRunVBlank`. On the DSi the game's lines run before the DS VBlank and record each line's display registers (`gHwLineCapture`); the presenter runs in the VBlank, then `HwRunVBlank` (milestone 5). The PPU hooks on the DSi follow the affine reference points for the presenter (`port/dsi/src/present.c`) |
@@ -587,7 +587,8 @@ As built: the ARM9 mixes, the default ARM7 program only plays.
   output stage in integers, as the Mac's `PsgRender` does in floating point:
   SOUNDCNT_H/NR50/NR51 levels in half DAC units, the clip around SOUNDBIAS, the
   5 Hz output high-pass in Q8, then 16-bit stereo (half DAC unit x 32). The
-  frame sequencer keeps `PsgAdvance`'s sub-sample timing. The squares and the
+  512 Hz frame sequencer counts in integers at the output rate (the Mac's
+  double-precision sub-sample clock is software floating point here). The squares and the
   wave channel are the exact average of the waveform over each output sample
   (point sampling folded stray tones into high notes on the DSi); noise is
   point-sampled, as the GBA's DAC does (averaged, a fast noise clock cancelled

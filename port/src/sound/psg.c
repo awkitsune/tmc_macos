@@ -56,6 +56,9 @@ typedef struct PsgChannel {
 
 static PsgChannel sChannels[4];
 static double sSequencerTime; // seconds since the last 512 Hz step
+#ifdef PLATFORM_DSI
+static uint32_t sSequencerCount; // PsgRenderDsi's: 512ths of an output sample since the last step
+#endif
 static int sSequencerStep;
 
 static const uint8_t sNrx1[4] = { REG_OFFSET_NR11, REG_OFFSET_NR21, REG_OFFSET_NR31, REG_OFFSET_NR41 };
@@ -246,6 +249,9 @@ static void TraceFrameEnd(void) {
 void PsgReset(void) {
     memset(sChannels, 0, sizeof(sChannels));
     sSequencerTime = 0;
+#ifdef PLATFORM_DSI
+    sSequencerCount = 0;
+#endif
     sSequencerStep = 0;
 }
 
@@ -552,9 +558,10 @@ void PsgAdvance(int frames, int sampleRate) {
 /*
  * PsgRender for the DSi, which has no FPU: the DirectSound frame (the 8-bit
  * mono slot MixAuthentic wrote) plus the CGB channels, in integers, as 16-bit
- * stereo for port/dsi/src/sound_dsi.c. The frame sequencer keeps PsgAdvance's
- * sub-sample timing (the Mac's). Levels are in sixteenths and the mix in half
- * DAC units, so the 50% ratios stay exact.
+ * stereo for port/dsi/src/sound_dsi.c. Levels are in sixteenths and the mix in
+ * half DAC units, so the 50% ratios stay exact. The frame sequencer counts in
+ * integers at the output rate: PsgAdvance's double-precision sub-sample clock
+ * costs the FPU-less ARM9 more than the rest of the frame's sound.
  *
  * At this output rate (the engine's, 15.8 kHz) the channels need care:
  *  - the squares and the wave channel are the exact average of the waveform
@@ -687,8 +694,6 @@ void PsgRenderDsi(const int8_t* mono, int16_t* stereo, int frames, int sampleRat
     static int32_t dcIn[2], dcOut[2];
     // exp(-2 pi 5 Hz / rate) in Q15, to first order.
     int32_t pole = 32768 - (1029437 + sampleRate / 2) / sampleRate;
-    int oversample = Oversample(sampleRate);
-    double dt = 1.0 / ((double)sampleRate * oversample);
     u16 cnt;
     int nr50, nr51, bias, ds, dsVol[2], vol[2], low, high;
 
@@ -714,12 +719,11 @@ void PsgRenderDsi(const int8_t* mono, int16_t* stereo, int frames, int sampleRat
     for (int i = 0; i < frames; i++) {
         int level[2] = { 0, 0 };
 
-        for (int k = 0; k < oversample; k++) {
-            sSequencerTime += dt;
-            if (sSequencerTime >= 1.0 / 512) {
-                sSequencerTime -= 1.0 / 512;
-                SequencerStep();
-            }
+        // The 512 Hz sequencer steps at most once per output sample.
+        sSequencerCount += 512;
+        if (sSequencerCount >= (uint32_t)sampleRate) {
+            sSequencerCount -= sampleRate;
+            SequencerStep();
         }
         for (int ch = 0; ch < 4; ch++) {
             int l;
