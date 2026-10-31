@@ -314,6 +314,12 @@ Entity* EnemyCreateFX(Entity* parent, u32 fxType) {
 void EnemyDetachFX(Entity* entity) {
     Enemy* this = (Enemy*)entity;
     if (this->child != NULL) {
+#if defined(PORT_HOSTED) && !defined(PORT_LAYOUT_64)
+        // In the GBA layout some enemies keep their own data where child is
+        // (seen: 8, leaving the castle for Hyrule Field and back). The GBA's
+        // store then goes to the BIOS and is lost.
+        if ((uintptr_t)this->child >= 0x02000000)
+#endif
         this->child->parent = NULL;
         this->child = NULL;
     }

@@ -99,6 +99,21 @@ void DsiSoundVBlank(bool mayRun) {
     if (mayRun && sPlaying && !sFrameSince) {
         m4aSoundMain();
     }
+    // Still none: the engine is off (m4aSoundVSyncOff, as for every room load)
+    // or the game is in a stall. Silence, as the GBA plays, while the lead is
+    // short of its mark; the main code is not in DsiSoundFrame (it sets
+    // sFrameSince first).
+    if (sPlaying && !sFrameSince && (int16_t)(sWrite - Played()) < LEAD_FRAMES * sFrameLength) {
+        for (int i = 0; i < sFrameLength; i++) {
+            uint32_t at = (uint16_t)(sWrite + i) & (RING - 1);
+
+            sRing[0][at] = 0;
+            sRing[1][at] = 0;
+        }
+        Flush(0, sWrite, sFrameLength);
+        Flush(1, sWrite, sFrameLength);
+        sWrite += sFrameLength;
+    }
     sFrameSince = false;
 }
 
