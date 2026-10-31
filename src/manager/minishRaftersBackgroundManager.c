@@ -34,6 +34,9 @@ void MinishRaftersBackgroundManager_OnEnterRoom(MinishRaftersBackgroundManager* 
 
 void sub_08058210(MinishRaftersBackgroundManager* this) {
     u32 tmp = sub_08058244(super->type);
+#ifdef PORT_HOSTED
+    PortViewStreamBg(&gScreen.bg1, (u16*)gUnk_02006F00, 0x80, (tmp >> 4) * 2, 0x40, 0x20);
+#endif
     if (this->unk_3c == tmp)
         return;
     this->unk_3c = tmp;

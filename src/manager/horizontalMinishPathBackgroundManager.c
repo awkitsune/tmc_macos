@@ -46,6 +46,9 @@ void sub_08057F20(HorizontalMinishPathBackgroundManager* this) {
     gScreen.bg3.yOffset = 0x30 - ((0x30 - (gRoomControls.scroll_y - gRoomControls.origin_y)) >> 2);
     gScreen.bg3.subTileMap = gBG3Buffer;
     sub_08058004(tmp, gUnk_02006F00, gBG3Buffer);
+#ifdef PORT_HOSTED
+    PortViewStreamBg(&gScreen.bg3, (u16*)gUnk_02006F00, 0x80, (tmp >> 4) * 2, 0x80, 0x20);
+#endif
     tmp = (tmp >> 4) << 1;
     if (this->unk_38 != tmp) {
         this->unk_38 = tmp;
@@ -57,6 +60,9 @@ void sub_08057F20(HorizontalMinishPathBackgroundManager* this) {
     gScreen.bg1.yOffset = 0x30 - ((0x30 - (gRoomControls.scroll_y - gRoomControls.origin_y)) >> 1);
     gScreen.bg1.subTileMap = gBG3Buffer + 0x400;
     sub_08058004(tmp, gUnk_02006F00 + 0x2000, gBG3Buffer + 0x400);
+#ifdef PORT_HOSTED
+    PortViewStreamBg(&gScreen.bg1, (u16*)(gUnk_02006F00 + 0x2000), 0x80, (tmp >> 4) * 2, 0x80, 0x20);
+#endif
     tmp = (tmp >> 4) << 1;
     if (this->unk_3c != tmp) {
         this->unk_3c = tmp;

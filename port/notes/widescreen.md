@@ -99,10 +99,13 @@ or makes sounds earlier.
   than the view is centred (only in the extended view).
 - Display extension (`port/include/port/view.h`), set each frame by `PortViewUpdate`
   (`port/src/asm/veneer.c`, called from `WaitForNextFrame` where the GBA DMAs its BG buffers):
-  - world view (`TASK_GAME` with room layers, not in a subtask except while the world fades out to it or
-    back in): the room layers read `gHwWideMap` (64x32), filled from the
+  - world view (`TASK_GAME` with room layers; of the subtasks only the world cutscenes, `SUBTASK_AUXCUTSCENE`,
+    `SUBTASK_PORTALCUTSCENE` and `SUBTASK_WORLDEVENT`, and the frames while a menu fades in or out): the
+    room layers read `gHwWideMap` (64x32), filled from the
     room's 8x8 maps for the current scroll, 0 outside the room; BG0 (HUD, text) is a centred GBA layer;
-    BG3 is drawn across the view with its own scroll; screen-space sprites (UI elements, draw-mode-2
+    BG3 is drawn across the view with its own scroll; the picture is clipped to the room (`gHwViewClip`,
+    backdrop outside, as past the GBA's screen edge; during transitions the union with the room before);
+    screen-space sprites (UI elements, draw-mode-2
     entities) move by `PORT_HUD_X` = (W - 240) / 2.
   - anything else (title, file select, the subtask menus: pause, maps, kinstones, figurines):
     `gHwGbaScreen`, the 240x160 picture centred with black around it.
@@ -126,6 +129,16 @@ camera and the new room's are not always a screen apart, so in the extended view
 the one to the other (`StartSlide`/`StepSlide` in `src/scroll.c`), in the same number of frames; the
 other axis moves into the new room's range on the way.
 
+### Other layers
+
+- BG3 (and BG1 where a manager takes it over) is drawn across the view with its own scroll. Layers that
+  scroll through all 256 px on the GBA (cloud overlay, animated backgrounds) are seamless there already.
+- Managers that stream a 32-column window of a wider map into a BG buffer call `PortViewStreamBg`
+  (`include/screen.h`) with the source, and the BG reads a 64-column window of it: the horizontal Minish
+  paths (12:02, 12:03; BG1 and BG3) and the Minish rafters (2e:00-03; BG1). Found by logging the
+  registrations through the room smoke test.
+- Pictures narrower than the view in rooms narrower than the view are covered by the room clip.
+
 ### Checks
 
 - 240x160: playthrough `23999 89eb5912`, all 24,000 frame CRCs identical to before; room smoke ok 576;
@@ -147,13 +160,17 @@ other axis moves into the new room's range on the way.
   boundary, at the expected camera position (0 to 36 of 11,520 sampled pixels differ, as many as between
   the settled frames: animated tiles).
 
+- Streamed layers at 288: each alone (`TMC_LAYER_MASK`) contains the 240 run's picture with 0 differing
+  pixels, at its parallax offset (12:03, 2e:01). In 2e:01 (256 wide) the 16-px margins are backdrop.
+
 ### Not done yet
 
 - The digging-cave ellipse (`scrollAction` 5) and the wipe (`scrollAction` 4, no setter found in the C
   code) are implemented but not seen running yet.
-- BG3 users one by one (static pictures wrap at 256 px; overlays are fine).
+- BG3 pictures in rooms at least as wide as the view still wrap at 256 px (`staticBackgroundManager`,
+  `holeManager`, `lightRayManager`, `templeOfDropletsManager`, Vaati and Gyorg fights). Overlays that
+  scroll across all 256 px on the GBA (clouds, animated backgrounds) wrap there too and are seamless.
 - Windows narrower than full screen past x 255 (8-bit registers), iris effects.
-- Subtasks that are cutscenes in the world (`subtaskAuxCutscene`, portals) are drawn as a GBA screen for now.
 - Tile 0 outside the room is assumed blank (true in the rooms checked); a dedicated blank entry may be needed.
 - Metal GPU PPU, presenter, iOS touch layout, settings UI; the DSi presenter (wide maps in DS VRAM,
   192 lines, HBlank tables).

@@ -10,6 +10,7 @@
 #include "map.h"
 #include "room.h"
 #include "screen.h"
+#include "subtask.h"
 #include "tileMap.h"
 #include "vram.h"
 
@@ -168,17 +169,85 @@ static void CopyRoomWindow(int layers) {
     sShownY = shownY;
 }
 
+// Layers that managers stream from their own maps (Minish paths and rafters):
+// the GBA copies a 32-column window of a wider source into a BG buffer; in the
+// extended view the BG reads a 64-column window instead. Kept until the room
+// changes.
+static struct {
+    const u16* src;
+    s32 stride, col0, cols, rows;
+    u8 area, room;
+} sStreams[4] STATE_EXCLUDE;
+
+void PortViewStreamBg(const void* bg, const u16* src, s32 stride, s32 col0, s32 cols, s32 rows) {
+    int i = BgIndex(bg);
+
+    sStreams[i].src = src;
+    sStreams[i].stride = stride;
+    sStreams[i].col0 = col0;
+    sStreams[i].cols = cols;
+    sStreams[i].rows = rows;
+    sStreams[i].area = gRoomControls.area;
+    sStreams[i].room = gRoomControls.room;
+}
+
+static void CopyStreams(void) {
+    for (int bg = 0; bg < 4; bg++) {
+        if (sStreams[bg].src == NULL) {
+            continue;
+        }
+        if (sStreams[bg].area != gRoomControls.area || sStreams[bg].room != gRoomControls.room) {
+            sStreams[bg].src = NULL;
+            continue;
+        }
+        for (s32 r = 0; r < HW_WIDE_MAP_ROWS; r++) {
+            for (s32 c = 0; c < HW_WIDE_MAP_COLS; c++) {
+                s32 col = sStreams[bg].col0 + c;
+                gHwWideMap[bg][r * HW_WIDE_MAP_COLS + c] =
+                    r < sStreams[bg].rows && col < sStreams[bg].cols ? sStreams[bg].src[r * sStreams[bg].stride + col] : 0;
+            }
+        }
+        gHwWideMapMask |= 1 << bg;
+    }
+}
+
+// The room's place in the view, from origin to origin + size; during transitions
+// together with the room before (sClip, world coordinates, from the last frame
+// outside one), so both show while the camera moves between them.
+static s32 sClip[4];
+
+static void SetViewClip(void) {
+    s32 room[4] = { gRoomControls.origin_x, gRoomControls.origin_y, gRoomControls.origin_x + gRoomControls.width,
+                    gRoomControls.origin_y + gRoomControls.height };
+    s32 view[2] = { gRoomControls.scroll_x, gRoomControls.scroll_y };
+    s32 size[2] = { PORT_SCREEN_W, PORT_SCREEN_H };
+
+    if (gRoomControls.scrollAction >= 2 && gRoomControls.scrollAction <= 5) {
+        room[0] = min(room[0], sClip[0]);
+        room[1] = min(room[1], sClip[1]);
+        room[2] = max(room[2], sClip[2]);
+        room[3] = max(room[3], sClip[3]);
+    } else {
+        memcpy(sClip, room, sizeof(sClip));
+    }
+    for (int i = 0; i < 4; i++) {
+        s32 v = room[i] - view[i & 1];
+        gHwViewClip[i] = v < 0 ? 0 : v > size[i & 1] ? size[i & 1] : v;
+    }
+}
+
 // Each frame where the GBA copies its BG buffers (WaitForNextFrame): in the world
 // view the room layers come from the wide maps and the HUD keeps the GBA layout,
 // centred; elsewhere (menus, title, file select) the whole picture is a centred
 // GBA screen.
 void PortViewUpdate(void) {
-    // Subtasks are the menus (pause, maps, kinstones, figurines) and a few
-    // cutscenes, all laid out for 240x160; the world is on screen while the first
-    // one fades in (Subtask_FadeIn, 0) and after the last (Subtask_Die, 4).
-    u32 world = gMain.task == TASK_GAME &&
-                (gMain.substate != GAMEMAIN_SUBTASK || gUI.nextToLoad == 0 || gUI.nextToLoad == 4) &&
-                (gMapBottom.bgSettings != NULL || gMapTop.bgSettings != NULL);
+    // Subtasks are the menus (pause, maps, kinstones, figurines), laid out for
+    // 240x160, and a few cutscenes in the world. The world is on screen while a
+    // menu fades in (Subtask_FadeIn, 0) and after it (Subtask_Die, 4).
+    u32 menu = gMain.substate == GAMEMAIN_SUBTASK && gUI.nextToLoad != 0 && gUI.nextToLoad != 4 &&
+               gUI.lastState != SUBTASK_AUXCUTSCENE && gUI.lastState != SUBTASK_PORTALCUTSCENE &&
+               gUI.lastState != SUBTASK_WORLDEVENT;
+    u32 world = gMain.task == TASK_GAME && !menu && (gMapBottom.bgSettings != NULL || gMapTop.bgSettings != NULL);
 
     gHwWideMapMask = 0;
     gHwGbaLayerMask = 0;
@@ -202,6 +271,8 @@ void PortViewUpdate(void) {
         memcpy(gHwWideMap[bg], sShown[1], sizeof(gHwWideMap[bg]));
         gHwWideMapMask |= 1 << bg;
     }
+    CopyStreams();
+    SetViewClip();
     // BG0 holds the HUD and text boxes. BG3, when on, is a background or overlay
     // that scrolls with the camera: drawn across the view, wrapping at 256.
     gHwGbaLayerMask = ~gHwWideMapMask & 1;

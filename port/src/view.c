@@ -13,6 +13,7 @@ uint16_t gHwWideMap[4][HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS];
 uint8_t gHwWideMapMask;
 uint8_t gHwGbaLayerMask;
 bool gHwGbaScreen;
+int16_t gHwViewClip[4] = { 0, 0, PORT_VIEW_MAX_W, PORT_VIEW_MAX_H };
 
 void PortViewSet(int width, int height) {
     width = width < 240 ? 240 : width > PORT_VIEW_MAX_W ? PORT_VIEW_MAX_W : width;

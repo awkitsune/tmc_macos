@@ -401,6 +401,8 @@ static void RenderGbaLine(int line, uint16_t* out) {
     int bgEnabled[4] = { 0 };
     unsigned layerMask = sLayerMask;
     uint16_t mosaic = Reg16(0x4C);
+    static const int16_t sNoClip[4] = { 0, 0, PPU_MAX_WIDTH, PPU_MAX_HEIGHT };
+    const int16_t* clip = gHwGbaScreen || !PortViewExtended() ? sNoClip : gHwViewClip;
 
     if (eva > 16) {
         eva = 16;
@@ -455,7 +457,9 @@ static void RenderGbaLine(int line, uint16_t* out) {
         int topPriority = 4, secondPriority = 4;
         uint16_t color;
 
-        if (anyWindow) {
+        if (x < clip[0] || x >= clip[2] || line < clip[1] || line >= clip[3]) {
+            enable = 0x20; // past the room: backdrop, with the colour effect
+        } else if (anyWindow) {
             enable = winout & 0x3F;
             if ((dispcnt & 0x8000) && objs.window[x]) {
                 enable = (winout >> 8) & 0x3F;

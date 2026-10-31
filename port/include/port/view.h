@@ -35,6 +35,9 @@ static inline bool PortViewExtended(void) {
  *   view: their scroll is the GBA's and they are transparent outside the centre.
  * - gHwGbaScreen: the whole picture is a 240x160 GBA screen centred in the view
  *   (menus, title, file select), black around it.
+ * - gHwViewClip: in the world view, the part of the view the room covers (left,
+ *   top, right, bottom; the whole view for a room at least as large). Outside
+ *   it only the backdrop shows, as past the edge of the GBA's screen.
  * - Windows: in the world view, a window edge at 240 (x) or 160 (y), the GBA's
  *   screen edge, means the view's edge.
  */
@@ -44,6 +47,7 @@ extern uint16_t gHwWideMap[4][HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS];
 extern uint8_t gHwWideMapMask;
 extern uint8_t gHwGbaLayerMask;
 extern bool gHwGbaScreen;
+extern int16_t gHwViewClip[4];
 
 /* Left edge of a centred 240-wide GBA layer in the view. */
 static inline int PortViewGbaLeft(void) {
