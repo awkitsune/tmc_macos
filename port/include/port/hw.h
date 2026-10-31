@@ -97,10 +97,12 @@ void HwRunVBlank(void);
 
 /*
  * Debugging (port/gfxdebug.h): while not NULL, HwRunFrame copies the display
- * registers (DISPCNT .. BLDY, HW_LINE_REGS bytes) into gHwLineCapture[line]
- * just before drawing each visible line.
+ * registers (DISPCNT .. BLDY and the port's wide WIN0 after them, port/view.h;
+ * HW_LINE_REGS bytes) into gHwLineCapture[line] just before drawing each
+ * visible line.
  */
-#define HW_LINE_REGS 0x56
+#define HW_GBA_LINE_REGS 0x56 // DISPCNT .. BLDY
+#define HW_LINE_REGS 0x5C
 extern uint8_t (*gHwLineCapture)[HW_LINE_REGS];
 
 /*

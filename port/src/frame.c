@@ -24,6 +24,7 @@
 #include "port/platform.h"
 #include "port/ppu.h"
 #include "port/ppucapture.h"
+#include "port/view.h"
 
 #define REG16(offset) (*(volatile uint16_t*)(gHwIo + (offset)))
 #define REG_DISPSTAT REG16(0x004)
@@ -41,7 +42,7 @@
 #define INTR_VCOUNT 0x0004
 
 #define LINES_PER_FRAME 228
-#define DISPLAY_REGS HW_LINE_REGS // DISPCNT .. BLDY, the registers a line is drawn from
+#define DISPLAY_REGS HW_LINE_REGS // DISPCNT .. BLDY and the wide WIN0, the registers a line is drawn from
 
 // DISPSTAT and VCOUNT change every line by design; the log and stats skip them.
 static int IsStatusReg(int offset) {
@@ -168,6 +169,31 @@ static void CompareFrames(const uint16_t* scanline, const uint16_t* whole) {
     }
 }
 
+// The wide WIN0 (port/view.h) for a table the HBlank DMA plays into WIN0H this
+// frame, or NULL.
+static const PortWideWindow* WideWindowPlaying(void) {
+    if (!PortViewExtended()) {
+        return NULL;
+    }
+    for (int i = 0; i < 4; i++) {
+        const void* src;
+        void* dest;
+        uint32_t control;
+
+        HwDmaInfo(i, &src, &dest, &control);
+        if (dest == gHwIo + 0x40 && (control >> 16 & 0x3000) == 0x2000) {
+            return PortViewWideWindowFor(src);
+        }
+    }
+    return NULL;
+}
+
+static void SetWideWindow(const int16_t edges[2], bool on) {
+    memcpy(gHwIo + HW_WIDE_WIN0, edges, 4);
+    gHwIo[HW_WIDE_WIN0 + 4] = on;
+    gHwIo[HW_WIDE_WIN0 + 5] = 0;
+}
+
 void HwRunLines(uint16_t* framebuffer) {
 #ifndef PLATFORM_DSI
     static uint16_t sWhole[PPU_MAX_WIDTH * PPU_MAX_HEIGHT], sScratch[PPU_MAX_WIDTH * PPU_MAX_HEIGHT];
@@ -201,6 +227,11 @@ void HwRunLines(uint16_t* framebuffer) {
     }
     bool compactCapture = PpuCompactCaptureActive();
     bool memoryUnchanged = false;
+    const PortWideWindow* wideWindow = WideWindowPlaying();
+    if (PortViewExtended()) {
+        static const int16_t sNone[2];
+        SetWideWindow(wideWindow != NULL ? (*wideWindow)[0] : sNone, wideWindow != NULL);
+    }
     for (int line = 0; line < PpuLines(); line++) {
         REG_VCOUNT = line;
         if (line == lyc) {
@@ -231,6 +262,11 @@ void HwRunLines(uint16_t* framebuffer) {
         // after the GBA's last keep its registers.
         if (line < PPU_HEIGHT - 1 || PpuLines() <= PPU_HEIGHT) {
             HwDmaHBlank(compactCapture ? &dmaMayWriteMemory : NULL);
+        }
+        if (wideWindow != NULL && line + 1 < PpuLines()) {
+            // As the DMA's entry: line n + 1 shows entry n (line 0 the first, which
+            // the game's VBlank copies).
+            SetWideWindow((*wideWindow)[line], true);
         }
         // No game code runs between lines unless one of these occurs. On the
         // game thread VRAM, palette and OAM must therefore be unchanged; a

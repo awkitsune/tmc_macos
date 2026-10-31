@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include "port/hw.h"
+#include "port/profile.h"
 
 #define REG16(offset) (*(volatile uint16_t*)(gHwIo + (offset)))
 #define REG_IE REG16(0x200)
@@ -14,6 +15,7 @@
 #define REG_IME REG16(0x208)
 
 #define INTR_VBLANK 0x0001
+#define INTR_HBLANK 0x0002
 #define INTR_VCOUNT 0x0004
 #define INTR_TIMER3 0x0040
 #define INTR_SERIAL 0x0080
@@ -49,6 +51,13 @@ void ram_IntrMain(void) {
 void HwRaiseInterrupt(uint16_t flag) {
     REG_IF |= flag;
     if (REG_IME & 1 && REG_IE & flag && gHwIntrVector != NULL) {
+        uint32_t start = PROFILE_START();
+
         ((void (*)(void))gHwIntrVector)();
+        PROFILE_ADD(flag == INTR_HBLANK   ? PROFILE_IRQ_HBLANK
+                    : flag == INTR_VCOUNT ? PROFILE_IRQ_VCOUNT
+                    : flag == INTR_VBLANK ? PROFILE_IRQ_VBLANK
+                                          : PROFILE_IRQ_OTHER,
+                    start);
     }
 }

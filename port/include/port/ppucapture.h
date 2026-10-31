@@ -14,7 +14,7 @@ typedef struct {
     uint8_t vram[HW_VRAM_SIZE];
     uint8_t palette[HW_PLTT_SIZE];
     uint8_t oam[HW_OAM_SIZE];
-    uint8_t regs[HW_LINE_REGS + 2]; // pad to a 4-byte boundary
+    uint8_t regs[HW_LINE_REGS]; // a multiple of 4 bytes
     int32_t refX[2], refY[2], mosaicRefX[2], mosaicRefY[2];
     uint32_t mosaicBgY, mosaicObjY, layerMask;
 } PpuCaptureLine;
@@ -47,7 +47,7 @@ typedef struct {
 #define PPU_CAPTURE_MAX_PAGES (PPU_MAX_HEIGHT * PPU_CAPTURE_PAGES)
 // A line's state other than memory (PpuCaptureLine from regs on).
 typedef struct {
-    uint8_t regs[HW_LINE_REGS + 2];
+    uint8_t regs[HW_LINE_REGS];
     int32_t refX[2], refY[2], mosaicRefX[2], mosaicRefY[2];
     uint32_t mosaicBgY, mosaicObjY, layerMask;
 } PpuCaptureMeta;

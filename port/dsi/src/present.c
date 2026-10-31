@@ -179,16 +179,25 @@ static bool WindowSpan(const uint8_t* io, int w, int line, Span* span) {
     int x1 = h >> 8, x2 = h & 0xFF, y1 = v >> 8, y2 = v & 0xFF;
     int width = sGeo.world ? DS_WIDTH : PPU_WIDTH;
     int a, b;
+    bool wide = false;
 
     if (sGeo.world) { // the GBA's screen edge is the view's, as in port/src/ppu.c
         x2 = x2 == PPU_WIDTH ? DS_WIDTH : x2;
         y2 = y2 == PPU_HEIGHT ? DS_LINES : y2;
+        if (w == 0 && (In16(io, HW_WIDE_WIN0 + 4) & 1)) { // the line's columns (port/view.h)
+            x1 = (int16_t)In16(io, HW_WIDE_WIN0);
+            x2 = (int16_t)In16(io, HW_WIDE_WIN0 + 2);
+            wide = true;
+        }
     }
     if (y1 <= y2 ? (line < y1 || line >= y2) : (line < y1 && line >= y2)) {
         return false;
     }
     span->wraps = false;
-    if (x1 <= x2) {
+    if (wide) {
+        a = x1 < 0 ? 0 : x1 > width ? width : x1;
+        b = x2 < 0 ? 0 : x2 > width ? width : x2;
+    } else if (x1 <= x2) {
         a = x1 < width ? x1 : width;
         b = x2 < width ? x2 : width;
     } else if (x2 >= width) {

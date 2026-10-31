@@ -5,6 +5,7 @@
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
+#include "port/profile.h"
 
 uint8_t gHwIo[HW_IO_SIZE];
 uint8_t gHwPltt[HW_PLTT_SIZE];
@@ -119,7 +120,9 @@ static int RunTimed(uint16_t start, bool* mayWriteMemory) {
             bool ioOnly = (cnt & CNT_DEST_MASK) != CNT_DEST_DEC && offset < HW_IO_SIZE && bytes <= HW_IO_SIZE - offset;
             *mayWriteMemory |= !ioOnly;
         }
+        uint32_t profileStart = PROFILE_START();
         RunTransfer(ch->src, ch->dest, (ch->control & 0xFFFF0000u) | (count & 0xFFFF));
+        PROFILE_ADD(start == CNT_START_HBLANK ? PROFILE_DMA_HBLANK : PROFILE_DMA_VBLANK, profileStart);
         if (ch->dest >= gHwIo && ch->dest < gHwIo + HW_IO_SIZE) {
             // Assumes an incrementing or reloading destination, the only kind used.
             PpuIoWritten(ch->dest - gHwIo, count * ((cnt & CNT_32BIT) ? 4 : 2));

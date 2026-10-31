@@ -36,7 +36,7 @@ CRC_CODE uint32_t HwCrc32(uint32_t crc, const void* data, size_t length) {
 }
 
 uint32_t HwShadowCrc(void) {
-    uint32_t crc = HwCrc32(0, gHwIo, HW_LINE_REGS);
+    uint32_t crc = HwCrc32(0, gHwIo, HW_GBA_LINE_REGS);
 
     crc = HwCrc32(crc, gHwPltt, HW_PLTT_SIZE);
     crc = HwCrc32(crc, gHwVram, HW_VRAM_SIZE);

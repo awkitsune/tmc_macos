@@ -111,6 +111,17 @@ or makes sounds earlier.
     cutscene, `SUBTASK_PORTALCUTSCENE`, whose vortex is a full-screen picture of its own although the room's
     BG settings stay set): `gHwGbaScreen`, the 240x160 picture centred with black around it.
   - windows: an edge at 240/160 means the view's edge.
+  - per-line window shapes (WIN0H by HBlank DMA: the iris fade, the lantern's light in dark rooms and
+    the other circles and the ellipse, `sub_0801E290`; the white triangle, `sub_0801E49C`): the game also
+    writes the shape for every line of the view in its columns (`PortViewWideWindow`), and while the DMA
+    plays the GBA table the frame loop puts each line's edges into the unused I/O at 0x56-0x5b
+    (`HW_WIDE_WIN0`, part of the line registers, `HW_LINE_REGS` now 0x5c), which the software PPU, the
+    Metal PPU and the DSi presenter use for WIN0's columns. Before, the right edge stopped at 240 (the
+    view's edge by the rule above) and the lines past 159 kept line 159's window.
+- HUD sprites (UI elements, draw-mode-2 entities) are culled at the edges of the centred 240x160 block
+  (`PortDrawHudSprites`, `src/ui.c`; `EmitFrameObjs`), as the GBA culls them at its screen's: a button
+  moved up to hide it (`buttonY - 0x28`, cutscenes and messages) is off the GBA screen but was in sight
+  in a taller view. A sprite that crosses the block's edge is not clipped (the 2-3 frames of the slide).
 - Culling: `CheckOnScreen`, `CheckRectOnScreen`, `CheckRegionOnScreen`, OBJ emit, PPU OBJ wrap.
 - The GBA's own 32x32 copies (`UpdateScrollVram`) are skipped in the extended view.
 
@@ -225,6 +236,16 @@ border, drawn as before.
   256x192 the frames 23700, 23800, 23900, 24000 and 24090 contain the 240 run's frame at (24, 0) and
   (8, 16) with 0 differing pixels, black around (the vortex frames have 29-68 colours).
 
+- HUD buttons in a message (playthrough frame 13440, buttons hidden): no button sprites at 240x160 or
+  256x192 (8 OAM entries each); 13398 and 13400 (sliding) the same pieces at (+8, +16).
+- Iris (playthrough frames 5468-5577, a world cutscene in Hyrule Town, 03:01): at 288x160, 256x192 and
+  432x224 the frames 5470-5575 contain the 240 frame at (24, 0), (8, 16), (96, 32) with 0 differing
+  pixels, except 1-4 pixels on the GBA block's first line in the taller views (the wide table's line
+  above it, where the GBA repeats its first). Frame 5480 at 256x192: the circle goes on below line 159
+  and closes at line 190, symmetric to line 4; every pixel outside the line's span is the backdrop
+  (21,336 px at 256x192, 68,952 at 432x224). Metal = software PPU (`gpu_ppu_test`, 0 differing pixels) at
+  240x160, 288x160, 256x192, 432x224.
+
 - Slides at 288x160: in the playthrough's two (house, between 240x160 rooms) all 48 sampled frames equal
   the 240 run at offset 24. 26 slides found by walking off every dungeon room left and right; in 50:13
   (into a 336-wide room, the camera travels 288 px in 4-5 px steps) each sampled mid-slide frame (BG1
@@ -251,7 +272,9 @@ border, drawn as before.
 - BG3 pictures in rooms at least as wide as the view still wrap at 256 px (`staticBackgroundManager`,
   `holeManager`, `lightRayManager`'s wave mode, `templeOfDropletsManager`, Vaati and Gyorg fights). Overlays that
   scroll across all 256 px on the GBA (clouds, animated backgrounds) wrap there too and are seamless.
-- Windows narrower than full screen past x 255 (8-bit registers), iris effects.
+- Windows narrower than full screen past x 255 (8-bit registers) other than the shapes above.
+- The wide window tables are rebuilt by the game, not saved in states: after a state load in the middle
+  of a shape that is not redrawn every frame (the lantern) the GBA's window shows until it is.
 - Tile 0 outside the room is assumed blank (true in the rooms checked); a dedicated blank entry may be needed.
 - The app at other sizes is checked by building only: no GUI runs here. The debug windows (BG viewer's
   screen outline, Map window's camera box) still draw a 240x160 screen.

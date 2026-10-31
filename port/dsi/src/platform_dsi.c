@@ -9,6 +9,7 @@
 #include "port/headless_state.h"
 #include "port/hw.h"
 #include "port/platform.h"
+#include "port/profile.h"
 #include "port/ppu.h"
 #include "port/view.h"
 
@@ -21,6 +22,11 @@ uint64_t gPlatformFrame;
 DsiFrameRecord gDsiFrames[DSI_FRAME_RECORDS];
 DsiFrameStats gDsiFrameStats;
 DsiPicture gDsiPictures[DSI_PICTURES];
+uint32_t gProfileTicks[PROFILE_PARTS], gProfileCount[PROFILE_PARTS];
+
+uint32_t ProfileClock(void) {
+    return cpuGetTiming();
+}
 
 #define REPEAT_EVERY 64
 
@@ -117,9 +123,12 @@ static void ResetStats(void) {
     gDsiFrameStats.gameMin = gDsiFrameStats.workMin = gDsiFrameStats.presentMin = UINT32_MAX;
     gDsiFrameStats.first = gPlatformFrame;
     gDsiFrameStats.vblanks = sVBlanks;
+    memset(gProfileTicks, 0, sizeof(gProfileTicks));
+    memset(gProfileCount, 0, sizeof(gProfileCount));
 }
 
 static void ReportRooms(void);
+static void ReportParts(void);
 
 static void Report(const char* what) {
     const DsiFrameStats* s = &gDsiFrameStats;
@@ -146,6 +155,7 @@ static void Report(const char* what) {
            (unsigned long)p->dispcntFrames, (unsigned long)p->regFrames, (long)p->maxDmaWords);
     DsiLog("present: wide-map frames %lu, map clashes %lu, full-width window lines %lu\n",
            (unsigned long)p->wideFrames, (unsigned long)p->wideMapClashes, (unsigned long)p->fullWidthLines);
+    ReportParts();
     DsiLogFlush();
 }
 
@@ -177,7 +187,10 @@ void PlatformVBlank(void) {
     }
     HwSetKeys(DSI_CHECKS && frame < DSI_FRAME_RECORDS ? DsiInputKeys(frame) : keysHeld() & 0x3FF);
     HwRunLines(NULL);
+    t = cpuGetTiming();
+    s->linesSum += t - start;
     DsiPresentPrepare();
+    s->prepareSum += cpuGetTiming() - t;
     work = cpuGetTiming() - start;
 
     swiWaitForVBlank();
@@ -208,6 +221,7 @@ void PlatformVBlank(void) {
 
     t = cpuGetTiming();
     HwRunVBlank();
+    s->vblankSum += cpuGetTiming() - t;
     work += cpuGetTiming() - t;
     Track(&s->workMin, &s->workMax, &s->workSum, work);
     FlushSave(false);
@@ -254,6 +268,34 @@ void PlatformVBlank(void) {
     sFrameWork = false;
 }
 
+// Microseconds per frame of a part.
+static unsigned long Part(uint64_t ticks) {
+    return (unsigned long)timerTicks2usec((uint32_t)(ticks / gDsiFrameStats.frames));
+}
+
+/*
+ * The parts of work, per frame (us): the lines (the loop, the interrupt handlers
+ * and HBlank DMA during them), the presenter's prepare and the VBlank half;
+ * within them the game's interrupt handlers, the timed DMA (transfers per frame
+ * in brackets), and the sound by stage (which the DS VBlank also runs when a
+ * frame is late).
+ */
+static void ReportParts(void) {
+    const DsiFrameStats* s = &gDsiFrameStats;
+    const uint32_t* t = gProfileTicks;
+    uint32_t n = s->frames;
+
+    DsiLog("  work: lines %lu, prepare %lu, vblank %lu; irq hblank %lu (%lu), vcount %lu, vblank %lu, other %lu; "
+           "dma hblank %lu (%lu), vblank %lu\n",
+           Part(s->linesSum), Part(s->prepareSum), Part(s->vblankSum), Part(t[PROFILE_IRQ_HBLANK]),
+           (unsigned long)(gProfileCount[PROFILE_IRQ_HBLANK] / n), Part(t[PROFILE_IRQ_VCOUNT]),
+           Part(t[PROFILE_IRQ_VBLANK]), Part(t[PROFILE_IRQ_OTHER]), Part(t[PROFILE_DMA_HBLANK]),
+           (unsigned long)(gProfileCount[PROFILE_DMA_HBLANK] / n), Part(t[PROFILE_DMA_VBLANK]));
+    DsiLog("  sound: sequencer %lu, cgb %lu, mixer %lu, psg %lu, out %lu (%lu runs)\n", Part(t[PROFILE_SOUND_SEQ]),
+           Part(t[PROFILE_SOUND_CGB]), Part(t[PROFILE_SOUND_MIX]), Part(t[PROFILE_SOUND_PSG]),
+           Part(t[PROFILE_SOUND_OUT]), (unsigned long)gProfileCount[PROFILE_SOUND_MIX]);
+}
+
 /*
  * After the start-up reports, one line per room stretch (at least 2 s) or
  * 30 s, for comparing rooms and the screen modes: the times in us, and the
@@ -274,6 +316,7 @@ static void ReportRooms(void) {
                sArea, sRoom, gPortScreenW == 256 ? "full" : "bordered", (unsigned long)n, Us(s->gameSum / n),
                Us(s->gameMax), Us(s->workSum / n), Us(s->workMax), Us(s->presentSum / n), Us(s->presentMax),
                (unsigned long)s->late);
+        ReportParts();
         DsiLogFlush();
         ResetStats();
     } else if (state.area != sArea || state.room != sRoom) {

@@ -74,6 +74,9 @@ void DrawUIElements(void) {
     UIElement* element;
     UIElementDefinition* definition;
 
+#ifdef PORT_HOSTED
+    PortDrawHudSprites(TRUE);
+#endif
     for (index = 0; index < MAX_UI_ELEMENTS; index++) {
         element = &gHUD.elements[index];
         if (element->used == 1 && element->unk_0_1 == 1) {
@@ -86,6 +89,9 @@ void DrawUIElements(void) {
             DrawDirect(definition->spriteIndex, element->frameIndex);
         }
     }
+#ifdef PORT_HOSTED
+    PortDrawHudSprites(FALSE);
+#endif
 }
 
 void sub_0801C25C(void) {

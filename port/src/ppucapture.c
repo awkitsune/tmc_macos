@@ -9,7 +9,7 @@ _Static_assert(offsetof(PpuCaptureLine, palette) == PPU_CAPTURE_PALETTE_PAGE * P
                offsetof(PpuCaptureLine, regs) == PPU_CAPTURE_PAGES * PPU_CAPTURE_PAGE_SIZE, "capture memory in page order");
 _Static_assert(sizeof(PpuCaptureMeta) == sizeof(PpuCaptureLine) - offsetof(PpuCaptureLine, regs), "capture metadata layout");
 _Static_assert(offsetof(PpuCompactLine, meta) == PPU_CAPTURE_PAGES * sizeof(uint32_t), "compact line layout");
-_Static_assert(PPU_CAPTURE_PAGES == 98 && sizeof(PpuCaptureMeta) == 33 * sizeof(uint32_t), "Metal compact layout");
+_Static_assert(PPU_CAPTURE_PAGES == 98 && sizeof(PpuCaptureMeta) == 34 * sizeof(uint32_t), "Metal compact layout");
 _Static_assert(sizeof(PpuCaptureView) == 13 * sizeof(uint32_t) + 4 * HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS * 2,
                "Metal view layout");
 _Static_assert(offsetof(PpuCompactCapture, view) == PPU_MAX_HEIGHT * sizeof(PpuCompactLine), "Metal view offset");

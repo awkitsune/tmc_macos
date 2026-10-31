@@ -157,6 +157,7 @@ typedef struct {
     uint32_t presentLate;           // presents that ended after the VBlank
     uint32_t lastLine;              // the latest DS line a present ended on (192-262)
     uint64_t gameSum, workSum, crcSum, presentSum, pictureSum;
+    uint64_t linesSum, prepareSum, vblankSum; // the parts of work
 } DsiFrameStats;
 extern DsiFrameStats gDsiFrameStats;
 

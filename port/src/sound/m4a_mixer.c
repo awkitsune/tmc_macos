@@ -25,6 +25,7 @@
 #include "gba/m4a.h"
 #include "gba/m4a_internal.h"
 #include "port/hw.h"
+#include "port/profile.h"
 #include "port/sound.h"
 #include "port/state.h"
 #include "sound_internal.h"
@@ -439,10 +440,14 @@ void SoundMain(void) {
     }
     soundInfo->ident++;
 
+    uint32_t profile = PROFILE_START();
     if (soundInfo->MPlayMainHead != NULL) {
         soundInfo->MPlayMainHead(soundInfo->intp);
     }
+    PROFILE_ADD(PROFILE_SOUND_SEQ, profile);
+    profile = PROFILE_START();
     soundInfo->CgbSound();
+    PROFILE_ADD(PROFILE_SOUND_CGB, profile);
 
     ApplyQuality(soundInfo);
     if (sAppliedQuality == SOUND_QUALITY_AUTHENTIC) {
@@ -453,12 +458,18 @@ void SoundMain(void) {
         if (counter > 1) {
             slot += samples * (soundInfo->pcmDmaPeriod - (counter - 1));
         }
+        profile = PROFILE_START();
         MixAuthentic(soundInfo, slot, samples);
+        PROFILE_ADD(PROFILE_SOUND_MIX, profile);
 #ifdef PLATFORM_DSI
         // No FPU: the CGB channels and the output stage in integers (psg.c),
         // streamed to the DS's sound channels (port/dsi/src/sound_dsi.c).
+        profile = PROFILE_START();
         PsgRenderDsi(slot, sDsiStereo, samples, soundInfo->pcmFreqency);
+        PROFILE_ADD(PROFILE_SOUND_PSG, profile);
+        profile = PROFILE_START();
         DsiSoundFrame(sDsiStereo, samples);
+        PROFILE_ADD(PROFILE_SOUND_OUT, profile);
         soundInfo->ident = ID_NUMBER;
         return;
 #endif

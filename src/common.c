@@ -21,6 +21,9 @@
 #include "sound.h"
 #include "subtask.h"
 #include "fade.h"
+#ifdef PORT_HOSTED
+#include "port/view.h"
+#endif
 
 extern u8 gUnk_03003DE0;
 extern u8 gzHeap[0x1000];
@@ -919,6 +922,22 @@ void sub_0801E290(u32 param_1, u32 param_2, u32 count) {
     backwardAccess = forwardAccess;
     uVar5 = uVar7 = param_2;
     puVar6 = gUnk_02018EE0;
+#ifdef PORT_HOSTED
+    if (PORT_VIEW_EXTENDED) {
+        // The same circle for every line of the view, in its columns (port/view.h).
+        PortWideWindow* wide = PortViewWideWindow(&gUnk_02017AA0[gUnk_03003DE4[0]]);
+        for (s32 i = 0; i < (s32)count; i++) {
+            s32 left = (s32)param_1 - puVar6[i], right = (s32)param_1 + puVar6[i];
+            s32 lines[2] = { (s32)param_2 - i, (s32)param_2 + i };
+            for (s32 k = 0; k < 2; k++) {
+                if (lines[k] >= 0 && lines[k] < PORT_SCREEN_H) {
+                    (*wide)[lines[k]][0] = left < 0 ? 0 : left;
+                    (*wide)[lines[k]][1] = right > PORT_SCREEN_W - 1 ? PORT_SCREEN_W : right;
+                }
+            }
+        }
+    }
+#endif
 
     while (count-- > 0) {
         uVar1 = *puVar6++;
@@ -1018,6 +1037,12 @@ void sub_0801E49C(s32 baseX, s32 baseY, s32 radius, u32 baseAngle) {
     angle = (baseAngle - 0xe8) & 0xff;
     x3 = baseX + (gSineTable[angle + 0x40] * radius >> 8);
     y3 = baseY + (gSineTable[angle] * radius >> 8);
+#ifdef PORT_HOSTED
+    if (PORT_VIEW_EXTENDED) {
+        const int32_t xs[3] = { x1, x2, x3 }, ys[3] = { y1, y2, y3 };
+        PortViewWideTriangle(PortViewWideWindow(gUnk_02017AA0[gUnk_03003DE4[0]].filler), xs, ys);
+    }
+#endif
     sub_0801E64C(x1, y1, x2, y2, 0);
     sub_0801E64C(x1, y1, x3, y3, 1);
     sub_0801E64C(x2, y2, x3, y3, 2);

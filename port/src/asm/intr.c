@@ -558,7 +558,15 @@ typedef struct {
     u32 attr;       // r8: OAM attributes 0 and 1
     u32 tile;       // sb: tile number, palette and priority (OAM attribute 2)
     const u8* objs; // sl: frame object list
+    bool hud;       // screen space (the HUD): culled at the GBA screen's edges, not the view's
 } DrawState;
+
+// Set by the HUD's own drawing (PortDrawHudSprites).
+static bool sHudSprites STATE_EXCLUDE;
+
+void PortDrawHudSprites(bool32 on) {
+    sHudSprites = on;
+}
 
 static jmp_buf sOamFull STATE_EXCLUDE;
 
@@ -600,11 +608,15 @@ static void EmitFrameObjs(DrawState* st) {
         }
         d = dims + ((flags & 0xF0) >> 2);
         y += st->y - d[1];
-        if (y >= PORT_SCREEN_H || y + d[3] <= 0) {
-            continue;
-        }
         x += st->x - d[0];
-        if (x >= PORT_SCREEN_W || x + d[2] <= 0) {
+        if (st->hud) {
+            // The GBA leaves out a HUD sprite off its screen (a button moved up
+            // to hide it); in a larger view that place is still in sight.
+            if (y >= PORT_HUD_Y + DISPLAY_HEIGHT || y + d[3] <= PORT_HUD_Y || x >= PORT_HUD_X + DISPLAY_WIDTH ||
+                x + d[2] <= PORT_HUD_X) {
+                continue;
+            }
+        } else if (y >= PORT_SCREEN_H || y + d[3] <= 0 || x >= PORT_SCREEN_W || x + d[2] <= 0) {
             continue;
         }
         attr = (y & 0xFF) | (((u32)x << 23) >> 7) | st->attr | ((flags & 0xC0) << 8);
@@ -636,6 +648,7 @@ static void LoadEntityDrawState(DrawState* st, Entity* e) {
     st->tile |= (((u8*)&e->spriteOrientation)[0] & 0xC0) << 4;
     st->x = e->x.HALF.HI + (s8)e->spriteOffsetX;
     st->y = e->y.HALF.HI + e->z.HALF.HI + e->spriteOffsetY;
+    st->hud = (settings & 3) == 2;
     if ((settings & 3) != 2) {
         st->x -= (s16)gOAMControls._4;
         st->y -= (s16)gOAMControls._6;
@@ -810,6 +823,7 @@ static void DrawBucketEntities(DrawBucket* bucket) {
         st.x = a >> 6;
         st.objs = IwramSpriteData(ReadWord(SHADOW_SPRITE_TABLE + (a & 7) * 4));
         st.y = b >> 6;
+        st.hud = false;
         st.tile = (b & 3) << 10;
         st.attr = 0;
         EmitFrameObjs(&st);
@@ -849,6 +863,7 @@ void ram_sub_080ADA04(OAMCommand* cmd, void* objs) {
     st.y = cmd->y;
     st.attr = cmd->_4 | (cmd->_6 << 16);
     st.tile = cmd->_8;
+    st.hud = sHudSprites;
     EmitFrameObjs(&st);
 }
 

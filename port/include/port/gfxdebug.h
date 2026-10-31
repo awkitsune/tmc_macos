@@ -28,10 +28,10 @@ typedef struct {
     uint8_t oam[HW_OAM_SIZE];
     GfxDmaChannel dma[4];
     // Display registers (DISPCNT .. BLDY) as each line was drawn; valid when
-    // hasLines is set (the snapshot covered a whole HwRunFrame). The views and
-    // dumps show the first 160 (the extended view draws up to PPU_MAX_HEIGHT).
+    // hasLines is set (the snapshot covered a whole HwRunFrame): lineCount of
+    // them. The views show the first 160, the dumps all.
     uint8_t lines[PPU_MAX_HEIGHT][HW_LINE_REGS];
-    int hasLines;
+    int hasLines, lineCount;
 } GfxSnapshot;
 
 /*

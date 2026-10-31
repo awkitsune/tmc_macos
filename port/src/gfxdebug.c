@@ -32,6 +32,7 @@ void GfxSnapshotEnd(GfxSnapshot* snap) {
     if (gHwLineCapture == snap->lines) {
         gHwLineCapture = NULL;
         snap->hasLines = 1;
+        snap->lineCount = PpuLines();
     }
 }
 
@@ -480,7 +481,7 @@ static const char* RegName(int offset) {
         "BG2PA", "BG2PB", "BG2PC", "BG2PD", "BG2X_L", "BG2X_H", "BG2Y_L", "BG2Y_H",
         "BG3PA", "BG3PB", "BG3PC", "BG3PD", "BG3X_L", "BG3X_H", "BG3Y_L", "BG3Y_H",
         "WIN0H", "WIN1H", "WIN0V", "WIN1V", "WININ", "WINOUT", "MOSAIC", "4E",
-        "BLDCNT", "BLDALPHA", "BLDY",
+        "BLDCNT", "BLDALPHA", "BLDY", "WIDE0L", "WIDE0R", "WIDE0",
     };
     return names[offset / 2];
 }
@@ -494,7 +495,7 @@ void GfxDumpLines(const GfxSnapshot* snap, FILE* out) {
     }
     fprintf(out, "frame %llu per-line registers (changes from the line before; DISPSTAT/VCOUNT left out)\n",
             (unsigned long long)snap->frame);
-    for (int line = 1; line < PPU_HEIGHT; line++) {
+    for (int line = 1; line < snap->lineCount; line++) {
         int shown = 0;
         for (int r = 0; r < HW_LINE_REGS; r += 2) {
             const uint8_t* now = &snap->lines[line][r];

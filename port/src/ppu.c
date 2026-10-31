@@ -420,6 +420,8 @@ static void RenderGbaLine(int line, uint16_t* out) {
     uint16_t mosaic = Reg16(0x4C);
     static const int16_t sNoClip[4] = { 0, 0, PPU_MAX_WIDTH, PPU_MAX_HEIGHT };
     const int16_t* clip = gHwGbaScreen || !PortViewExtended() ? sNoClip : gHwViewClip;
+    bool world = !gHwGbaScreen && PortViewExtended();
+    bool wideWin0 = world && (Reg16(HW_WIDE_WIN0 + 4) & 1);
 
     if (eva > 16) {
         eva = 16;
@@ -487,9 +489,14 @@ static void RenderGbaLine(int line, uint16_t* out) {
                 }
                 uint16_t h = Reg16(0x40 + w * 2), v = Reg16(0x44 + w * 2);
                 int x1 = h >> 8, x2 = h & 0xFF, y1 = v >> 8, y2 = v & 0xFF;
-                if (!gHwGbaScreen && PortViewExtended()) { // the GBA's screen edge is the view's
+                if (world) { // the GBA's screen edge is the view's
                     x2 = x2 == PPU_WIDTH ? sLineWidth : x2;
                     y2 = y2 == PPU_HEIGHT ? PpuHeight() : y2;
+                }
+                if (w == 0 && wideWin0) { // the line's columns in the view (port/view.h)
+                    x1 = (int16_t)Reg16(HW_WIDE_WIN0);
+                    x2 = (int16_t)Reg16(HW_WIDE_WIN0 + 2);
+                    x1 = x1 > x2 ? x2 : x1;
                 }
                 int inX = x1 <= x2 ? (x >= x1 && x < x2) : (x >= x1 || x < x2);
                 int inY = y1 <= y2 ? (line >= y1 && line < y2) : (line >= y1 || line < y2);
@@ -584,7 +591,6 @@ static void CaptureLine(int line) {
     if (sCompactCapture != NULL) {
         PpuCaptureMeta meta;
         memcpy(meta.regs, gHwIo, HW_LINE_REGS);
-        memset(meta.regs + HW_LINE_REGS, 0, sizeof(meta.regs) - HW_LINE_REGS);
         memcpy(meta.refX, sRefX, sizeof(sRefX));
         memcpy(meta.refY, sRefY, sizeof(sRefY));
         memcpy(meta.mosaicRefX, sMosaicRefX, sizeof(sMosaicRefX));

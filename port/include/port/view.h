@@ -61,6 +61,25 @@ extern uint8_t gHwGbaLayerMask;
 extern bool gHwGbaScreen;
 extern int16_t gHwViewClip[4];
 
+/*
+ * Wide window 0: the game's per-line window tables (the iris, the lantern's and
+ * other circles, the white triangle) give WIN0 for the GBA's 160 lines in 8-bit
+ * columns, clamped at 240. In the world view the game also writes the same
+ * shape for every line of the view, in its columns: PortViewWideWindow returns
+ * that table for one GBA table (left and right column per line; 0, 0 is none).
+ * While the HBlank DMA plays a GBA table into WIN0H, the frame loop puts the
+ * line's edges into I/O the GBA leaves unused (HW_WIDE_WIN0: left, right, then
+ * 1 when on; in the line registers), and the renderers take WIN0's columns
+ * from there instead.
+ */
+#define HW_WIDE_WIN0 0x56
+typedef int16_t PortWideWindow[PORT_VIEW_MAX_H][2];
+PortWideWindow* PortViewWideWindow(const void* gbaTable);
+/* The table written for gbaTable, or NULL. */
+const PortWideWindow* PortViewWideWindowFor(const void* gbaTable);
+/* The white triangle's shape (corners in view pixels) into a wide window. */
+void PortViewWideTriangle(PortWideWindow* window, const int32_t x[3], const int32_t y[3]);
+
 /* Left edge of a centred 240-wide GBA layer in the view. */
 static inline int PortViewGbaLeft(void) {
     return (gPortScreenW - 240) / 2;

@@ -6,7 +6,7 @@ using namespace metal;
 // 1 KiB pages in the pool: VRAM's 96, then palette RAM and OAM.
 struct Line {
     uint page[98];
-    uchar regs[0x58];
+    uchar regs[0x5c];
     int refX[2], refY[2], mosaicRefX[2], mosaicRefY[2];
     uint mosaicBgY, mosaicObjY, layerMask;
 };
@@ -164,6 +164,11 @@ static ushort gpu_color(device const Line* lines, device const uchar* pool, cons
             if (!v.gbaScreen && extended(v)) { // the GBA's screen edge is the view's
                 x2 = x2 == 240 ? int(v.width) : x2;
                 y2 = y2 == 160 ? int(v.height) : y2;
+                if (w == 0 && (reg(l, 0x5a) & 1)) { // the wide WIN0's columns (port/view.h)
+                    x1 = int(short(reg(l, 0x56)));
+                    x2 = int(short(reg(l, 0x58)));
+                    x1 = min(x1, x2);
+                }
             }
             bool inX = x1 <= x2 ? (int(pos.x) >= x1 && int(pos.x) < x2) : (int(pos.x) >= x1 || int(pos.x) < x2);
             bool inY = y1 <= y2 ? (int(pos.y) >= y1 && int(pos.y) < y2) : (int(pos.y) >= y1 || int(pos.y) < y2);
