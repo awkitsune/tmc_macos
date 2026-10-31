@@ -193,10 +193,55 @@ void Scroll2Sub0(RoomControls* controls) {
     gUpdateVisibleTiles = 0;
 }
 
+#ifdef PORT_HOSTED
+// The extended view's slide (port/notes/widescreen.md): from the old room's camera
+// to the new room's, in the GBA's 60 or 40 frames. On the GBA both are a screen
+// apart; in a wider view they need not be.
+static s16 sSlideStart[2], sSlideEnd[2];
+
+static void StartSlide(RoomControls* controls) {
+    s32 minX = CAMERA_MIN(controls->origin_x, controls->width, PORT_SCREEN_W);
+    s32 maxX = CAMERA_MAX(controls->origin_x, controls->width, PORT_SCREEN_W);
+    s32 minY = CAMERA_MIN(controls->origin_y, controls->height, PORT_SCREEN_H);
+    s32 maxY = CAMERA_MAX(controls->origin_y, controls->height, PORT_SCREEN_H);
+
+    sSlideStart[0] = controls->scroll_x;
+    sSlideStart[1] = controls->scroll_y;
+    sSlideEnd[0] = CameraClamp(controls->scroll_x, minX, maxX);
+    sSlideEnd[1] = CameraClamp(controls->scroll_y, minY, maxY);
+    switch (controls->scroll_direction) {
+        case 0:
+            sSlideEnd[1] = maxY;
+            break;
+        case 1:
+            sSlideEnd[0] = minX;
+            break;
+        case 2:
+            sSlideEnd[1] = minY;
+            break;
+        case 3:
+            sSlideEnd[0] = maxX;
+            break;
+    }
+}
+
+static void StepSlide(RoomControls* controls) {
+    s32 frames = (controls->scroll_direction & 1) ? 0x3c : 0x28;
+
+    controls->scroll_x = sSlideStart[0] + (sSlideEnd[0] - sSlideStart[0]) * controls->unk_18 / frames;
+    controls->scroll_y = sSlideStart[1] + (sSlideEnd[1] - sSlideStart[1]) * controls->unk_18 / frames;
+}
+#endif
+
 void Scroll2Sub1(RoomControls* controls) {
     controls->scrollSubAction = 2;
     controls->unk_18 = 0;
     gUpdateVisibleTiles = 2;
+#ifdef PORT_HOSTED
+    if (PORT_VIEW_EXTENDED) {
+        StartSlide(controls);
+    }
+#endif
 }
 
 void Scroll2Sub2(RoomControls* controls) {
@@ -244,6 +289,11 @@ void Scroll2Sub2(RoomControls* controls) {
             }
             break;
     }
+#ifdef PORT_HOSTED
+    if (PORT_VIEW_EXTENDED) {
+        StepSlide(controls);
+    }
+#endif
 
     controls->shake_duration = 0;
     UpdateScreenShake();

@@ -110,6 +110,22 @@ or makes sounds earlier.
 - Culling: `CheckOnScreen`, `CheckRectOnScreen`, `CheckRegionOnScreen`, OBJ emit, PPU OBJ wrap.
 - The GBA's own 32x32 copies (`UpdateScrollVram`) are skipped in the extended view.
 
+### Room transitions
+
+The GBA keeps its BG buffers through a transition and writes only the parts of the new room the
+transition has reached: a column or row at a time in the slide (`sub_0807D280`), outward from the
+player in the wipe (`sub_0807D46C`), an ellipse around the player for digging caves (`sub_0807D6D8`).
+`CopyRoomWindow` does the same in one place: it keeps what each layer showed last frame (`sShown`) with
+the world position of its first entry, and each frame takes the new room's tile where
+`TransitionReached` says the GBA's copy would have written it, else the tile shown there before (in
+world coordinates, which run on across the room change), else 0. Outside transitions every tile is
+fresh.
+
+The slide moves the camera 240 or 160 px (60 or 40 frames of 4 px). In a wider view the old room's
+camera and the new room's are not always a screen apart, so in the extended view the slide goes from
+the one to the other (`StartSlide`/`StepSlide` in `src/scroll.c`), in the same number of frames; the
+other axis moves into the new room's range on the way.
+
 ### Checks
 
 - 240x160: playthrough `23999 89eb5912`, all 24,000 frame CRCs identical to before; room smoke ok 576;
@@ -124,11 +140,17 @@ or makes sounds earlier.
   240x160 except the 3 frames after the state load (the camera moving from the 240 scroll) and one
   frame (192 px) as the world fades back in.
 
+- Slides at 288x160: in the playthrough's two (house, between 240x160 rooms) all 48 sampled frames equal
+  the 240 run at offset 24. 26 slides found by walking off every dungeon room left and right; in 50:13
+  (into a 336-wide room, the camera travels 288 px in 4-5 px steps) each sampled mid-slide frame (BG1
+  and BG2) equals the last old-room frame and the settled new-room frame put side by side at the room
+  boundary, at the expected camera position (0 to 36 of 11,520 sampled pixels differ, as many as between
+  the settled frames: animated tiles).
+
 ### Not done yet
 
-- Room-to-room scroll transitions: the incremental copies (`sub_0807D280`, `sub_0807D46C`, `sub_0807D6D8`)
-  keep the old room in the BG buffer; with the wide map refilled from the new room each frame the old
-  room's side shows backdrop during the slide. They need wide-map versions.
+- The digging-cave ellipse (`scrollAction` 5) and the wipe (`scrollAction` 4, no setter found in the C
+  code) are implemented but not seen running yet.
 - BG3 users one by one (static pictures wrap at 256 px; overlays are fine).
 - Windows narrower than full screen past x 255 (8-bit registers), iris effects.
 - Subtasks that are cutscenes in the world (`subtaskAuxCutscene`, portals) are drawn as a GBA screen for now.
