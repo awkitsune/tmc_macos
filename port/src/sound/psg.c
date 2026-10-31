@@ -56,10 +56,9 @@ typedef struct PsgChannel {
 
 static PsgChannel sChannels[4];
 static double sSequencerTime; // seconds since the last 512 Hz step
-#ifdef PLATFORM_DSI
-static uint32_t sSequencerCount; // PsgRenderDsi's: 512ths of an output sample since the last step
-#endif
+static uint32_t sSequencerCount; // PsgRenderDsi's and PsgAdvanceFixed's: 512ths of an output sample since the last step
 static int sSequencerStep;
+static uint8_t sTriggered STATE_EXCLUDE; // channels triggered since PsgVoices last looked (bit 0 = channel 1)
 
 static const uint8_t sNrx1[4] = { REG_OFFSET_NR11, REG_OFFSET_NR21, REG_OFFSET_NR31, REG_OFFSET_NR41 };
 static const uint8_t sNrx2[4] = { REG_OFFSET_NR12, REG_OFFSET_NR22, REG_OFFSET_NR32, REG_OFFSET_NR42 };
@@ -249,9 +248,7 @@ static void TraceFrameEnd(void) {
 void PsgReset(void) {
     memset(sChannels, 0, sizeof(sChannels));
     sSequencerTime = 0;
-#ifdef PLATFORM_DSI
     sSequencerCount = 0;
-#endif
     sSequencerStep = 0;
 }
 
@@ -289,6 +286,7 @@ static void Trigger(int ch) {
     int maxLength = ch == 2 ? 256 : 64;
 
     TraceTrigger(ch);
+    sTriggered |= 1 << ch;
 
     if (lengthBits != 0) {
         c->length = maxLength - lengthBits;
@@ -552,6 +550,52 @@ void PsgAdvance(int frames, int sampleRate) {
         }
     }
     EndFrame();
+}
+
+void PsgAdvanceFixed(int frames, int sampleRate) {
+    BeginFrame();
+    for (int i = 0; i < frames; i++) {
+        sSequencerCount += 512;
+        if (sSequencerCount >= (uint32_t)sampleRate) {
+            sSequencerCount -= sampleRate;
+            SequencerStep();
+        }
+    }
+    EndFrame();
+}
+
+void PsgVoices(PsgVoice voices[4], PsgMix* mix) {
+    static const int ratio[4] = { 1, 2, 4, 0 }; // halves
+    static const int waveShift[4] = { 4, 0, 1, 2 };
+    int nr32 = REG(NR32);
+    uint16_t cnt = REG(SOUNDCNT_H) | (gHwIo[REG_OFFSET_SOUNDCNT_H + 1] << 8);
+    int ds = (REG(SOUNDCNT_X) & 0x80) ? ((cnt & 4) ? 8 : 4) : 0;
+
+    for (int ch = 0; ch < 4; ch++) {
+        PsgChannel* c = &sChannels[ch];
+        PsgVoice* v = &voices[ch];
+
+        v->on = c->on;
+        v->triggered = (sTriggered >> ch) & 1;
+        v->volume = c->volume;
+        v->frequency = Frequency(ch);
+        v->duty = ch < 2 ? gHwIo[sNrx1[ch]] >> 6 : 0;
+    }
+    sTriggered = 0;
+    for (int k = 0; k < 32; k++) {
+        int byte = gHwIo[REG_OFFSET_WAVE_RAM0 + k / 2];
+        int sample = (k & 1) ? byte & 0xF : byte >> 4;
+        voices[2].wave[k] = (nr32 & 0x80) ? (sample * 3) >> 2 : sample >> waveShift[(nr32 >> 5) & 3];
+    }
+    voices[3].noise = REG(NR43);
+    mix->nr51 = REG(NR51);
+    mix->volume[0] = (((REG(NR50) >> 4) & 7) + 1) * ratio[REG(SOUNDCNT_H) & 3];
+    mix->volume[1] = ((REG(NR50) & 7) + 1) * ratio[REG(SOUNDCNT_H) & 3];
+    if (!(REG(NR52) & 0x80)) {
+        mix->volume[0] = mix->volume[1] = 0;
+    }
+    mix->directSound[0] = (cnt & 0x200) ? ds : 0;
+    mix->directSound[1] = (cnt & 0x100) ? ds : 0;
 }
 
 #ifdef PLATFORM_DSI

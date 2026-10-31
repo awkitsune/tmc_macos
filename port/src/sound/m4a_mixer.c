@@ -20,6 +20,8 @@
 
 #include <math.h>
 #include <stdatomic.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "global.h"
 #include "gba/m4a.h"
@@ -28,6 +30,7 @@
 #include "port/profile.h"
 #include "port/sound.h"
 #include "port/state.h"
+#include "port/dsvoices.h"
 #include "sound_internal.h"
 
 #define MAX_FRAME 4096
@@ -61,6 +64,24 @@ static float sDcIn[2], sDcOut[2];
 #ifdef PLATFORM_DSI
 void DsiSoundFrame(const int16_t* stereo, int frames);
 static int16_t sDsiStereo[2 * MAX_FRAME];
+#if DSI_SOUND_HW
+void DsiSoundChannels(const DsSoundFrame* frame); // port/dsi/src/sound_dsi.c
+#endif
+#else
+// TMC_DS_SOUND=1: the voices on a model of the DS's sound channels (dsvoices.c,
+// dsmodel.c), as the DSi plays them, in place of the mixer.
+static int sDsModel STATE_EXCLUDE = -1;
+
+static void DsModelStats(void) {
+    int copies, rounded, reverb;
+    uint32_t bytes, crc, runs;
+
+    DsVoicesStats(&copies, &bytes, &rounded, &reverb);
+    DsVoicesCrc(&crc, &runs);
+    fprintf(stderr,
+            "ds sound: %d loop copies, %u bytes, %d loops rounded, reverb up to %d; registers CRC32 %08x after %u frames\n",
+            copies, (unsigned)bytes, rounded, reverb, (unsigned)crc, (unsigned)runs);
+}
 #endif
 
 void SoundSetSink(SoundSink sink, void* context) {
@@ -114,7 +135,7 @@ bool SoundChannelsActive(void) {
  * silent this frame (stopped now or already). *started is set for a note that
  * starts this frame.
  */
-static bool EnvelopeStep(SoundInfo* soundInfo, SoundChannel* chan, bool* started) {
+bool SoundEnvelopeStep(SoundInfo* soundInfo, SoundChannel* chan, bool* started) {
     WaveData* wav = chan->wav;
     u32 flags = chan->statusFlags;
     s32 env;
@@ -288,7 +309,7 @@ static void MixAuthentic(SoundInfo* soundInfo, s8* out, s32 samples) {
         SoundChannel* chan = &soundInfo->chans[i];
         bool started;
 
-        if (EnvelopeStep(soundInfo, chan, &started)) {
+        if (SoundEnvelopeStep(soundInfo, chan, &started)) {
             MixChannelAuthentic(soundInfo, chan, out, samples);
         }
     }
@@ -382,7 +403,7 @@ static void MixHq(SoundInfo* soundInfo, float* out, s32 samples) {
         SoundChannel* chan = &soundInfo->chans[i];
         bool started;
 
-        if (!EnvelopeStep(soundInfo, chan, &started)) {
+        if (!SoundEnvelopeStep(soundInfo, chan, &started)) {
             sHqVolume[i] = 0;
             continue;
         }
@@ -448,6 +469,40 @@ void SoundMain(void) {
     profile = PROFILE_START();
     soundInfo->CgbSound();
     PROFILE_ADD(PROFILE_SOUND_CGB, profile);
+
+#if defined(PLATFORM_DSI) && DSI_SOUND_HW
+    {
+        DsSoundFrame frame;
+
+        profile = PROFILE_START();
+        DsVoicesRun(soundInfo->pcmSamplesPerVBlank, &frame);
+        PROFILE_ADD(PROFILE_SOUND_MIX, profile);
+        profile = PROFILE_START();
+        DsiSoundChannels(&frame);
+        PROFILE_ADD(PROFILE_SOUND_OUT, profile);
+        soundInfo->ident = ID_NUMBER;
+        return;
+    }
+#elif !defined(PLATFORM_DSI)
+    if (sDsModel < 0) {
+        sDsModel = getenv("TMC_DS_SOUND") != NULL && atoi(getenv("TMC_DS_SOUND")) != 0;
+        if (sDsModel) {
+            atexit(DsModelStats);
+        }
+    }
+    if (sDsModel) {
+        DsSoundFrame frame;
+
+        samples = soundInfo->pcmSamplesPerVBlank;
+        DsVoicesRun(samples, &frame);
+        DsModelRender(&frame, sStereo, samples, soundInfo->pcmFreqency);
+        if (sSink != NULL && samples > 0) {
+            sSink(sStereo, samples, soundInfo->pcmFreqency, sSinkContext);
+        }
+        soundInfo->ident = ID_NUMBER;
+        return;
+    }
+#endif
 
     ApplyQuality(soundInfo);
     if (sAppliedQuality == SOUND_QUALITY_AUTHENTIC) {

@@ -9,6 +9,7 @@
 #include "port/headless_state.h"
 #include "port/hw.h"
 #include "port/platform.h"
+#include "port/dsvoices.h"
 #include "port/profile.h"
 #include "port/ppu.h"
 #include "port/view.h"
@@ -255,6 +256,14 @@ void PlatformVBlank(void) {
         DsiLog("records CRC32: frames %08lx, pictures %08lx\n",
                (unsigned long)HwCrc32(0, gDsiFrames, sizeof(gDsiFrames)),
                (unsigned long)HwCrc32(0, gDsiPictures, sizeof(gDsiPictures)));
+#if DSI_SOUND_HW
+        {
+            uint32_t crc, runs;
+
+            DsVoicesCrc(&crc, &runs);
+            DsiLog("sound registers CRC32 %08lx after %lu frames\n", (unsigned long)crc, (unsigned long)runs);
+        }
+#endif
         Report("with the checks");
         ResetStats();
     } else if (gPlatformFrame == (DSI_CHECKS ? 2 : 1) * DSI_FRAME_RECORDS) {
@@ -291,9 +300,15 @@ static void ReportParts(void) {
            (unsigned long)(gProfileCount[PROFILE_IRQ_HBLANK] / n), Part(t[PROFILE_IRQ_VCOUNT]),
            Part(t[PROFILE_IRQ_VBLANK]), Part(t[PROFILE_IRQ_OTHER]), Part(t[PROFILE_DMA_HBLANK]),
            (unsigned long)(gProfileCount[PROFILE_DMA_HBLANK] / n), Part(t[PROFILE_DMA_VBLANK]));
-    DsiLog("  sound: sequencer %lu, cgb %lu, mixer %lu, psg %lu, out %lu (%lu runs)\n", Part(t[PROFILE_SOUND_SEQ]),
+#if DSI_SOUND_HW
+    DsiLog("  sound (DS channels): sequencer %lu, cgb %lu, voices %lu, send %lu (%lu runs; %lu sends in all)\n",
+           Part(t[PROFILE_SOUND_SEQ]), Part(t[PROFILE_SOUND_CGB]), Part(t[PROFILE_SOUND_MIX]),
+           Part(t[PROFILE_SOUND_OUT]), (unsigned long)gProfileCount[PROFILE_SOUND_MIX], (unsigned long)gDsiSoundSends);
+#else
+    DsiLog("  sound (mixed): sequencer %lu, cgb %lu, mixer %lu, psg %lu, out %lu (%lu runs)\n", Part(t[PROFILE_SOUND_SEQ]),
            Part(t[PROFILE_SOUND_CGB]), Part(t[PROFILE_SOUND_MIX]), Part(t[PROFILE_SOUND_PSG]),
            Part(t[PROFILE_SOUND_OUT]), (unsigned long)gProfileCount[PROFILE_SOUND_MIX]);
+#endif
 }
 
 /*

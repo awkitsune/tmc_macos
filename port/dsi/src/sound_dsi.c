@@ -1,5 +1,12 @@
 /*
- * Sound: the game's mix, streamed to two DS sound channels.
+ * Sound. By default (DSI_SOUND=hw) the m4a engine's voices play on the DS's
+ * own channels: each frame SoundMain turns them into the channels' registers
+ * (port/src/sound/dsvoices.c) and DsiSoundChannels hands them to the ARM7
+ * (port/dsi/arm7), which writes them. When no frame comes for a few DS frames
+ * (the engine off for a room load, a stall) the channels stop, as the GBA's
+ * DMA does, and start over with the next frame.
+ *
+ * With DSI_SOUND=mix: the game's mix, streamed to two DS sound channels.
  *
  * The ARM9 mixes each frame as the GBA would (port/src/sound/m4a_mixer.c and
  * psg.c, PsgRenderDsi) and hands the 16-bit stereo samples here. They go into
@@ -21,8 +28,94 @@
 #include <nds.h>
 #include <string.h>
 
-#include "dsi.h"
+#include "port/dsvoices.h"
 
+#include "dsi.h"
+#include "sound_image.h"
+
+static bool sPlaying;
+static volatile bool sFrameSince; // a frame came since the last DS VBlank
+
+void m4aSoundMain(void);
+
+#if DSI_SOUND_HW
+#define QUIET_VBLANKS 4 // DS frames without a sound frame before the channels stop
+
+static DsiSoundImage sImages[2] __attribute__((aligned(32)));
+static int sNextImage;
+static int sQuiet;
+uint32_t gDsiSoundSends;
+
+void DsSoundFlush(const void* data, uint32_t size) {
+    DC_FlushRange(data, size);
+}
+
+static void Send(const DsSoundFrame* frame) {
+    DsiSoundImage* image = &sImages[sNextImage];
+
+    if (frame->write == 0) {
+        return;
+    }
+    sNextImage ^= 1;
+    image->write = frame->write;
+    image->start = frame->start;
+    for (int ch = 0; ch < 16; ch++) {
+        if (frame->write >> ch & 1) {
+            const DsChannelRegs* r = &frame->ch[ch];
+
+            image->ch[ch] = (DsiSoundChannel){ r->cnt, (uint32_t)r->src, r->timer, r->loop, r->length };
+        }
+    }
+    DC_FlushRange(image, sizeof(*image));
+    fifoSendValue32(DSI_SOUND_FIFO, (u32)image);
+    gDsiSoundSends++;
+}
+
+void DsiSoundChannels(const DsSoundFrame* frame) {
+    sFrameSince = true;
+    sQuiet = 0;
+    if (!sPlaying) {
+        static bool sLogged;
+
+        if (!sLogged) {
+            DsiLog("sound: the m4a voices on the DS's channels\n");
+            sLogged = true;
+        }
+        soundEnable();
+        sPlaying = true;
+    }
+    Send(frame);
+}
+
+void DsiSoundStop(void) {
+    int irq = enterCriticalSection();
+
+    if (sPlaying) {
+        DsSoundFrame frame;
+
+        DsVoicesStop(&frame);
+        Send(&frame);
+        sPlaying = false;
+    }
+    leaveCriticalSection(irq);
+}
+
+void DsiSoundVBlank(bool mayRun) {
+    if (mayRun && sPlaying && !sFrameSince) {
+        m4aSoundMain();
+    }
+    if (sPlaying && !sFrameSince && ++sQuiet >= QUIET_VBLANKS) {
+        DsiSoundStop();
+    }
+    sFrameSince = false;
+}
+
+// The stream path is not used.
+void DsiSoundFrame(const int16_t* stereo, int frames) {
+    (void)stereo;
+    (void)frames;
+}
+#else
 #define CHANNEL_LEFT 0
 #define CHANNEL_RIGHT 1
 #define RING 4096 // samples per channel; divides timer 3's 65536
@@ -34,12 +127,10 @@
 #define SOUND_CYCLES_PER_FRAME (263 * 2130 / 2)
 
 static int16_t sRing[2][RING] __attribute__((aligned(32)));
-static bool sPlaying;
+static int16_t sRing[2][RING] __attribute__((aligned(32)));
 static int sFrameLength;
 static uint16_t sWrite; // samples written, mod 65536, as timer 3 counts played ones
-static volatile bool sFrameSince; // a frame came since the last DS VBlank
 
-void m4aSoundMain(void);
 
 static uint16_t Played(void) {
     return TIMER_DATA(3);
@@ -158,3 +249,4 @@ void DsiSoundFrame(const int16_t* stereo, int frames) {
     Flush(1, sWrite, count + SILENCE_FRAMES * frames);
     sWrite += count;
 }
+#endif // DSI_SOUND_HW

@@ -105,6 +105,8 @@ void DsiSha1Final(DsiSha1* ctx, uint8_t digest[20]);
  * from the game's mixer and starts the DS's channels on the first one;
  * DsiSoundStop silences them until the next frame (sleep, a halt).
  */
+// DSI_SOUND_HW: register images sent to the ARM7 so far.
+extern uint32_t gDsiSoundSends;
 void DsiSoundFrame(const int16_t* stereo, int frames);
 void DsiSoundStop(void);
 /*

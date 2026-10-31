@@ -259,9 +259,41 @@ python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_d
 
 At milestone 5 it loads, checks and relocates the ROM, then runs the game
 on the top screen, centred with a black border. The DS's A, B, Select,
-Start, D-pad, R and L are the GBA's. Sound is the game's own mix, streamed to
-two DS channels ([PLAN.md](PLAN.md#sound)). It logs the
-frame times after 1,024 frames.
+Start, D-pad, R and L are the GBA's. It logs the frame times after 1,024
+frames, then a line per room stretch with the parts of the frame's work
+(lines, the presenter's prepare, the VBlank half, the game's interrupt
+handlers, timed DMA, the sound's stages).
+
+**Sound** has two builds:
+
+- `DSI_SOUND=hw` (the default): the m4a engine runs its players and envelopes
+  on the ARM9 once a frame, and its voices play on the DS's own channels
+  (`port/src/sound/dsvoices.c`): DirectSound voices on channels 0-7 straight
+  from the game's 8-bit samples in memory, with the loop, at the rate the mixer
+  would step through them; the squares on PSG channels 8 and 9 with their duty
+  (channel 1's sweep a frame at a time); the wave channel on channel 10 as a
+  looped 32-sample copy of wave RAM at NR32's volume; 15-bit noise on the
+  noise channel 14 (the same shift register), 7-bit noise on channel 11 as a
+  looped copy of its 127 steps. Volume, divider and pan come from the GBA's
+  levels, at half the stream path's scale (a centred DS channel reaches half of
+  full scale on each side). The ARM7 program is ours (`arm7/main.c`):
+  BlocksDS's default one without maxmod, plus a FIFO handler that writes the
+  channels from the register image the ARM9 sends each frame
+  (`src/sound_image.h`).
+- `DSI_SOUND=mix`: the game's own mix, streamed to two DS channels
+  ([PLAN.md](PLAN.md#sound)), as before.
+
+What sounds different with `hw`: no reverb (almost every BGM sets 30-60; the
+GBA echoes the DirectSound mix a frame or two later, the DS channels play dry);
+no linear interpolation and no 8-bit mixing (the DS plays each sample as is
+and mixes at full resolution: a little brighter, no wraparound distortion when
+voices pile up); the GBA's 15.8 kHz output rate is gone (the DS mixes at its
+own); square, wave and noise levels change once a frame, as the mixer's do. On
+the Mac, `TMC_DS_SOUND=1` plays the same registers on a model of the DS mixer
+(`port/src/sound/dsmodel.c`) for comparison with the mixer, for instance
+through `tmc-songs render`; it prints, at exit, a CRC32 of all the registers
+written, which a `DSI_CHECKS` build logs after 1,024 frames ("sound registers
+CRC32"): with no `tmc/input.txt` both must be `fa53ecbb after 1024 frames`.
 
 The comparison with the Mac (below) needs a build with the checks,
 `make -C port/dsi -j4 DSI_CHECKS=1`. Its first 1,024 frames run at about

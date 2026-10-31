@@ -26,12 +26,19 @@ NAME := tmc_dsi
 ELF := $(BUILD)/$(NAME).elf
 MAP := $(BUILD)/$(NAME).map
 ROM := $(BUILD)/$(NAME).nds
-ARM7ELF := $(BLOCKSDS)/sys/arm7/main_core/arm7_maxmod.elf
+# The ARM7 program: BlocksDS's default one plus the sound channels' writes
+# (arm7/main.c).
+ARM7ELF := $(BUILD)/arm7.elf
 GAME_FULL_TITLE := The Minish Cap;DSi port;tmc decomp
 
 # Linked at 0x02040000, so the game's EWRAM keeps its GBA addresses (ld/).
 export TMC_DSI_LD := $(abspath ld)
 SPECS := $(TMC_DSI_LD)/dsi_arm9_gba_ewram.specs
+
+# DSI_SOUND=hw (default): the m4a voices on the DS's sound channels
+# (port/src/sound/dsvoices.c); DSI_SOUND=mix: the software mixer, streamed.
+DSI_SOUND ?= hw
+SOUND_HW := $(if $(filter hw,$(DSI_SOUND)),1,0)
 
 ARCH := -mthumb -mcpu=arm946e-s+nofp
 COMMON_FLAGS := $(ARCH) -O2 -g -ffunction-sections -fdata-sections -specs=$(SPECS) -MMD -MP
@@ -42,7 +49,7 @@ COMMON_FLAGS := $(ARCH) -O2 -g -ffunction-sections -fdata-sections -specs=$(SPEC
 # none of what GCC's optimiser may: no strict aliasing (the game's type punning),
 # no loops cut short at an array's declared end (decomp structs index past it
 # into the next field), no null checks dropped after a dereference.
-GAME_DEFINES := -DPLATFORM_DSI=1 -DPORT_HOSTED=1 -DNON_MATCHING=1 -DUSA -DENGLISH -DREVISION=0
+GAME_DEFINES := -DPLATFORM_DSI=1 -DPORT_HOSTED=1 -DNON_MATCHING=1 -DUSA -DENGLISH -DREVISION=0 -DDSI_SOUND_HW=$(SOUND_HW)
 GAME_FLAGS := $(COMMON_FLAGS) $(GAME_DEFINES) -std=gnu11 -fwrapv -fno-short-enums -fno-strict-aliasing \
 	-fno-aggressive-loop-optimizations -fno-delete-null-pointer-checks \
 	-U__UINT32_TYPE__ "-D__UINT32_TYPE__=unsigned int" -U__INT32_TYPE__ -D__INT32_TYPE__=int \
@@ -59,13 +66,13 @@ DSI_RECORDS ?= 1024
 TMC_VERSION := $(shell sed -n 's/^project.tmc_native VERSION \([0-9.]*\).*/\1/p' $(ROOT)/port/CMakeLists.txt)
 DSI_FLAGS := $(COMMON_FLAGS) -Wall -I$(BLOCKSDS)/libs/libnds/include -I$(ROOT)/port/include \
 	-DTMC_VERSION=\"$(TMC_VERSION)\" \
-	-DDSI_CHECKS=$(DSI_CHECKS) -DDSI_FRAME_RECORDS=$(DSI_RECORDS) $(DSI_DEFINES)
+	-DDSI_CHECKS=$(DSI_CHECKS) -DDSI_FRAME_RECORDS=$(DSI_RECORDS) -DDSI_SOUND_HW=$(SOUND_HW) $(DSI_DEFINES)
 
 GAME_SRCS := $(filter-out src/eeprom.c,$(shell cd $(ROOT) && find src -name '*.c' | sort))
 PORT_SRCS := port/src/bios.c port/src/interrupts.c port/src/eeprom.c port/src/data_glue.c \
 	port/src/frame.c port/src/hw_crc.c port/src/trace.c port/src/view.c \
 	$(sort $(wildcard $(ROOT)/port/src/asm/*.c)) \
-	port/src/sound/m4a_engine.c port/src/sound/m4a_mixer.c port/src/sound/psg.c
+	port/src/sound/m4a_engine.c port/src/sound/m4a_mixer.c port/src/sound/psg.c port/src/sound/dsvoices.c
 PORT_SRCS := $(patsubst $(ROOT)/%,%,$(PORT_SRCS))
 DSI_SRCS := $(patsubst $(ROOT)/%,%,$(sort $(wildcard $(ROOT)/port/dsi/src/*.c)))
 
@@ -96,11 +103,25 @@ $(BUILD)/obj/port/dsi/src/%.o: $(ROOT)/port/dsi/src/%.c
 	@echo "  CC      port/dsi/src/$*.c"
 	@$(CC) $(DSI_FLAGS) -c -o $@ $<
 
-# The DSi layer is rebuilt when DSI_CHECKS or DSI_RECORDS changes.
-CHECKS := $(DSI_CHECKS) $(DSI_RECORDS)
+# The DSi layer (and the mixer) is rebuilt when DSI_CHECKS, DSI_RECORDS or
+# DSI_SOUND changes.
+CHECKS := $(DSI_CHECKS) $(DSI_RECORDS) $(DSI_SOUND)
 CHECKS_STAMP := $(BUILD)/dsi_checks.txt
 $(shell mkdir -p $(BUILD) && [ "`cat $(CHECKS_STAMP) 2>/dev/null`" = "$(CHECKS)" ] || echo $(CHECKS) > $(CHECKS_STAMP))
-$(DSI_OBJS): $(CHECKS_STAMP)
+$(DSI_OBJS) $(BUILD)/obj/port/src/sound/m4a_mixer.o: $(CHECKS_STAMP)
+
+ARM7_FLAGS := -mthumb -mcpu=arm7tdmi -O2 -g -ffunction-sections -fdata-sections -Wall -MMD -MP \
+	-specs=$(BLOCKSDS)/sys/crts/ds_arm7.specs -D__NDS__ -D__BLOCKSDS__ -DARM7 -I$(BLOCKSDS)/libs/libnds/include
+
+$(BUILD)/arm7/main.o: arm7/main.c src/sound_image.h
+	@mkdir -p $(@D)
+	@echo "  CC      arm7/main.c"
+	@$(CC) $(ARM7_FLAGS) -c -o $@ $<
+
+$(ARM7ELF): $(BUILD)/arm7/main.o
+	@echo "  LD      $(notdir $@)"
+	@$(CC) -mthumb -mcpu=arm7tdmi -specs=$(BLOCKSDS)/sys/crts/ds_arm7.specs -L$(BLOCKSDS)/libs/libnds/lib \
+		-Wl,-Map,$(BUILD)/arm7.map -o $@ $< -Wl,--start-group -lnds7 -lc -Wl,--end-group
 
 # The symbols the DSi objects define: those win over the ROM copy's.
 $(GEN)/native_defs.txt: $(OBJS)
@@ -149,7 +170,7 @@ $(ICON): $(ICON_PNG) tools/icon_bmp.py
 	@mkdir -p $(@D)
 	@$(PYTHON) -I tools/icon_bmp.py $< $@
 
-$(ROM): $(ELF) $(ICON)
+$(ROM): $(ELF) $(ARM7ELF) $(ICON)
 	@echo "  NDSTOOL $(notdir $@)"
 	@$(BLOCKSDS)/tools/ndstool/ndstool -c $@ -7 $(ARM7ELF) -9 $(ELF) \
 		-b $(ICON) "$(GAME_FULL_TITLE)" > /dev/null
