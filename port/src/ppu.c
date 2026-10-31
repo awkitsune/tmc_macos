@@ -37,16 +37,20 @@ enum { LAYER_BG0, LAYER_BG1, LAYER_BG2, LAYER_BG3, LAYER_OBJ, LAYER_BD };
 #define PIXEL_EMPTY 0xFFFF
 
 typedef struct {
-    uint16_t color[PPU_WIDTH];      // PIXEL_EMPTY where transparent
+    uint16_t color[PPU_MAX_WIDTH];      // PIXEL_EMPTY where transparent
     uint8_t priority;
 } BgLine;
 
 typedef struct {
-    uint16_t color[PPU_WIDTH];
-    uint8_t priority[PPU_WIDTH];
-    uint8_t semiTransparent[PPU_WIDTH];
-    uint8_t window[PPU_WIDTH]; // pixel belongs to the OBJ window
+    uint16_t color[PPU_MAX_WIDTH];
+    uint8_t priority[PPU_MAX_WIDTH];
+    uint8_t semiTransparent[PPU_MAX_WIDTH];
+    uint8_t window[PPU_MAX_WIDTH]; // pixel belongs to the OBJ window
 } ObjLine;
+
+// Pixels in the line being drawn: the view's width, or 240 while the picture is
+// a GBA screen centred in the view (gHwGbaScreen).
+static int sLineWidth = PPU_WIDTH;
 
 // BGs can only fetch tiles from the first 64 KB of VRAM; in modes 0-2 the rest is
 // OBJ VRAM, and BG tiles that would reach into it are transparent.
@@ -76,7 +80,7 @@ static uint32_t TilePixel(uint32_t addr, int x, int y, int is8bpp, uint32_t limi
 static int sMosaicBgY, sMosaicObjY;
 
 static void MosaicLine(BgLine* line, int h) {
-    for (int sx = 0; sx < PPU_WIDTH; sx++) {
+    for (int sx = 0; sx < sLineWidth; sx++) {
         line->color[sx] = line->color[sx - sx % h];
     }
 }
@@ -91,17 +95,35 @@ static void RenderTextBg(int bg, int line, BgLine* out) {
     int height = (size & 2) ? 512 : 256;
     int hofs = Reg16(0x10 + bg * 4) & 0x1FF;
     int vofs = Reg16(0x12 + bg * 4) & 0x1FF;
-    int y = (line + vofs) & (height - 1);
+    int wide = (gHwWideMapMask >> bg) & 1;
+    // A GBA layer in a wider view: its 240 columns centred, nothing outside.
+    int gbaLeft = sLineWidth != PPU_WIDTH && ((gHwGbaLayerMask >> bg) & 1) ? PortViewGbaLeft() : 0;
+    int y;
 
+    if (wide) {
+        width = HW_WIDE_MAP_COLS * 8;
+        height = HW_WIDE_MAP_ROWS * 8;
+    }
+    y = (line + vofs) & (height - 1);
     out->priority = cnt & 3;
-    for (int sx = 0; sx < PPU_WIDTH; sx++) {
-        int x = (sx + hofs) & (width - 1);
-        // 32x32 screen blocks, laid out left-right then top-bottom.
-        uint32_t block = (x >= 256 ? 1 : 0) + (y >= 256 ? (width == 512 ? 2 : 1) : 0);
-        uint32_t entryAddr = screenBase + block * 0x800 + (((y & 255) >> 3) * 32 + ((x & 255) >> 3)) * 2;
-        uint16_t entry = gHwVram[entryAddr] | (gHwVram[entryAddr + 1] << 8);
+    for (int sx = 0; sx < sLineWidth; sx++) {
+        int x = (sx - gbaLeft + hofs) & (width - 1);
         int tx = x & 7, ty = y & 7;
+        uint16_t entry;
         uint32_t index;
+
+        if (gbaLeft != 0 && (sx < gbaLeft || sx >= gbaLeft + PPU_WIDTH)) {
+            out->color[sx] = PIXEL_EMPTY;
+            continue;
+        }
+        if (wide) {
+            entry = gHwWideMap[bg][(y >> 3) * HW_WIDE_MAP_COLS + (x >> 3)];
+        } else {
+            // 32x32 screen blocks, laid out left-right then top-bottom.
+            uint32_t block = (x >= 256 ? 1 : 0) + (y >= 256 ? (width == 512 ? 2 : 1) : 0);
+            uint32_t entryAddr = screenBase + block * 0x800 + (((y & 255) >> 3) * 32 + ((x & 255) >> 3)) * 2;
+            entry = gHwVram[entryAddr] | (gHwVram[entryAddr + 1] << 8);
+        }
 
         if (entry & 0x400) {
             tx = 7 - tx;
@@ -138,7 +160,7 @@ static void RenderAffineBg(int bg, BgLine* out) {
     int32_t refY = mosaic ? sMosaicRefY[bg - 2] : sRefY[bg - 2];
 
     out->priority = cnt & 3;
-    for (int sx = 0; sx < PPU_WIDTH; sx++) {
+    for (int sx = 0; sx < sLineWidth; sx++) {
         int32_t x = (refX + pa * sx) >> 8;
         int32_t y = (refY + pc * sx) >> 8;
         uint32_t tile, index;
@@ -168,7 +190,7 @@ static const uint8_t sObjSizes[3][4][2] = {
 // box; this holds for affine sprites too, whose box is sampled before the
 // transform.
 static void RenderObjs(int line, int oneDimensional, int mosaicH, ObjLine* out) {
-    for (int i = 0; i < PPU_WIDTH; i++) {
+    for (int i = 0; i < sLineWidth; i++) {
         out->color[i] = PIXEL_EMPTY;
         out->priority[i] = 4;
         out->semiTransparent[i] = 0;
@@ -212,7 +234,7 @@ static void RenderObjs(int line, int oneDimensional, int mosaicH, ObjLine* out) 
             boxY = boxY < 0 ? 0 : boxY;
         }
         left = attr1 & 0x1FF;
-        if (left >= 240) {
+        if (left >= sLineWidth) {
             left -= 512;
         }
         if (affine) {
@@ -227,7 +249,7 @@ static void RenderObjs(int line, int oneDimensional, int mosaicH, ObjLine* out) 
             int tx, ty, sampleX = bx;
             uint32_t tile, index, color;
 
-            if (sx < 0 || sx >= PPU_WIDTH) {
+            if (sx < 0 || sx >= sLineWidth) {
                 continue;
             }
             if (mosaic) {
@@ -362,7 +384,7 @@ void PpuIoWritten(uint32_t offset, uint32_t size) {
     }
 }
 
-static void RenderLine(int line, uint16_t* out) {
+static void RenderGbaLine(int line, uint16_t* out) {
     bool perf = PerformanceEnabled();
     uint64_t mark = perf ? PerformanceNow() : 0;
     uint16_t dispcnt = Reg16(0x00);
@@ -391,7 +413,7 @@ static void RenderLine(int line, uint16_t* out) {
     }
 
     if (dispcnt & 0x80) { // forced blank
-        for (int x = 0; x < PPU_WIDTH; x++) {
+        for (int x = 0; x < sLineWidth; x++) {
             out[x] = 0x7FFF;
         }
         if (perf) PerformanceAddPpu(PERF_PPU_OTHER, mark);
@@ -425,7 +447,7 @@ static void RenderLine(int line, uint16_t* out) {
     }
 
     if (perf) { PerformanceAddPpu(PERF_OBJ, mark); mark = PerformanceNow(); }
-    for (int x = 0; x < PPU_WIDTH; x++) {
+    for (int x = 0; x < sLineWidth; x++) {
         // Which layers and effects this pixel's window allows (bits 0-5).
         int enable = 0x3F;
         int top = LAYER_BD, second = LAYER_BD;
@@ -444,6 +466,10 @@ static void RenderLine(int line, uint16_t* out) {
                 }
                 uint16_t h = Reg16(0x40 + w * 2), v = Reg16(0x44 + w * 2);
                 int x1 = h >> 8, x2 = h & 0xFF, y1 = v >> 8, y2 = v & 0xFF;
+                if (!gHwGbaScreen && PortViewExtended()) { // the GBA's screen edge is the view's
+                    x2 = x2 == PPU_WIDTH ? sLineWidth : x2;
+                    y2 = y2 == PPU_HEIGHT ? PpuHeight() : y2;
+                }
                 int inX = x1 <= x2 ? (x >= x1 && x < x2) : (x >= x1 || x < x2);
                 int inY = y1 <= y2 ? (line >= y1 && line < y2) : (line >= y1 || line < y2);
                 if (inX && inY) {
@@ -492,6 +518,20 @@ static void RenderLine(int line, uint16_t* out) {
         out[x] = color;
     }
     if (perf) PerformanceAddPpu(PERF_COMPOSE, mark);
+}
+
+static void RenderLine(int line, uint16_t* out) {
+    if (gHwGbaScreen && PortViewExtended()) {
+        // A GBA screen centred in the view, black around it.
+        memset(out, 0, PpuWidth() * sizeof(*out));
+        sLineWidth = PPU_WIDTH;
+        if (line < PPU_HEIGHT) {
+            RenderGbaLine(line, out + PortViewGbaLeft());
+        }
+    } else {
+        sLineWidth = PpuWidth();
+        RenderGbaLine(line, out);
+    }
 }
 
 static PpuCaptureLine* sCapture;
@@ -569,8 +609,8 @@ void PpuRenderLine(int line, uint16_t* out) {
 
 void PpuRenderFrame(uint16_t* framebuffer) {
     PpuBeginFrame();
-    for (int line = 0; line < PPU_HEIGHT; line++) {
-        PpuRenderLine(line, &framebuffer[line * PPU_WIDTH]);
+    for (int line = 0; line < PpuHeight(); line++) {
+        PpuRenderLine(line, &framebuffer[line * PpuWidth()]);
     }
 }
 
@@ -632,5 +672,5 @@ int PpuWritePngSize(const uint16_t* framebuffer, int width, int height, const ch
 }
 
 int PpuWritePng(const uint16_t* framebuffer, const char* path) {
-    return PpuWritePngSize(framebuffer, PPU_WIDTH, PPU_HEIGHT, path);
+    return PpuWritePngSize(framebuffer, PpuWidth(), PpuHeight(), path);
 }

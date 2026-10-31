@@ -229,6 +229,12 @@ void WaitForNextFrame(void) {
         if (gMapTop.bgSettings != NULL)
             DmaCopy32(3, &gBG2Buffer, VRAM + (gMapTop.bgSettings->control & 0x1f00) * 8, 0x5C0);
     }
+#ifdef PORT_HOSTED
+    {
+        extern void PortViewUpdate(void); // the extended view's layers (port/src/asm/veneer.c)
+        PortViewUpdate();
+    }
+#endif
     FadeVBlank();
 }
 

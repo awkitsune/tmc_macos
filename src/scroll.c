@@ -100,12 +100,12 @@ void Scroll1(RoomControls* controls) {
     if (controls->camera_target != NULL) {
         // Scroll in x direction.
         unused = controls->scroll_x;
-        targetValue = controls->camera_target->x.HALF.HI - 0x78;
+        targetValue = controls->camera_target->x.HALF.HI - PORT_SCREEN_W / 2;
         diff = controls->scroll_x - targetValue;
         if (diff != 0) {
             uVar5 = controls->scroll_x & 7;
             if (diff >= 1) {
-                if (controls->origin_x < controls->scroll_x) {
+                if (CAMERA_MIN(controls->origin_x, controls->width, PORT_SCREEN_W) < controls->scroll_x) {
                     if (controls->scrollSpeed <= diff) {
                         diff = controls->scrollSpeed;
                         controls->scroll_flags |= 4;
@@ -114,12 +114,12 @@ void Scroll1(RoomControls* controls) {
                     if (uVar5 - diff < 1) {
                         gUpdateVisibleTiles = 1;
                     }
-                    if (controls->origin_x >= controls->scroll_x) {
-                        controls->scroll_x = controls->origin_x;
+                    if (CAMERA_MIN(controls->origin_x, controls->width, PORT_SCREEN_W) >= controls->scroll_x) {
+                        controls->scroll_x = CAMERA_MIN(controls->origin_x, controls->width, PORT_SCREEN_W);
                     }
                 }
             } else {
-                uVar2 = controls->origin_x + controls->width - 0xf0;
+                uVar2 = CAMERA_MAX(controls->origin_x, controls->width, PORT_SCREEN_W);
                 if (controls->scroll_x < uVar2) {
                     if (-controls->scrollSpeed >= diff) {
                         diff = -controls->scrollSpeed;
@@ -138,12 +138,12 @@ void Scroll1(RoomControls* controls) {
 
         // Scroll in y direction.
         unused = controls->scroll_y;
-        targetValue = controls->camera_target->y.HALF.HI - 0x50;
+        targetValue = controls->camera_target->y.HALF.HI - PORT_SCREEN_H / 2;
         diff = controls->scroll_y - (targetValue);
         if (diff != 0) {
             uVar5 = controls->scroll_y & 7;
             if (diff >= 1) {
-                if (controls->origin_y < controls->scroll_y) {
+                if (CAMERA_MIN(controls->origin_y, controls->height, PORT_SCREEN_H) < controls->scroll_y) {
                     if (controls->scrollSpeed <= diff) {
                         diff = controls->scrollSpeed;
                         controls->scroll_flags |= 4;
@@ -152,12 +152,12 @@ void Scroll1(RoomControls* controls) {
                     if (uVar5 - diff < 1) {
                         gUpdateVisibleTiles = 1;
                     }
-                    if (controls->origin_y >= controls->scroll_y) {
-                        controls->scroll_y = controls->origin_y;
+                    if (CAMERA_MIN(controls->origin_y, controls->height, PORT_SCREEN_H) >= controls->scroll_y) {
+                        controls->scroll_y = CAMERA_MIN(controls->origin_y, controls->height, PORT_SCREEN_H);
                     }
                 }
             } else {
-                uVar2 = controls->origin_y + controls->height - DISPLAY_HEIGHT;
+                uVar2 = CAMERA_MAX(controls->origin_y, controls->height, PORT_SCREEN_H);
                 if (controls->scroll_y < uVar2) {
                     if (-controls->scrollSpeed >= diff) {
                         diff = -controls->scrollSpeed;
@@ -776,6 +776,14 @@ void sub_08080974(u32 arg0, u32 arg1) {
     u32 var0, var1;
     RoomControls* roomControls = &gRoomControls;
 
+#ifdef PORT_HOSTED
+    roomControls->scroll_x =
+        CameraClamp((s32)arg0 - PORT_SCREEN_W / 2, CAMERA_MIN(roomControls->origin_x, roomControls->width, PORT_SCREEN_W),
+                    CAMERA_MAX(roomControls->origin_x, roomControls->width, PORT_SCREEN_W));
+    roomControls->scroll_y =
+        CameraClamp((s32)arg1 - PORT_SCREEN_H / 2, CAMERA_MIN(roomControls->origin_y, roomControls->height, PORT_SCREEN_H),
+                    CAMERA_MAX(roomControls->origin_y, roomControls->height, PORT_SCREEN_H));
+#else
     var0 = roomControls->origin_x;
     if (arg0 <= var0 + 120) {
         roomControls->scroll_x = var0;
@@ -799,6 +807,7 @@ void sub_08080974(u32 arg0, u32 arg1) {
         }
         roomControls->scroll_y = var1 - 80;
     }
+#endif
 
     sub_080809D4();
     gUpdateVisibleTiles = 1;
@@ -810,6 +819,14 @@ void sub_080809D4(void) {
     RoomControls* roomControls = &gRoomControls;
     roomControls->scroll_flags &= ~4;
 
+#ifdef PORT_HOSTED
+    roomControls->scroll_x = CameraClamp(roomControls->camera_target->x.HALF.HI - PORT_SCREEN_W / 2,
+                                         CAMERA_MIN(roomControls->origin_x, roomControls->width, PORT_SCREEN_W),
+                                         CAMERA_MAX(roomControls->origin_x, roomControls->width, PORT_SCREEN_W));
+    roomControls->scroll_y = CameraClamp(roomControls->camera_target->y.HALF.HI - PORT_SCREEN_H / 2,
+                                         CAMERA_MIN(roomControls->origin_y, roomControls->height, PORT_SCREEN_H),
+                                         CAMERA_MAX(roomControls->origin_y, roomControls->height, PORT_SCREEN_H));
+#else
     x = roomControls->camera_target->x.HALF.HI;
     var0 = roomControls->origin_x;
     if (x <= var0 + 120) {
@@ -835,6 +852,7 @@ void sub_080809D4(void) {
         }
         roomControls->scroll_y = var1 - 80;
     }
+#endif
 
     UpdateScreenShake();
     gUpdateVisibleTiles = 1;

@@ -600,11 +600,11 @@ static void EmitFrameObjs(DrawState* st) {
         }
         d = dims + ((flags & 0xF0) >> 2);
         y += st->y - d[1];
-        if (y >= 0xA0 || y + d[3] <= 0) {
+        if (y >= PORT_SCREEN_H || y + d[3] <= 0) {
             continue;
         }
         x += st->x - d[0];
-        if (x >= 0xF0 || x + d[2] <= 0) {
+        if (x >= PORT_SCREEN_W || x + d[2] <= 0) {
             continue;
         }
         attr = (y & 0xFF) | (((u32)x << 23) >> 7) | st->attr | ((flags & 0xC0) << 8);
@@ -639,6 +639,8 @@ static void LoadEntityDrawState(DrawState* st, Entity* e) {
     if ((settings & 3) != 2) {
         st->x -= (s16)gOAMControls._4;
         st->y -= (s16)gOAMControls._6;
+    } else {
+        st->x += PORT_HUD_X; // screen space: the GBA layout's place in the view
     }
     st->attr = (settings & 0x3E003F00) | (gOAMControls.spritesOffset << 12) |
                (((e->frameSpriteSettings ^ settings) & 0xC0) << 22);

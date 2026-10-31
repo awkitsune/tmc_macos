@@ -3,8 +3,23 @@
 
 #include <stdint.h>
 
+#include "port/view.h"
+
+/* The GBA screen. The software PPU draws the view (port/view.h), PpuWidth() x
+   PpuHeight(), 240x160 unless the extended view is on; frame buffers for it are
+   PpuWidth() pixels a row and at most PPU_MAX_WIDTH x PPU_MAX_HEIGHT. Code still
+   at PPU_WIDTH x PPU_HEIGHT (the Metal PPU, the presenters) needs the default
+   view. */
 #define PPU_WIDTH 240
 #define PPU_HEIGHT 160
+#define PPU_MAX_WIDTH PORT_VIEW_MAX_W
+#define PPU_MAX_HEIGHT PORT_VIEW_MAX_H
+static inline int PpuWidth(void) {
+    return gPortScreenW;
+}
+static inline int PpuHeight(void) {
+    return gPortScreenH;
+}
 
 /*
  * Software GBA picture processor: renders the frame described by the hardware
@@ -19,7 +34,7 @@ void PpuRenderFrame(uint16_t* framebuffer);
  * PpuRenderLine draws one line (out may be NULL to only advance the line state),
  * and PpuIoWritten tells the PPU that registers in [offset, offset + size) were
  * written mid-frame, which reloads the affine reference points they cover.
- * PpuRenderFrame is all 160 lines with no changes in between.
+ * PpuRenderFrame is all PpuHeight() lines with no changes in between.
  */
 void PpuBeginFrame(void);
 void PpuRenderLine(int line, uint16_t* out);

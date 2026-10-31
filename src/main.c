@@ -272,10 +272,10 @@ void SetSleepMode(void) {
 // Convert AABB to screen coordinates and check if it's within the viewport
 u32 CheckRegionOnScreen(u32 x0, u32 y0, u32 x1, u32 y1) {
     u32 result;
-    u32 x = ((gRoomControls.scroll_x - gRoomControls.origin_x) - x0 + DISPLAY_WIDTH);
-    u32 y = ((gRoomControls.scroll_y - gRoomControls.origin_y) - y0 + DISPLAY_HEIGHT);
-    u32 a = x1 + DISPLAY_WIDTH;
-    u32 b = y1 + DISPLAY_HEIGHT;
+    u32 x = ((gRoomControls.scroll_x - gRoomControls.origin_x) - x0 + PORT_SCREEN_W);
+    u32 y = ((gRoomControls.scroll_y - gRoomControls.origin_y) - y0 + PORT_SCREEN_H);
+    u32 a = x1 + PORT_SCREEN_W;
+    u32 b = y1 + PORT_SCREEN_H;
     if ((x < a) && (y < b))
         result = TRUE;
     else

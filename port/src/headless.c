@@ -10,6 +10,9 @@
  *   TMC_HASH=F,F,... | every:K   print "hash F state S video V": checksums of the
  *                            state and of the picture, to compare runs
  *   TMC_FRAMES=+n            stop n frames after the start (or the loaded state)
+ *   TMC_VIEW=WxH             the extended view (port/notes/widescreen.md): show
+ *                            W x H of the world; pictures, hashes and PNGs are
+ *                            that size
  *   TMC_RECORD_INPUT=path    write the keys each frame held as a TMC_INPUT
  *                            script (absolute frames), to replay a run exactly
  *   TMC_ROM_WRITES=1         log stores into the game's read-only data (ROM on
@@ -592,7 +595,7 @@ static FILE* sHwHashFile; // TMC_HW_HASH
 // renderer changes numerically between runs.
 static void HashFrame(const uint16_t* frame) {
     fprintf(sHashFile, "%llu %08lx\n", (unsigned long long)gPlatformFrame,
-            crc32(0, (const Bytef*)frame, PPU_WIDTH * PPU_HEIGHT * sizeof(*frame)));
+            crc32(0, (const Bytef*)frame, PpuWidth() * PpuHeight() * sizeof(*frame)));
 }
 
 // TMC_SCREENSHOT="frame,frame,..." or "every:n" saves PNGs to TMC_SCREENSHOT_DIR
@@ -800,10 +803,11 @@ static void HeadlessStates(void) {
         memset(sWindows, 0, sizeof(sWindows));
     }
     if (sHashing && InFrameList(&sHashFrames, gPlatformFrame)) {
-        static uint16_t sPicture[PPU_WIDTH * PPU_HEIGHT];
+        static uint16_t sPicture[PPU_MAX_WIDTH * PPU_MAX_HEIGHT];
         PpuRenderFrame(sPicture);
         printf("hash %llu state %016llx video %016llx%s\n", (unsigned long long)gPlatformFrame,
-               (unsigned long long)StateChecksum(), (unsigned long long)StateHashBytes(sPicture, sizeof(sPicture)),
+               (unsigned long long)StateChecksum(),
+               (unsigned long long)StateHashBytes(sPicture, PpuWidth() * PpuHeight() * sizeof(*sPicture)),
                boundary ? "" : " (pause loop)");
     }
     if (InFrameList(&sSaveFrames, gPlatformFrame) && sSaveDue == UINT64_MAX) {
@@ -907,7 +911,7 @@ void PlatformVBlank(void) {
     }
     // The picture shown during this frame, drawn only when something needs it.
     {
-        static uint16_t sFrame[PPU_WIDTH * PPU_HEIGHT];
+        static uint16_t sFrame[PPU_MAX_WIDTH * PPU_MAX_HEIGHT];
         int shot = ScreenshotThisFrame();
 
         if (shot) {
@@ -1137,6 +1141,13 @@ _Noreturn void PlatformSoftReset(void) {
 
 int main(int argc, char** argv) {
     const char* frames = getenv("TMC_FRAMES");
+
+    if (getenv("TMC_VIEW") != NULL) {
+        int width = 240, height = 160;
+        sscanf(getenv("TMC_VIEW"), "%dx%d", &width, &height);
+        PortViewSet(width, height);
+        fprintf(stderr, "headless: view %dx%d\n", PpuWidth(), PpuHeight());
+    }
 
     // The build's check that the save state pointer map covers the segment.
     if (getenv("TMC_STATE_MAP_CHECK") != NULL) {

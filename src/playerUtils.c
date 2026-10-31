@@ -4225,6 +4225,10 @@ void InitializeCamera() {
         targetY = 0;
     }
 
+#ifdef PORT_HOSTED
+    roomControls->scroll_x = CameraClamp(targetX - PORT_SCREEN_W / 2, CAMERA_MIN(0, roomControls->width, PORT_SCREEN_W),
+                                         CAMERA_MAX(0, roomControls->width, PORT_SCREEN_W));
+#else
     if (targetX < 0x78) {
         roomControls->scroll_x = 0;
     } else {
@@ -4234,8 +4238,13 @@ void InitializeCamera() {
             roomControls->scroll_x = targetX - 0x78;
         }
     }
+#endif
     roomControls->scroll_x += roomControls->origin_x;
 
+#ifdef PORT_HOSTED
+    roomControls->scroll_y = CameraClamp(targetY - PORT_SCREEN_H / 2, CAMERA_MIN(0, roomControls->height, PORT_SCREEN_H),
+                                         CAMERA_MAX(0, roomControls->height, PORT_SCREEN_H));
+#else
     if (targetY < 0x50) {
         roomControls->scroll_y = 0;
     } else {
@@ -4245,6 +4254,7 @@ void InitializeCamera() {
             roomControls->scroll_y = targetY - 0x50;
         }
     }
+#endif
     roomControls->scroll_y += roomControls->origin_y;
 
     if (roomControls->camera_target != NULL) {

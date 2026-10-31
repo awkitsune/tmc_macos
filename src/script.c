@@ -1815,17 +1815,17 @@ void WaitForCameraTouchRoomBorder(Entity* entity, ScriptExecutionContext* contex
     s32 bottom;
 
     if (gRoomControls.camera_target != NULL) {
-        left = gRoomControls.camera_target->x.HALF.HI - DISPLAY_WIDTH / 2;
-        bottom = gRoomControls.camera_target->y.HALF.HI - DISPLAY_HEIGHT / 2;
+        left = gRoomControls.camera_target->x.HALF.HI - PORT_SCREEN_W / 2;
+        bottom = gRoomControls.camera_target->y.HALF.HI - PORT_SCREEN_H / 2;
 
-        if (left < gRoomControls.origin_x)
-            left = gRoomControls.origin_x;
-        if (left > gRoomControls.origin_x + gRoomControls.width - DISPLAY_WIDTH)
-            left = gRoomControls.origin_x + gRoomControls.width - DISPLAY_WIDTH;
-        if (bottom < gRoomControls.origin_y)
-            bottom = gRoomControls.origin_y;
-        if (bottom > gRoomControls.origin_y + gRoomControls.height - DISPLAY_HEIGHT)
-            bottom = gRoomControls.origin_y + gRoomControls.height - DISPLAY_HEIGHT;
+        if (left < CAMERA_MIN(gRoomControls.origin_x, gRoomControls.width, PORT_SCREEN_W))
+            left = CAMERA_MIN(gRoomControls.origin_x, gRoomControls.width, PORT_SCREEN_W);
+        if (left > CAMERA_MAX(gRoomControls.origin_x, gRoomControls.width, PORT_SCREEN_W))
+            left = CAMERA_MAX(gRoomControls.origin_x, gRoomControls.width, PORT_SCREEN_W);
+        if (bottom < CAMERA_MIN(gRoomControls.origin_y, gRoomControls.height, PORT_SCREEN_H))
+            bottom = CAMERA_MIN(gRoomControls.origin_y, gRoomControls.height, PORT_SCREEN_H);
+        if (bottom > CAMERA_MAX(gRoomControls.origin_y, gRoomControls.height, PORT_SCREEN_H))
+            bottom = CAMERA_MAX(gRoomControls.origin_y, gRoomControls.height, PORT_SCREEN_H);
 
         if (left == gRoomControls.scroll_x && bottom == gRoomControls.scroll_y)
             gActiveScriptInfo.flags |= 1;

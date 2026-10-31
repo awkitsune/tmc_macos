@@ -75,10 +75,11 @@ u32 sub_08003FDE(Entity* a, Entity* b, u32 rx, u32 ry) {
 }
 
 u32 CheckOnScreen(Entity* this) {
-    if ((u32)(this->x.HALF.HI - gRoomControls.scroll_x + 0x3F) >= 0x16E) {
+    // The view and 63 px around it.
+    if ((u32)(this->x.HALF.HI - gRoomControls.scroll_x + 0x3F) >= PORT_SCREEN_W + 0x7E) {
         return FALSE;
     }
-    if ((u32)(this->y.HALF.HI - gRoomControls.scroll_y + this->z.HALF.HI + 0x3F) >= 0x11E) {
+    if ((u32)(this->y.HALF.HI - gRoomControls.scroll_y + this->z.HALF.HI + 0x3F) >= PORT_SCREEN_H + 0x7E) {
         return FALSE;
     }
     return TRUE;

@@ -60,6 +60,25 @@ typedef struct {
 } RoomControls;
 extern RoomControls gRoomControls;
 
+// The camera's range on one axis: scroll from origin to origin + size - view. In the
+// extended view (port/notes/widescreen.md) a room smaller than the view is centred.
+#ifdef PORT_HOSTED
+#define CAMERA_CENTRED(origin, size, view) ((s32)(origin) - ((s32)(view) - (s32)(size)) / 2)
+#define CAMERA_MIN(origin, size, view) \
+    (PORT_VIEW_EXTENDED && (s32)(size) < (s32)(view) ? CAMERA_CENTRED(origin, size, view) : (s32)(origin))
+#define CAMERA_MAX(origin, size, view)                                                 \
+    (PORT_VIEW_EXTENDED && (s32)(size) < (s32)(view) ? CAMERA_CENTRED(origin, size, view) \
+                                                     : (s32)(origin) + (s32)(size) - (s32)(view))
+// The scroll that puts v at the view's left or top edge, kept in the room as the
+// game's own clamps do (min wins only at or below it).
+static inline s32 CameraClamp(s32 v, s32 min, s32 max) {
+    return v <= min ? min : v > max ? max : v;
+}
+#else
+#define CAMERA_MIN(origin, size, view) (origin)
+#define CAMERA_MAX(origin, size, view) ((origin) + (size) - (view))
+#endif
+
 typedef struct {
     /* 0x00 */ bool8 didEnterScrolling;
     /* 0x01 */ bool8 destructableManagerLoaded;

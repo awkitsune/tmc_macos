@@ -77,7 +77,7 @@ void DrawUIElements(void) {
     for (index = 0; index < MAX_UI_ELEMENTS; index++) {
         element = &gHUD.elements[index];
         if (element->used == 1 && element->unk_0_1 == 1) {
-            gOamCmd.x = element->x;
+            gOamCmd.x = element->x + PORT_HUD_X;
             gOamCmd.y = element->y;
             definition = &gUIElementDefinitions[element->type];
             gOamCmd._4 = definition->unk_0;

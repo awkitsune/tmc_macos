@@ -217,10 +217,10 @@ u32 CheckRectOnScreen(s32 roomX, s32 roomY, u32 width, u32 height) {
     s32 left = gRoomControls.scroll_x - gRoomControls.origin_x - width;
     s32 top = gRoomControls.scroll_y - gRoomControls.origin_y - height;
 
-    if ((u32)(roomX - left) >= width * 2 + DISPLAY_WIDTH) {
+    if ((u32)(roomX - left) >= width * 2 + PORT_SCREEN_W) {
         return FALSE;
     }
-    if ((u32)(roomY - top) >= height * 2 + DISPLAY_HEIGHT) {
+    if ((u32)(roomY - top) >= height * 2 + PORT_SCREEN_H) {
         return FALSE;
     }
     return TRUE;

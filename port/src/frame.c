@@ -153,8 +153,10 @@ static void ReportFrame(const LineWatch* w) {
 static void CompareFrames(const uint16_t* scanline, const uint16_t* whole) {
     int first = -1, last = -1, count = 0;
 
-    for (int line = 0; line < PPU_HEIGHT; line++) {
-        if (memcmp(&scanline[line * PPU_WIDTH], &whole[line * PPU_WIDTH], PPU_WIDTH * sizeof(*whole)) != 0) {
+    int width = PpuWidth();
+
+    for (int line = 0; line < PpuHeight(); line++) {
+        if (memcmp(&scanline[line * width], &whole[line * width], width * sizeof(*whole)) != 0) {
             first = first < 0 ? line : first;
             last = line;
             count++;
@@ -168,7 +170,7 @@ static void CompareFrames(const uint16_t* scanline, const uint16_t* whole) {
 
 void HwRunLines(uint16_t* framebuffer) {
 #ifndef PLATFORM_DSI
-    static uint16_t sWhole[PPU_WIDTH * PPU_HEIGHT], sScratch[PPU_WIDTH * PPU_HEIGHT];
+    static uint16_t sWhole[PPU_MAX_WIDTH * PPU_MAX_HEIGHT], sScratch[PPU_MAX_WIDTH * PPU_MAX_HEIGHT];
 #else
     // No software PPU (and no environment) on the DSi: the comparisons are off.
     uint16_t *sWhole = NULL, *sScratch = NULL;
@@ -196,7 +198,7 @@ void HwRunLines(uint16_t* framebuffer) {
     PpuBeginFrame();
     bool compactCapture = PpuCompactCaptureActive();
     bool memoryUnchanged = false;
-    for (int line = 0; line < PPU_HEIGHT; line++) {
+    for (int line = 0; line < PpuHeight(); line++) {
         REG_VCOUNT = line;
         if (line == lyc) {
             REG_DISPSTAT |= DISPSTAT_VCOUNT;
@@ -214,7 +216,7 @@ void HwRunLines(uint16_t* framebuffer) {
             memcpy(gHwLineCapture[line], gHwIo, HW_LINE_REGS);
         }
         if (compactCapture && memoryUnchanged) PpuCompactMemoryUnchanged();
-        PpuRenderLine(line, draw != NULL ? &draw[line * PPU_WIDTH] : NULL);
+        PpuRenderLine(line, draw != NULL ? &draw[line * PpuWidth()] : NULL);
 
         REG_DISPSTAT |= DISPSTAT_HBLANK;
         bool hblankInterrupt = (REG_DISPSTAT & DISPSTAT_HBLANK_INTR) != 0;
@@ -241,7 +243,7 @@ void HwRunLines(uint16_t* framebuffer) {
 void HwRunVBlank(void) {
     int lyc;
 
-    REG_VCOUNT = PPU_HEIGHT;
+    REG_VCOUNT = PpuHeight();
     REG_DISPSTAT = (REG_DISPSTAT & ~DISPSTAT_VCOUNT) | DISPSTAT_VBLANK;
     HwDmaVBlank();
     if (REG_DISPSTAT & DISPSTAT_VBLANK_INTR) {
@@ -249,7 +251,7 @@ void HwRunVBlank(void) {
     }
     // A VCOUNT match inside VBlank (none in this game) comes after the VBlank handler.
     lyc = REG_DISPSTAT >> 8;
-    if (lyc >= PPU_HEIGHT && lyc < LINES_PER_FRAME && (REG_DISPSTAT & DISPSTAT_VCOUNT_INTR)) {
+    if (lyc >= PpuHeight() && lyc < LINES_PER_FRAME && (REG_DISPSTAT & DISPSTAT_VCOUNT_INTR)) {
         REG_VCOUNT = lyc;
         REG_DISPSTAT |= DISPSTAT_VCOUNT;
         HwRaiseInterrupt(INTR_VCOUNT);

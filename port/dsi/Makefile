@@ -60,7 +60,7 @@ DSI_FLAGS := $(COMMON_FLAGS) -Wall -I$(BLOCKSDS)/libs/libnds/include -I$(ROOT)/p
 
 GAME_SRCS := $(filter-out src/eeprom.c,$(shell cd $(ROOT) && find src -name '*.c' | sort))
 PORT_SRCS := port/src/bios.c port/src/interrupts.c port/src/eeprom.c port/src/data_glue.c \
-	port/src/frame.c port/src/hw_crc.c port/src/trace.c \
+	port/src/frame.c port/src/hw_crc.c port/src/trace.c port/src/view.c \
 	$(sort $(wildcard $(ROOT)/port/src/asm/*.c)) \
 	port/src/sound/m4a_engine.c port/src/sound/m4a_mixer.c port/src/sound/psg.c
 PORT_SRCS := $(patsubst $(ROOT)/%,%,$(PORT_SRCS))
