@@ -603,8 +603,14 @@ As built: the ARM9 mixes, the default ARM7 program only plays.
   frames (50 ms) ahead: a sample is dropped or repeated per frame when the lead
   drifts by 32, and after a stall (a frame over several VBlanks, a save) the ring
   is silenced and writing starts again three frames ahead.
-- Sleep (lid or the game's Sleep) and a halt stop the channels; the next frame
-  starts them again.
+- Long frames (room loads): TMC runs `m4aSoundMain` from its VCount interrupt,
+  so the GBA's music goes on through them. A DS VBlank that finds the game in
+  its own code with no sound frame since the last one runs `m4aSoundMain` from
+  the interrupt, when the game has that interrupt on (`platform_dsi.c`). Each
+  frame also clears four frames of the ring past its samples, so a stall in
+  the port's own work (a save) is silence, not the ring's old samples.
+- Sleep (lid or the game's Sleep), a soft reset and a halt stop the channels;
+  the next frame starts them again.
 
 Later, maybe: the DS's 16 hardware channels instead of the mix (DirectSound
 voices as PCM8 straight from the copy, PSG channels 8-15, the wave channel as a
