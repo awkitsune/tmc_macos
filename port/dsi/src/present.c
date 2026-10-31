@@ -16,6 +16,14 @@
  * Both show the backdrop, with the game's colour effect. The game's own
  * window goes to WIN1, so the border holds as long as the game has one
  * window on a line (sLineCounts says when it did not).
+ *
+ * Fullscreen (the extended view, port/notes/widescreen.md): a world frame is
+ * 256x192 game lines from (0, 0), and the border is what lies outside the
+ * room (gHwViewClip). The room layers' 64x32 wide maps (gHwWideMap) need DS
+ * VRAM the GBA layout leaves no room for, so a frame with them moves every BG
+ * map to the second 64 KB of bank A (DISPCNT's map base): the GBA screen
+ * blocks the frame uses, and the wide maps in blocks 0-7. Menus stay 240x160
+ * at (8, 16), as the bordered mode.
  */
 
 #include <nds.h>
@@ -27,11 +35,15 @@
 
 #include "dsi.h"
 
+#include "port/view.h"
+
 #define GBA_LINES 160
 #define DS_LINES 192
 #define TOP 16
 #define LEFT 8
 #define ROWS (DS_LINES + 1) // DMA writes row n + 1 at line n's HBlank; row 192 is never shown
+#define MAP_WINDOW 0x06010000 // bank A's second half: the maps of a frame with wide maps
+#define WIDE_BLOCKS 8         // the wide maps' screen blocks there: 64x32 entries, two each
 #define ROW_WORDS 20        // DS registers 0x08-0x57
 
 typedef struct {
@@ -42,11 +54,12 @@ typedef struct {
     };
 } Row;
 
+#define DS_WIDTH 256
 #define H(offset) (((offset) - 0x08) / 2) // halfword index in Row.h
 #define W(offset) (((offset) - 0x08) / 4) // word index in Row.w
 #define REF_MASK 0x0FFFFFFF               // BGxX/BGxY are 28-bit
 
-static uint8_t sLines[GBA_LINES][HW_LINE_REGS];
+static uint8_t sLines[DS_LINES][HW_LINE_REGS];
 static Row sRows[ROWS];
 static uint32_t sOam[HW_OAM_SIZE / 4] __attribute__((aligned(32)));
 
@@ -66,7 +79,21 @@ DsiPresentCounts gDsiPresentCounts;
 static const uint8_t sRefRegs[4] = { 0x28, 0x2C, 0x38, 0x3C }; // BG2X, BG2Y, BG3X, BG3Y
 static const uint8_t sRefSteps[4] = { 0x22, 0x26, 0x32, 0x36 }; // PB, PD of BG2, BG3
 static int32_t sRef[4];
-static int32_t sLineRef[GBA_LINES][4];
+static int32_t sLineRef[DS_LINES][4];
+
+// The frame being prepared: where its line 0 and column 0 go on the DS screen,
+// its lines, the part of the screen it covers (the rest is border), its wide
+// BGs, and the GBA screen blocks its maps use (a frame with wide maps copies
+// them to MAP_WINDOW).
+static struct {
+    int left, top, lines;
+    int clip[4]; // left, top, right, bottom in DS pixels
+    bool world;  // a fullscreen world frame
+    uint8_t wide, gbaLayers;
+    int gbaLeft, gbaTop;
+    uint32_t blocks;
+} sGeo;
+static bool sMapWindowDirty; // MAP_WINDOW holds maps (a non-wide frame needs it empty)
 
 static uint16_t In16(const uint8_t* io, uint32_t offset) {
     return io[offset] | (io[offset + 1] << 8);
@@ -150,30 +177,54 @@ typedef struct {
 static bool WindowSpan(const uint8_t* io, int w, int line, Span* span) {
     uint16_t h = In16(io, 0x40 + w * 2), v = In16(io, 0x44 + w * 2);
     int x1 = h >> 8, x2 = h & 0xFF, y1 = v >> 8, y2 = v & 0xFF;
+    int width = sGeo.world ? DS_WIDTH : PPU_WIDTH;
     int a, b;
 
+    if (sGeo.world) { // the GBA's screen edge is the view's, as in port/src/ppu.c
+        x2 = x2 == PPU_WIDTH ? DS_WIDTH : x2;
+        y2 = y2 == PPU_HEIGHT ? DS_LINES : y2;
+    }
     if (y1 <= y2 ? (line < y1 || line >= y2) : (line < y1 && line >= y2)) {
         return false;
     }
     span->wraps = false;
     if (x1 <= x2) {
-        a = x1 < PPU_WIDTH ? x1 : PPU_WIDTH;
-        b = x2 < PPU_WIDTH ? x2 : PPU_WIDTH;
-    } else if (x2 >= PPU_WIDTH) {
-        a = 0, b = PPU_WIDTH;
-    } else if (x1 >= PPU_WIDTH) {
+        a = x1 < width ? x1 : width;
+        b = x2 < width ? x2 : width;
+    } else if (x2 >= width) {
+        a = 0, b = width;
+    } else if (x1 >= width) {
         a = 0, b = x2;
     } else if (x2 == 0) {
-        a = x1, b = PPU_WIDTH;
+        a = x1, b = width;
     } else {
-        span->x1 = x1 + LEFT;
-        span->x2 = x2 + LEFT;
+        span->x1 = x1 + sGeo.left;
+        span->x2 = x2 + sGeo.left;
         span->wraps = true;
         return true;
     }
-    span->x1 = a + LEFT;
-    span->x2 = b + LEFT;
+    if (a < b && b - a >= DS_WIDTH) {
+        // All 256 columns: DS windows end at 255 (counted).
+        gDsiPresentCounts.fullWidthLines++;
+        b = DS_WIDTH - 1;
+    }
+    span->x1 = a + sGeo.left;
+    span->x2 = b + sGeo.left;
     return a < b;
+}
+
+// WIN0 over the columns outside the picture (sGeo.clip): bordered, it wraps
+// 248..255, then 0..7. 0 for none.
+static uint16_t BorderColumns(void) {
+    int left = sGeo.clip[0], right = sGeo.clip[2];
+
+    if (left == 0 && right >= DS_WIDTH) {
+        return 0;
+    }
+    if (right >= DS_WIDTH) {
+        return left; // 0..left - 1
+    }
+    return right << 8 | left; // right..255, then 0..left - 1
 }
 
 static bool Contains(const Span* outer, const Span* inner) {
@@ -189,8 +240,8 @@ static uint32_t Windows(const uint8_t* io, int line, Row* row) {
     bool on[2];
     int w;
 
-    row->h[H(0x40)] = (LEFT + PPU_WIDTH) << 8 | LEFT; // wraps: 248..255, then 0..7
-    row->h[H(0x44)] = DS_LINES;                      // lines 0-191
+    row->h[H(0x40)] = BorderColumns();
+    row->h[H(0x44)] = DS_LINES; // lines 0-191
     row->h[H(0x46)] = DS_LINES;
     if ((dispcnt & 0xE000) == 0) {
         row->h[H(0x42)] = 0;
@@ -234,14 +285,36 @@ static uint32_t Windows(const uint8_t* io, int line, Row* row) {
     return 0x6000 | (dispcnt & 0x8000);
 }
 
-// DS registers for GBA line g, drawn on DS line g + TOP.
+// The GBA screen blocks a BG's map covers (text or affine, by its size).
+static uint32_t MapBlocks(uint16_t cnt, bool affine) {
+    int base = (cnt >> 8) & 0x1F, size = cnt >> 14;
+    int count = affine ? (16 << (size * 2)) * 16 / 0x800 : (size == 0 ? 1 : size == 3 ? 4 : 2);
+
+    count = count < 1 ? 1 : count;
+    return (uint32_t)(((1ull << count) - 1) << base);
+}
+
+// DS registers for GBA line g, drawn on DS line g + sGeo.top.
 static void Translate(int g, Row* row) {
     const uint8_t* io = sLines[g];
+    uint16_t dispcnt = In16(io, 0x00);
+    int mode = dispcnt & 7;
 
     for (int bg = 0; bg < 4; bg++) {
-        row->h[H(0x08) + bg] = In16(io, 0x08 + bg * 2) & 0xFFCF; // DS char base bits 4-5
-        row->h[H(0x10) + bg * 2] = (In16(io, 0x10 + bg * 4) - LEFT) & 0x1FF;
-        row->h[H(0x12) + bg * 2] = (In16(io, 0x12 + bg * 4) - TOP) & 0x1FF;
+        uint16_t cnt = In16(io, 0x08 + bg * 2) & 0xFFCF; // DS char base bits 4-5
+        int left = sGeo.left, top = sGeo.top;
+
+        if (sGeo.wide & (1 << bg)) {
+            cnt = (cnt & 0x20CF) | (bg * 2) << 8 | 0x4000; // its wide map, 512x256
+        } else if (dispcnt & (0x100 << bg)) {
+            sGeo.blocks |= MapBlocks(cnt, (mode == 1 && bg == 2) || (mode == 2 && bg >= 2));
+        }
+        if (sGeo.gbaLayers & (1 << bg)) {
+            left += sGeo.gbaLeft, top += sGeo.gbaTop; // a centred GBA layer: the HUD
+        }
+        row->h[H(0x08) + bg] = cnt;
+        row->h[H(0x10) + bg * 2] = (In16(io, 0x10 + bg * 4) - left) & 0x1FF;
+        row->h[H(0x12) + bg * 2] = (In16(io, 0x12 + bg * 4) - top) & 0x1FF;
     }
     // Affine BGs: the parameters as they are; the reference point moves to
     // where DS pixel 0 of this line samples.
@@ -251,8 +324,8 @@ static void Translate(int g, Row* row) {
 
         row->w[W(base)] = In16(io, base) | (uint32_t)In16(io, base + 2) << 16;
         row->w[W(base + 4)] = In16(io, base + 4) | (uint32_t)In16(io, base + 6) << 16;
-        row->w[W(base + 8)] = (sLineRef[g][bg * 2] - LEFT * pa) & REF_MASK;
-        row->w[W(base + 12)] = (sLineRef[g][bg * 2 + 1] - LEFT * pc) & REF_MASK;
+        row->w[W(base + 8)] = (sLineRef[g][bg * 2] - sGeo.left * pa) & REF_MASK;
+        row->w[W(base + 12)] = (sLineRef[g][bg * 2 + 1] - sGeo.left * pc) & REF_MASK;
     }
     row->h[H(0x4C)] = In16(io, 0x4C);
     row->h[H(0x4E)] = 0;
@@ -260,7 +333,7 @@ static void Translate(int g, Row* row) {
     row->h[H(0x52)] = In16(io, 0x52) & 0x1F1F;
     row->h[H(0x54)] = In16(io, 0x54) & 0x1F;
     row->h[H(0x56)] = 0;
-    row->dispcnt = Dispcnt(In16(io, 0x00)) | Windows(io, g, row);
+    row->dispcnt = Dispcnt(dispcnt) | Windows(io, g, row) | (sGeo.wide ? 1u << 27 : 0); // maps at MAP_WINDOW
 }
 
 // A border line: the nearest picture line's registers, nothing drawn; the
@@ -320,11 +393,11 @@ static void TranslateOam(void) {
         // 128-line boxes (double-size 64) that wrap past line 255 while
         // starting on screen show their top too on the DS, not under ppu.c's rule.
         if (affine && (attr0 & 0x200) && (shape == 0 || shape == 2) && (attr1 >> 14) == 3 &&
-            (attr0 & 0xFF) < PPU_HEIGHT && (attr0 & 0xFF) + 128 > 256) {
+            (attr0 & 0xFF) < sGeo.lines && (attr0 & 0xFF) + 128 > 256) {
             gDsiPresentCounts.wrappedSprites++;
         }
-        out[0] = (attr0 & 0xFF00) | ((attr0 + TOP) & 0xFF);
-        out[1] = (attr1 & 0xFE00) | ((attr1 + LEFT) & 0x1FF);
+        out[0] = (attr0 & 0xFF00) | ((attr0 + sGeo.top) & 0xFF);
+        out[1] = (attr1 & 0xFE00) | ((attr1 + sGeo.left) & 0x1FF);
     }
 }
 
@@ -346,19 +419,54 @@ void DsiPresentInit(void) {
  * After the frame's lines, before the DS VBlank: the rows for every DS line,
  * the DMA tables for the registers that change between lines, and OAM.
  */
+// Where this frame goes (the view it was drawn with, port/view.h).
+static void FrameGeometry(void) {
+    sGeo.world = PortViewExtended() && !gHwGbaScreen;
+    sGeo.lines = PpuLines();
+    sGeo.left = sGeo.world ? 0 : LEFT;
+    sGeo.top = sGeo.world ? 0 : TOP;
+    sGeo.wide = sGeo.world ? gHwWideMapMask : 0;
+    sGeo.gbaLayers = sGeo.world ? gHwGbaLayerMask : 0;
+    sGeo.gbaLeft = PortViewGbaLeft();
+    sGeo.gbaTop = PortViewGbaTop();
+    sGeo.blocks = 0;
+    if (sGeo.world) {
+        for (int i = 0; i < 4; i++) {
+            sGeo.clip[i] = gHwViewClip[i];
+        }
+    } else {
+        sGeo.clip[0] = LEFT, sGeo.clip[1] = TOP;
+        sGeo.clip[2] = LEFT + PPU_WIDTH, sGeo.clip[3] = TOP + GBA_LINES;
+    }
+}
+
 void DsiPresentPrepare(void) {
     uint32_t* dispcnt;
     uint32_t* regs;
     int first = ROW_WORDS, last = -1;
+    int top, bottom;
 
-    for (int g = 0; g < GBA_LINES; g++) {
-        Translate(g, &sRows[g + TOP]);
+    FrameGeometry();
+    top = sGeo.clip[1];
+    bottom = sGeo.clip[3];
+    for (int g = 0; g < sGeo.lines; g++) {
+        int d = g + sGeo.top;
+        Translate(g, &sRows[d]);
+        if (d < top || d >= bottom) {
+            sRows[d].dispcnt &= ~0xFF00; // past the room: the backdrop
+        }
     }
-    for (int d = TOP - 1; d >= 0; d--) {
-        Border(d, TOP);
+    if (top >= bottom) { // nothing of the room on screen
+        top = sGeo.top, bottom = sGeo.top + 1;
     }
-    for (int d = TOP + GBA_LINES; d < ROWS; d++) {
-        Border(d, TOP + GBA_LINES - 1);
+    for (int d = top - 1; d >= 0 && d < sGeo.top; d--) {
+        Border(d, top);
+    }
+    for (int d = sGeo.top + sGeo.lines; d < ROWS; d++) {
+        Border(d, sGeo.top + sGeo.lines - 1);
+    }
+    if (sGeo.wide && (sGeo.blocks & ((1u << WIDE_BLOCKS) - 1))) {
+        gDsiPresentCounts.wideMapClashes++; // a GBA map where the wide maps go
     }
 
     sPlan.buffer ^= 1;
@@ -376,7 +484,7 @@ void DsiPresentPrepare(void) {
     // (melonDS at least) steps it only on lines that draw the BG, which the
     // border lines do not, so stepping alone would leave line 16 behind.
     for (int bg = 0; bg < 2; bg++) {
-        for (int d = TOP; d < TOP + GBA_LINES; d++) {
+        for (int d = sGeo.top; d < sGeo.top + sGeo.lines; d++) {
             if ((sRows[d].dispcnt & 7) == 2 && (sRows[d].dispcnt & (0x400 << bg))) {
                 int x = W(0x28 + bg * 0x10), y = W(0x2C + bg * 0x10);
 
@@ -411,7 +519,7 @@ void DsiPresentPrepare(void) {
 // from row 1 again (the DMA repeats; left alone it would run on past the
 // table), so DsiPresentVBlank re-arms them at every DS VBlank.
 static struct {
-    bool valid;
+    bool valid, world;
     int buffer, dispcnt, first, count;
     Row top;
 } sShown;
@@ -452,9 +560,28 @@ void DsiPresent(void) {
     dmaCopyWords(3, sOam, (void*)0x07000000, HW_OAM_SIZE);
     dmaCopyWords(3, gHwVram, (void*)0x06000000, 0x10000);
     dmaCopyWords(3, gHwVram + 0x10000, (void*)0x06400000, HW_VRAM_SIZE - 0x10000);
+    if (sGeo.wide) {
+        for (int block = WIDE_BLOCKS; block < 32; block++) {
+            if (sGeo.blocks & (1u << block)) {
+                dmaCopyWords(3, gHwVram + block * 0x800, (void*)(MAP_WINDOW + block * 0x800), 0x800);
+            }
+        }
+        for (int bg = 0; bg < 4; bg++) {
+            if (sGeo.wide & (1 << bg)) {
+                dmaCopyWords(3, gHwWideMap[bg], (void*)(MAP_WINDOW + bg * 0x1000), sizeof(gHwWideMap[bg]));
+            }
+        }
+        sMapWindowDirty = true;
+        gDsiPresentCounts.wideFrames++;
+    } else if (sMapWindowDirty) {
+        // Back to the GBA's layout, where BG tiles past 64 KB read as transparent.
+        dmaFillWords(0, (void*)MAP_WINDOW, 0x10000);
+        sMapWindowDirty = false;
+    }
 
     REG_IME = 0;
     sShown.valid = true;
+    sShown.world = sGeo.world;
     sShown.buffer = sPlan.buffer;
     sShown.dispcnt = sPlan.dispcnt;
     sShown.first = sPlan.first;
@@ -479,33 +606,36 @@ void DsiCaptureStart(void) {
 }
 
 /*
- * The captured frame: the CRC of its 240x160 picture as the Mac's
- * TMC_FRAME_HASH (15-bit colours, little-endian), and how many border pixels
- * differ from the top-left one. False if the capture did not finish.
+ * The captured frame: the CRC of its picture as the Mac's TMC_FRAME_HASH
+ * (15-bit colours, little-endian): 240x160, or all 256x192 for a fullscreen
+ * world frame; and how many border pixels differ from the top-left one. False
+ * if the capture did not finish.
  */
 bool DsiCaptureResult(uint32_t frame, DsiPicture* picture) {
-    static uint32_t line[PPU_WIDTH / 2];
+    static uint32_t line[DS_WIDTH / 2];
     uint32_t corner = CAPTURE[0] & 0x7FFF, crc = 0, border = 0;
+    int left = sShown.world ? 0 : LEFT, top = sShown.world ? 0 : TOP;
+    int width = sShown.world ? DS_WIDTH : PPU_WIDTH, lines = sShown.world ? DS_LINES : GBA_LINES;
 
     if (REG_DISPCAPCNT & DCAP_ENABLE) {
         return false;
     }
     for (int y = 0; y < DS_LINES; y++) {
         const vu32* row = &CAPTURE[y * 128];
-        bool picture_line = y >= TOP && y < TOP + GBA_LINES;
+        bool picture_line = y >= top && y < top + lines;
 
         for (int x = 0; x < 128; x++) {
             uint32_t pair = row[x] & 0x7FFF7FFF;
 
-            if (picture_line && x >= LEFT / 2 && x < (LEFT + PPU_WIDTH) / 2) {
-                line[x - LEFT / 2] = pair;
+            if (picture_line && x >= left / 2 && x < (left + width) / 2) {
+                line[x - left / 2] = pair;
             } else {
                 border += (pair & 0xFFFF) != corner;
                 border += (pair >> 16) != corner;
             }
         }
         if (picture_line) {
-            crc = HwCrc32(crc, line, sizeof(line));
+            crc = HwCrc32(crc, line, width * 2);
         }
     }
 #ifdef DSI_CAPTURE_DUMP

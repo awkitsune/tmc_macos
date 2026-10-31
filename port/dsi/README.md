@@ -395,6 +395,7 @@ The SD card (FAT32):
 | `sd:/tmc_dsi.nds` | `build/dsi/tmc_dsi.nds` (any folder works) |
 | `sd:/tmc/boot.txt` | written by the port |
 | `sd:/tmc/tmc.sav` | the save, written by the port |
+| `sd:/tmc/settings.txt` | optional: `screen=bordered` for the GBA's 240x160 with a border; without it (or with `screen=fullscreen`) the game fills the screen with more of the world (`port/notes/widescreen.md`) |
 
 - **TWiLight Menu++:** browse to `tmc_dsi.nds` and start it. It needs DSi mode:
   if the bottom screen says "needs DSi mode", set the game's *Run in* setting

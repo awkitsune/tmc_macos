@@ -164,12 +164,15 @@ typedef struct {
     uint32_t dispcntFrames;  // frames whose DISPCNT changes between DS lines
     uint32_t regFrames;      // frames with other registers changing between lines
     int32_t maxDmaWords;     // most register words written per HBlank
+    uint32_t wideFrames;     // fullscreen frames with wide maps
+    uint32_t wideMapClashes; // of those, frames with a GBA map in the wide maps' blocks
+    uint32_t fullWidthLines; // game windows over all 256 columns (DS windows stop at 255)
 } DsiPresentCounts;
 extern DsiPresentCounts gDsiPresentCounts;
 
 /*
  * The picture check: display capture of a presented frame into bank D, then
- * its 240x160 picture's CRC (as the Mac's TMC_FRAME_HASH) and the number of
+ * its picture's CRC (240x160, or 256x192 fullscreen) (as the Mac's TMC_FRAME_HASH) and the number of
  * border pixels unlike the top-left one. Even frames of the first
  * DSI_FRAME_RECORDS (a capture takes the next DS frame) go to gDsiPictures;
  * with -DDSI_CAPTURE_DUMP=n, frame n's whole capture is kept in gDsiCaptureDump.

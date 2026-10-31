@@ -170,6 +170,26 @@ effects and VBlank at line 160), drawn into rows `PpuLineRow()` on; the rows abo
 - iOS touch layout: in landscape a fitted view takes all the width between the control columns
   (`TouchLayoutOptions.viewFit`); portrait already gives the picture the top half.
 
+### DSi
+
+`port/dsi/src/present.c`. Fullscreen (`tmc/settings.txt`: `screen=fullscreen`, the default) sets the view to
+256x192 at boot; `screen=bordered` keeps 240x160 with the border, drawn as before.
+
+- A world frame is 192 game lines from (0, 0). Menus (GBA screen) are 240x160 at (8, 16) as in the bordered
+  mode: the backdrop around them, not black as on the Mac (the DS has no layer left to draw black with).
+- The border is what lies outside the room (`gHwViewClip`): rows outside it have every layer and window
+  off, columns outside it are WIN0 (no layers, effects on), as the bordered mode's side columns.
+- Wide maps: DS BG maps share one 64 KB window (DISPCNT's map base), and the GBA's is full. A frame with
+  wide maps moves the window to bank A's second half (0x06010000): the GBA screen blocks the frame uses are
+  copied there, and the wide maps go to blocks 0-7 (`wideMapClashes` counts frames with a GBA map there).
+  BG tiles past 64 KB, transparent on the GBA, would read those maps in such a frame; the half is cleared
+  again when a frame without wide maps follows.
+- BG0 (HUD, text) is offset by (8, 16) with no clipping: its map's unused rows and columns show around the
+  centred block (empty in the rooms seen on the Mac).
+- Game windows: an edge at 240/160 means 256/192; a window over all 256 columns stops at 255 (the DS cannot
+  hold 256 in a window register; `fullWidthLines` counts them).
+- Verified only by building: melonDS is a GUI app, so the DSi is checked by hand.
+
 ### Checks
 
 - 240x160: playthrough `23999 89eb5912`, all 24,000 frame CRCs identical to before; room smoke ok 576;
@@ -214,4 +234,5 @@ effects and VBlank at line 160), drawn into rows `PpuLineRow()` on; the rows abo
 - Tile 0 outside the room is assumed blank (true in the rooms checked); a dedicated blank entry may be needed.
 - The app at other sizes is checked by building only: no GUI runs here. The debug windows (BG viewer's
   screen outline, Map window's camera box) still draw a 240x160 screen.
-- The DSi presenter (wide maps in DS VRAM, 192 lines, HBlank tables).
+- DSi: speed (the game draws and copies more), the DSI_CHECKS picture comparison for fullscreen menus
+  (the Mac draws black around them, the DSi backdrop).
