@@ -47,6 +47,11 @@ typedef struct PsgChannel {
     // Noise.
     uint16_t lfsr;
     bool noiseOut;
+#ifdef PLATFORM_DSI
+    // PsgRenderDsi's phase: 32-bit fraction of a duty cycle or wave period,
+    // 16.16 noise clocks.
+    uint32_t fixedPhase;
+#endif
 } PsgChannel;
 
 static PsgChannel sChannels[4];
@@ -286,6 +291,11 @@ static void Trigger(int ch) {
         c->length = maxLength;
     }
     c->on = DacOn(ch);
+#ifdef PLATFORM_DSI
+    if (ch >= 2) {
+        c->fixedPhase = 0;
+    }
+#endif
     if (ch == 2) {
         c->phase = 0;
         return;
@@ -537,3 +547,154 @@ void PsgAdvance(int frames, int sampleRate) {
     }
     EndFrame();
 }
+
+#ifdef PLATFORM_DSI
+/*
+ * PsgRender for the DSi, which has no FPU: the DirectSound frame (the 8-bit
+ * mono slot MixAuthentic wrote) plus the CGB channels, in integers, as 16-bit
+ * stereo for port/dsi/src/sound_dsi.c. The frame sequencer keeps PsgAdvance's
+ * sub-sample timing (the Mac's); the channels are sampled once per output
+ * sample, with no box filter. Levels are in sixteenths and the mix in half DAC
+ * units, so the 50% ratios stay exact.
+ */
+
+#define FIXED_ONE 0x10000u
+
+// A channel's phase step per output sample, numerator / denominator, divided
+// again only when the frequency setting (key) or the rate changes.
+static uint32_t PhaseStep(int ch, int key, int sampleRate, uint64_t numerator, uint64_t denominator) {
+    static struct {
+        int key, rate;
+        uint32_t step;
+    } cache[4];
+
+    if (cache[ch].key != key || cache[ch].rate != sampleRate) {
+        cache[ch].key = key;
+        cache[ch].rate = sampleRate;
+        cache[ch].step = (uint32_t)(numerator / denominator);
+    }
+    return cache[ch].step;
+}
+
+// Level 0-15 of a channel at this output sample, in sixteenths.
+static int LevelFixed(int ch, int sampleRate) {
+    PsgChannel* c = &sChannels[ch];
+
+    if (ch < 2) {
+        int x = Frequency(ch);
+        uint32_t step = PhaseStep(ch, x, sampleRate, (uint64_t)131072 << 32, (uint64_t)(2048 - x) * sampleRate);
+        int level = sDuty[gHwIo[sNrx1[ch]] >> 6][c->fixedPhase >> 29] ? c->volume << 4 : 0;
+        c->fixedPhase += step;
+        return level;
+    }
+    if (ch == 2) {
+        static const int shift[4] = { 4, 0, 1, 2 };
+        int x = Frequency(2);
+        uint32_t step = PhaseStep(2, x, sampleRate, (uint64_t)65536 << 32, (uint64_t)(2048 - x) * sampleRate);
+        int index = c->fixedPhase >> 27;
+        int byte = gHwIo[REG_OFFSET_WAVE_RAM0 + index / 2];
+        int sample = (index & 1) ? byte & 0xF : byte >> 4;
+        int vol = REG(NR32);
+        c->fixedPhase += step;
+        if (vol & 0x80) {
+            return ((sample * 3) >> 2) << 4;
+        }
+        return (sample >> shift[(vol >> 5) & 3]) << 4;
+    }
+    {
+        // The noise clock is 524288 / r / 2^(s+1) Hz, r = 0 counting as 0.5.
+        int nr43 = REG(NR43);
+        int s = nr43 >> 4;
+        uint32_t rTimes2 = (nr43 & 7) ? 2 * (nr43 & 7) : 1;
+        int sum, n;
+
+        if (s >= 14) {
+            return c->noiseOut ? c->volume << 4 : 0;
+        }
+        c->fixedPhase += PhaseStep(3, nr43 & 0xF7, sampleRate, (uint64_t)1048576 * FIXED_ONE,
+                                   (uint64_t)rTimes2 * (2u << s) * sampleRate);
+        sum = c->noiseOut ? c->volume : 0;
+        n = 1;
+        while (c->fixedPhase >= FIXED_ONE) {
+            c->fixedPhase -= FIXED_ONE;
+            c->noiseOut = c->lfsr & 1;
+            c->lfsr >>= 1;
+            if (c->noiseOut) {
+                c->lfsr ^= (nr43 & 8) ? 0x60 : 0x6000;
+            }
+            sum += c->noiseOut ? c->volume : 0;
+            n++;
+        }
+        return (sum << 4) / n;
+    }
+}
+
+void PsgRenderDsi(const int8_t* mono, int16_t* stereo, int frames, int sampleRate) {
+    static const int ratio[4] = { 1, 2, 4, 0 }; // halves
+    static int32_t dcIn[2], dcOut[2];
+    // exp(-2 pi 5 Hz / rate) in Q15, to first order.
+    int32_t pole = 32768 - (1029437 + sampleRate / 2) / sampleRate;
+    int oversample = Oversample(sampleRate);
+    double dt = 1.0 / ((double)sampleRate * oversample);
+    u16 cnt;
+    int nr50, nr51, bias, ds, dsVol[2], vol[2], low, high;
+
+    BeginFrame();
+
+    // DirectSound A: an 8-bit step is 4 DAC units at 100%, 2 at 50%.
+    cnt = REG(SOUNDCNT_H) | (gHwIo[REG_OFFSET_SOUNDCNT_H + 1] << 8);
+    ds = (REG(SOUNDCNT_X) & 0x80) ? ((cnt & 4) ? 8 : 4) : 0;
+    dsVol[0] = (cnt & 0x200) ? ds : 0;
+    dsVol[1] = (cnt & 0x100) ? ds : 0;
+    nr50 = REG(NR50);
+    nr51 = REG(NR51);
+    vol[0] = (((nr50 >> 4) & 7) + 1) * ratio[REG(SOUNDCNT_H) & 3];
+    vol[1] = ((nr50 & 7) + 1) * ratio[REG(SOUNDCNT_H) & 3];
+    if (!(REG(NR52) & 0x80)) {
+        vol[0] = vol[1] = 0;
+    }
+    bias = (REG(SOUNDBIAS_L) | (REG(SOUNDBIAS_H) << 8)) & 0x3FE;
+    low = -2 * bias;
+    high = 2 * (0x3FF - bias);
+
+    for (int i = 0; i < frames; i++) {
+        int level[2] = { 0, 0 };
+
+        for (int k = 0; k < oversample; k++) {
+            sSequencerTime += dt;
+            if (sSequencerTime >= 1.0 / 512) {
+                sSequencerTime -= 1.0 / 512;
+                SequencerStep();
+            }
+        }
+        for (int ch = 0; ch < 4; ch++) {
+            int l;
+            if (!sChannels[ch].on) {
+                continue;
+            }
+            l = LevelFixed(ch, sampleRate);
+            if (nr51 & (0x10 << ch)) {
+                level[0] += l;
+            }
+            if (nr51 & (0x01 << ch)) {
+                level[1] += l;
+            }
+        }
+        for (int c = 0; c < 2; c++) {
+            int32_t v = mono[i] * dsVol[c] + ((level[c] * vol[c]) >> 4);
+            int32_t in, out;
+
+            v = v < low ? low : v > high ? high : v;
+            // The output coupling capacitor, in Q8; then half DAC units to 16 bits.
+            in = v << 8;
+            out = in - dcIn[c] + (int32_t)(((int64_t)pole * dcOut[c]) >> 15);
+            dcIn[c] = in;
+            dcOut[c] = out;
+            out >>= 3;
+            stereo[2 * i + c] = out > 32767 ? 32767 : out < -32768 ? -32768 : out;
+        }
+    }
+
+    EndFrame();
+}
+#endif

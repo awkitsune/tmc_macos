@@ -256,7 +256,8 @@ python3 -I port/dsi/scripts/melonds_run.py build/dsi/tmc_dsi.nds build/dsi/tmc_d
 
 At milestone 5 it loads, checks and relocates the ROM, then runs the game
 on the top screen, centred with a black border. The DS's A, B, Select,
-Start, D-pad, R and L are the GBA's; there is no sound yet. It logs the
+Start, D-pad, R and L are the GBA's. Sound is the game's own mix, streamed to
+two DS channels ([PLAN.md](PLAN.md#sound)). It logs the
 frame times after 1,024 frames.
 
 The comparison with the Mac (below) needs a build with the checks,

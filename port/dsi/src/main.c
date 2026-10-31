@@ -102,6 +102,7 @@ void DsiLogToDefaultFile(void) {
 }
 
 static _Noreturn void Halt(void) {
+    DsiSoundStop();
     gDsiLogDone = 1;
     DC_FlushAll();
     // Last, as it may not return (from an exception, interrupts are off).

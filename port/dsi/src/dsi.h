@@ -81,6 +81,14 @@ void DsiSha1Update(DsiSha1* ctx, const void* data, size_t length);
 void DsiSha1Final(DsiSha1* ctx, uint8_t digest[20]);
 
 
+/*
+ * Sound (sound_dsi.c): DsiSoundFrame takes a frame of 16-bit stereo samples
+ * from the game's mixer and starts the DS's channels on the first one;
+ * DsiSoundStop silences them until the next frame (sleep, a halt).
+ */
+void DsiSoundFrame(const int16_t* stereo, int frames);
+void DsiSoundStop(void);
+
 /* Run the game from AgbMain; a BIOS SoftReset comes back here. */
 _Noreturn void DsiRunGame(void);
 

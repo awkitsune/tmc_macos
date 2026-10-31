@@ -2,6 +2,7 @@
 #define PORT_SOUND_INTERNAL_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // psg.c: the four CGB channels, synthesised from the sound registers in gHwIo.
 // stereo holds the frame's DirectSound output in 10-bit DAC units (signed, around
@@ -13,6 +14,11 @@ void PsgRender(float* stereo, int frames, int sampleRate);
  * sweep, envelopes, NR52) without synthesising: the same clock, step for step.
  */
 void PsgAdvance(int frames, int sampleRate);
+#ifdef PLATFORM_DSI
+// PsgRender in integers, from the frame's 8-bit DirectSound samples to 16-bit
+// stereo (psg.c).
+void PsgRenderDsi(const int8_t* mono, int16_t* stereo, int frames, int sampleRate);
+#endif
 void PsgReset(void);
 // True while a CGB channel is audible.
 bool PsgActive(void);

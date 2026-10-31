@@ -57,6 +57,11 @@ static float sHqVolume[MAX_DIRECTSOUND_CHANNELS];
 
 static float sDcIn[2], sDcOut[2];
 
+#ifdef PLATFORM_DSI
+void DsiSoundFrame(const int16_t* stereo, int frames);
+static int16_t sDsiStereo[2 * MAX_FRAME];
+#endif
+
 void SoundSetSink(SoundSink sink, void* context) {
     sSink = sink;
     sSinkContext = context;
@@ -450,10 +455,10 @@ void SoundMain(void) {
         }
         MixAuthentic(soundInfo, slot, samples);
 #ifdef PLATFORM_DSI
-        // The ARM9 keeps the engine's state as the Mac's (the PCM ring, channel
-        // envelopes and ends, the CGB registers); the ARM7 plays the sound later
-        // (port/dsi/PLAN.md, "Sound on the ARM7"), so nothing more is mixed here.
-        PsgAdvance(samples, soundInfo->pcmFreqency);
+        // No FPU: the CGB channels and the output stage in integers (psg.c),
+        // streamed to the DS's sound channels (port/dsi/src/sound_dsi.c).
+        PsgRenderDsi(slot, sDsiStereo, samples, soundInfo->pcmFreqency);
+        DsiSoundFrame(sDsiStereo, samples);
         soundInfo->ident = ID_NUMBER;
         return;
 #endif

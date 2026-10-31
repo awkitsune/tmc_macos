@@ -576,22 +576,37 @@ twice, and DMA in repeat mode would otherwise run past its table.
 - melonDS can only test this through DLDI (`fat:/tmc/`, see README); `sd:/` writes
   are checked on the real DSi.
 
-## Sound on the ARM7 (after the proof of concept)
+## Sound
 
-- The m4a sequencer (Mac `port/src/sound/m4a_engine.c`) runs on the ARM9 each
-  frame. It sends per-voice state (sample address, loop, frequency, volume, pan,
-  start/stop) to the ARM7 through a small shared ring buffer.
-- The ARM7 programs the DS's 16 hardware channels:
-  - DirectSound voices go to PCM8 channels. GBA samples are signed 8-bit like DS
-    PCM8, so they play straight from the ROM copy in main RAM with no conversion.
-    Envelopes are stepped at 60 Hz as m4a does.
-  - The PSG square channels go to DS PSG channels 8-13, noise to 14-15, and the
-    wave channel to a looped 32-sample PCM channel.
-- This leaves the ARM7 almost idle: no software mixing, which its 33 MHz and 96 KB
-  couldn't afford.
-- Song pointers are raw GBA addresses (see Measurements), so the sequencer
-  translates 0x08xxxxxx when it reads headers and tracks.
-- Samples stay in RAM (option A fits).
+As built: the ARM9 mixes, the default ARM7 program only plays.
+
+- The m4a engine and the authentic DirectSound mixer run on the ARM9 each frame,
+  as on the Mac (`port/src/sound/m4a_mixer.c`): 264 8-bit mono samples a frame at
+  the engine's 15,768 Hz.
+- `PsgRenderDsi` (`psg.c`, `PLATFORM_DSI`) adds the four CGB channels and the
+  output stage in integers, as the Mac's `PsgRender` does in floating point:
+  SOUNDCNT_H/NR50/NR51 levels in half DAC units, the clip around SOUNDBIAS, the
+  5 Hz output high-pass in Q8, then 16-bit stereo (half DAC unit x 32). The
+  frame sequencer keeps `PsgAdvance`'s sub-sample timing; the channels are
+  sampled once per output sample, without the Mac's box filter. Checked on the
+  host against `PsgRender` (square + DirectSound, wave, noise, sweep): same peaks
+  and levels, the rest is the box filter.
+- `port/dsi/src/sound_dsi.c` streams the frame into a 4,096-sample ring per
+  side, which DS channels 0 (left) and 1 (right) loop as PCM16, started by
+  `soundPlaySampleChannel` (FIFO to the ARM7). Their sample period is a DS frame
+  over 264, 1,061 sound clock cycles (15,793 Hz): one game frame per DS frame
+  is exactly what they play, 0.17% faster than the GBA's pitch.
+- ARM9 timers 2 and 3 count the samples played (timer 2 overflows every
+  2 x 1,061 bus cycles, the same crystal; timer 3 counts). Writing stays three
+  frames (50 ms) ahead: a sample is dropped or repeated per frame when the lead
+  drifts by 32, and after a stall (a frame over several VBlanks, a save) the ring
+  is silenced and writing starts again three frames ahead.
+- Sleep (lid or the game's Sleep) and a halt stop the channels; the next frame
+  starts them again.
+
+Later, maybe: the DS's 16 hardware channels instead of the mix (DirectSound
+voices as PCM8 straight from the copy, PSG channels 8-15, the wave channel as a
+looped 32-sample PCM channel), which needs an ARM7 program of our own.
 
 ## Screen: 256x192, centred
 

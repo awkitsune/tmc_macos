@@ -53,11 +53,13 @@ static void FlushSave(bool now) {
 /*
  * The lid closed. The ARM7's own sleep on the lid is off (DsiRunGame), as it
  * would come at any point, in the middle of a frame or of a save; here the save
- * is on the card first. Sleep is allowed just for the request, and the DSi
- * wakes when the lid opens.
+ * is on the card first and the sound is stopped (it starts again with the
+ * next frame). Sleep is allowed just for the request, and the DSi wakes when
+ * the lid opens.
  */
 static void SleepUntilLidOpens(void) {
     FlushSave(true);
+    DsiSoundStop();
     enableSleep();
     systemSleep();
     disableSleep();
@@ -68,6 +70,7 @@ void DsiStop(void) {
     uint16_t wake = keycnt & 0x3FF;
 
     FlushSave(true);
+    DsiSoundStop(); // the channels would loop the last frames
     powerOff(PM_BACKLIGHT_TOP | PM_BACKLIGHT_BOTTOM);
     for (;;) {
         uint16_t held;
