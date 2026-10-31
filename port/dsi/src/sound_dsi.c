@@ -12,8 +12,8 @@
  * period of the channels (the sound clock is the bus clock halved, so the same
  * crystal), and timer 3 counts its overflows. Writing stays a few frames ahead
  * of that; a sample is dropped or repeated when the lead drifts, and after a
- * stall (a save) the ring is silenced and writing starts over ahead of the
- * channels. A long game frame (a room load) does not stall the sound:
+ * stall (a save) the channels play silence (each frame clears the ring for
+ * a few frames past its samples) and writing starts over ahead of them. A long game frame (a room load) does not stall the sound:
  * DsiSoundVBlank runs the game's sound from the DS VBlank interrupt, as the
  * GBA's interrupt does (platform_dsi.c).
  */
@@ -28,6 +28,7 @@
 #define RING 4096 // samples per channel; divides timer 3's 65536
 #define LEAD_FRAMES 3
 #define DRIFT 32  // samples of lead either way before correcting
+#define SILENCE_FRAMES 4 // cleared past the written samples, which a stall plays
 // A DS frame: 263 lines of 2,130 bus cycles (355 dots of 6), in sound clock
 // cycles.
 #define SOUND_CYCLES_PER_FRAME (263 * 2130 / 2)
@@ -131,7 +132,14 @@ void DsiSoundFrame(const int16_t* stereo, int frames) {
         sRing[0][at] = stereo[2 * from];
         sRing[1][at] = stereo[2 * from + 1];
     }
-    Flush(0, sWrite, count);
-    Flush(1, sWrite, count);
+    // Past them, silence rather than the ring's old samples.
+    for (int i = count; i < count + SILENCE_FRAMES * frames; i++) {
+        uint32_t at = (uint16_t)(sWrite + i) & (RING - 1);
+
+        sRing[0][at] = 0;
+        sRing[1][at] = 0;
+    }
+    Flush(0, sWrite, count + SILENCE_FRAMES * frames);
+    Flush(1, sWrite, count + SILENCE_FRAMES * frames);
     sWrite += count;
 }
