@@ -139,6 +139,37 @@ other axis moves into the new room's range on the way.
   registrations through the room smoke test.
 - Pictures narrower than the view in rooms narrower than the view are covered by the room clip.
 
+### Taller views
+
+- HUD and text: the GBA layout is a 240x160 block centred both ways (`PORT_HUD_X/Y`; BG0 as a GBA
+  layer is offset and clipped in both directions).
+- The game's HBlank tables are 160 lines long. In a taller frame the HBlank DMA stops after line 159, so
+  the lines below keep line 159's registers (an iris or a wave effect does not reach them).
+- A camera outside the room's range (the view changed size, or a state saved at another size) moves
+  back into it at the scroll speed (`Scroll1`, extended view only).
+
+### Menus in taller views
+
+A GBA screen (menus) in a view taller than 160 runs the GBA's 160 lines, as on the GBA (VCOUNT, HBlank
+effects and VBlank at line 160), drawn into rows `PpuLineRow()` on; the rows above and below are black
+(`PpuLines`, `PpuLineRow`, `PpuClearRows` in `port/include/port/ppu.h`).
+
+### Mac and iOS app
+
+- Setting "View" (`kViewDefault`): "GBA (original)" (240x160) or "Fit to display". macOS: Settings,
+  Display, Picture. iOS: Settings, Display, Picture.
+- Fit to display (`PortViewFit`): from the picture area's aspect, 3:2 or wider: 160 lines and the width
+  to the nearest 16; taller (iPad 4:3, portrait): 240 wide and the height to the nearest 8; within
+  240x160..432x224. The renderer asks for it from its picture area on every draw (`FrontendSetView`);
+  the game thread takes it right after publishing a frame, so the next frame's logic and picture agree.
+- Frames carry their size (`FrontendCopyFrame`); the renderer's textures and LCD response targets
+  follow it; the picture is fitted by the frame's aspect (`RendererFitPictureSize`).
+- Metal PPU: the capture carries the frame's view (`PpuCaptureView`: size, lines, masks, clip, wide
+  maps), bound as buffer 3; layers and sprites are drawn in line coordinates in max-size textures, the
+  output texture is the frame's size.
+- iOS touch layout: in landscape a fitted view takes all the width between the control columns
+  (`TouchLayoutOptions.viewFit`); portrait already gives the picture the top half.
+
 ### Checks
 
 - 240x160: playthrough `23999 89eb5912`, all 24,000 frame CRCs identical to before; room smoke ok 576;
@@ -163,6 +194,15 @@ other axis moves into the new room's range on the way.
 - Streamed layers at 288: each alone (`TMC_LAYER_MASK`) contains the 240 run's picture with 0 differing
   pixels, at its parallax offset (12:03, 2e:01). In 2e:01 (256 wide) the 16-px margins are backdrop.
 
+- 256x192 and 288x160 room smoke ok 576. Hyrule Town at 288x192 (camera at the room's bottom): BG0
+  alone equals the 240 run at (24, 16), the room layers alone at (24, 32), with 0 differing pixels.
+- iOS app builds (`xcodebuild`, no signing).
+- Metal PPU against the software PPU (`gpu_ppu_test`), 0 differing pixels: also Hyrule Town at 288x192
+  and 256x192, the bedroom, the intro's iris and the pause menu at 256x192; and the 34 synthetic cases at
+  240x160, and game captures: Hyrule Town at 288x160 and 432x224, the bedroom (clipped) at 288x192, the
+  pause menu at 288x192 (GBA screen, centred both ways), the Minish path (12:03) and rafters (2e:01) at
+  288, a mid-slide frame, the clouds (area 03) and the intro's iris at 288x160 and 240x160.
+
 ### Not done yet
 
 - The digging-cave ellipse (`scrollAction` 5) and the wipe (`scrollAction` 4, no setter found in the C
@@ -172,5 +212,6 @@ other axis moves into the new room's range on the way.
   scroll across all 256 px on the GBA (clouds, animated backgrounds) wrap there too and are seamless.
 - Windows narrower than full screen past x 255 (8-bit registers), iris effects.
 - Tile 0 outside the room is assumed blank (true in the rooms checked); a dedicated blank entry may be needed.
-- Metal GPU PPU, presenter, iOS touch layout, settings UI; the DSi presenter (wide maps in DS VRAM,
-  192 lines, HBlank tables).
+- The app at other sizes is checked by building only: no GUI runs here. The debug windows (BG viewer's
+  screen outline, Map window's camera box) still draw a 240x160 screen.
+- The DSi presenter (wide maps in DS VRAM, 192 lines, HBlank tables).

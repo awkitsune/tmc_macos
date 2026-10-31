@@ -232,7 +232,9 @@ typedef struct {
     dispatch_semaphore_t _inFlight;
     NSUInteger _slot;
     uint64_t _sequence;
-    uint32_t _pixels[PPU_WIDTH * PPU_HEIGHT];
+    uint32_t _pixels[PPU_MAX_WIDTH * PPU_MAX_HEIGHT];
+    int _pixelsWidth, _pixelsHeight; // the frame in _pixels
+    int _viewRequested;              // width << 16 | height last sent to FrontendSetView
     NSURL* _captureURL;
     // Debugging: sprite outline, filter stage capture and the readback copy.
     id<MTLRenderPipelineState> _overlayPipeline;
@@ -317,44 +319,86 @@ typedef struct {
         return nil;
     }
 
-    MTLTextureDescriptor* texDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                                                                       width:PPU_WIDTH
-                                                                                      height:PPU_HEIGHT
-                                                                                   mipmapped:NO];
-    texDesc.usage = MTLTextureUsageShaderRead;
-    texDesc.storageMode = _cpuStorage;
+    _pixelsWidth = PPU_WIDTH;
+    _pixelsHeight = PPU_HEIGHT;
     for (int i = 0; i < IN_FLIGHT; i++) {
-        _textures[i] = [_device newTextureWithDescriptor:texDesc];
+        _textures[i] = [self frameTexture:nil width:PPU_WIDTH height:PPU_HEIGHT];
+    }
+    [self historyForWidth:PPU_WIDTH height:PPU_HEIGHT];
+    _frameSize = CGSizeMake(PPU_WIDTH, PPU_HEIGHT);
+    _integerScaling = YES;
+    _params = FilterParamsDefaults();
+    return self;
+}
+
+// A game frame's texture (the CPU writes it), kept when it already has the size.
+- (id<MTLTexture>)frameTexture:(nullable id<MTLTexture>)current width:(int)width height:(int)height {
+    if (current != nil && current.width == (NSUInteger)width && current.height == (NSUInteger)height) {
+        return current;
+    }
+    MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                    width:width
+                                                                                   height:height
+                                                                                mipmapped:NO];
+    desc.usage = MTLTextureUsageShaderRead;
+    desc.storageMode = _cpuStorage;
+    return [_device newTextureWithDescriptor:desc];
+}
+
+// The LCD response targets at the frame's size; new ones start a new history.
+- (void)historyForWidth:(NSUInteger)width height:(NSUInteger)height {
+    if (_shown != nil && _shown.width == width && _shown.height == height) {
+        return;
     }
     MTLTextureDescriptor* floatDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
-                                                                                         width:PPU_WIDTH
-                                                                                        height:PPU_HEIGHT
+                                                                                         width:width
+                                                                                        height:height
                                                                                      mipmapped:NO];
     floatDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
     floatDesc.storageMode = MTLStorageModePrivate;
     _history[0] = [_device newTextureWithDescriptor:floatDesc];
     _history[1] = [_device newTextureWithDescriptor:floatDesc];
     _shown = [_device newTextureWithDescriptor:floatDesc];
-    _integerScaling = YES;
-    _params = FilterParamsDefaults();
-    return self;
+    _historyValid = NO;
 }
 
-CGRect RendererFitPicture(CGRect area, BOOL integerScaling) {
-    double scale = MIN(area.size.width / PPU_WIDTH, area.size.height / PPU_HEIGHT);
+CGRect RendererFitPictureSize(CGRect area, BOOL integerScaling, CGSize source) {
+    double scale = MIN(area.size.width / source.width, area.size.height / source.height);
     if (integerScaling && scale >= 1.0) {
         scale = floor(scale);
     }
-    double width = round(PPU_WIDTH * scale), height = round(PPU_HEIGHT * scale);
+    double width = round(source.width * scale), height = round(source.height * scale);
     return CGRectMake(area.origin.x + floor((area.size.width - width) / 2),
                       area.origin.y + floor((area.size.height - height) / 2), width, height);
 }
 
-// The picture in the drawable: fitted in pictureRect, or in the whole drawable.
-- (MTLViewport)viewportForDrawableSize:(CGSize)size {
+CGRect RendererFitPicture(CGRect area, BOOL integerScaling) {
+    return RendererFitPictureSize(area, integerScaling, CGSizeMake(PPU_WIDTH, PPU_HEIGHT));
+}
+
+// Where the picture may go in the drawable: pictureRect, or the whole drawable.
+- (CGRect)pictureAreaForDrawableSize:(CGSize)size {
     CGRect area = CGRectMake(0, 0, size.width, size.height);
     CGRect inside = CGRectIntersection(area, self.pictureRect);
-    CGRect fit = RendererFitPicture(CGRectIsEmpty(inside) ? area : inside, self.integerScaling);
+    return CGRectIsEmpty(inside) ? area : inside;
+}
+
+// "Fit to display": ask the game for the view that fills the picture area.
+- (void)requestViewForDrawableSize:(CGSize)size {
+    int width = PPU_WIDTH, height = PPU_HEIGHT;
+    if (self.viewFit) {
+        CGRect area = [self pictureAreaForDrawableSize:size];
+        PortViewFit(area.size.width, area.size.height, &width, &height);
+    }
+    if (_viewRequested != ((width << 16) | height)) {
+        _viewRequested = (width << 16) | height;
+        FrontendSetView(width, height);
+    }
+}
+
+// The picture in the drawable: fitted in pictureRect, or in the whole drawable.
+- (MTLViewport)viewportForDrawableSize:(CGSize)size {
+    CGRect fit = RendererFitPictureSize([self pictureAreaForDrawableSize:size], self.integerScaling, self.frameSize);
     return (MTLViewport){
         .originX = fit.origin.x,
         .originY = fit.origin.y,
@@ -375,6 +419,8 @@ CGRect RendererFitPicture(CGRect area, BOOL integerScaling) {
             _pixels[y * PPU_WIDTH + x] = y < PPU_HEIGHT / 2 ? greys[x * 4 / PPU_WIDTH] : bars[x * 6 / PPU_WIDTH];
         }
     }
+    _pixelsWidth = PPU_WIDTH;
+    _pixelsHeight = PPU_HEIGHT;
     return YES;
 }
 
@@ -491,13 +537,19 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     }
     if (!cpuAvailable || _gpuSelfTestChecked) return;
     _gpuSelfTestChecked = YES;
-    id<MTLBuffer> readback = [_device newBufferWithLength:PPU_WIDTH * PPU_HEIGHT * 4 options:MTLResourceStorageModeShared];
-    NSData* expected = [NSData dataWithBytes:_pixels length:sizeof(_pixels)];
+    int pixels = _pixelsWidth * _pixelsHeight;
+    if (_gpuFrame.width != (NSUInteger)_pixelsWidth || _gpuFrame.height != (NSUInteger)_pixelsHeight) {
+        NSLog(@"GPU PPU self-test: FAILED, GPU frame %lux%lu, software %dx%d", (unsigned long)_gpuFrame.width,
+              (unsigned long)_gpuFrame.height, _pixelsWidth, _pixelsHeight);
+        return;
+    }
+    id<MTLBuffer> readback = [_device newBufferWithLength:pixels * 4 options:MTLResourceStorageModeShared];
+    NSData* expected = [NSData dataWithBytes:_pixels length:pixels * 4];
     id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
     [blit copyFromTexture:_gpuFrame sourceSlice:0 sourceLevel:0
-             sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(PPU_WIDTH, PPU_HEIGHT, 1)
-                 toBuffer:readback destinationOffset:0 destinationBytesPerRow:PPU_WIDTH * 4
-  destinationBytesPerImage:PPU_WIDTH * PPU_HEIGHT * 4];
+             sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(_pixelsWidth, _pixelsHeight, 1)
+                 toBuffer:readback destinationOffset:0 destinationBytesPerRow:_pixelsWidth * 4
+  destinationBytesPerImage:pixels * 4];
     [blit endEncoding];
     [commands addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
         int bad = 0;
@@ -507,7 +559,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
             NSLog(@"GPU PPU self-test: FAILED to read the GPU frame");
             return;
         }
-        for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) {
+        for (int i = 0; i < pixels; i++) {
             uint32_t rgb = reference[i];
             if (actual[i * 4] != ((rgb >> 16) & 255) || actual[i * 4 + 1] != ((rgb >> 8) & 255) ||
                 actual[i * 4 + 2] != (rgb & 255) || actual[i * 4 + 3] != 255) bad++;
@@ -553,8 +605,12 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     uint64_t previous = _sequence;
     bool cut = false, gpuAvailable = false, cpuAvailable = false;
     PpuCompactCapture* gpuInput = _gpuPpu != nil && !self.testPattern ? [_gpuPpu input:next] : NULL;
+    if (!self.testPattern) {
+        [self requestViewForDrawableSize:view.drawableSize];
+    }
     BOOL fresh = self.testPattern ? [self fillTestPattern]
-                                  : FrontendCopyFrame(_pixels, &_sequence, &cut, gpuInput, &gpuAvailable, &cpuAvailable);
+                                  : FrontendCopyFrame(_pixels, &_pixelsWidth, &_pixelsHeight, &_sequence, &cut, gpuInput,
+                                                      &gpuAvailable, &cpuAvailable);
     id<MTLCommandBuffer> commands = [_queue commandBuffer];
     if (fresh) {
         if (gpuAvailable) {
@@ -567,15 +623,18 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
                 _gpuFallbackTestChecked = YES;
                 NSLog(@"GPU PPU self-test: software frame restored");
             }
-            [_textures[next] replaceRegion:MTLRegionMake2D(0, 0, PPU_WIDTH, PPU_HEIGHT)
+            _textures[next] = [self frameTexture:_textures[next] width:_pixelsWidth height:_pixelsHeight];
+            [_textures[next] replaceRegion:MTLRegionMake2D(0, 0, _pixelsWidth, _pixelsHeight)
                                mipmapLevel:0
                                  withBytes:_pixels
-                               bytesPerRow:PPU_WIDTH * 4];
+                               bytesPerRow:_pixelsWidth * 4];
             _gpuFrame = nil;
         }
         _slot = next;
     }
     id<MTLTexture> texture = _gpuFrame ?: _textures[_slot];
+    _frameSize = CGSizeMake(texture.width, texture.height);
+    [self historyForWidth:texture.width height:texture.height];
     if (LatencyEnabled()) {
         LatencyStageAt(_sequence, 0, drawStart);
     }
@@ -605,7 +664,7 @@ static void WriteTexturePNG(id<MTLTexture> texture, NSURL* url) {
     }
     MTLViewport viewport = [self viewportForDrawableSize:view.drawableSize];
     Uniforms uniforms = {
-        .sourceSize = { PPU_WIDTH, PPU_HEIGHT },
+        .sourceSize = { (float)texture.width, (float)texture.height },
         .outputSize = { (float)viewport.width, (float)viewport.height },
         .filter = (uint32_t)self.filter,
         .params = self.params,

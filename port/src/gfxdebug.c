@@ -21,7 +21,7 @@ void GfxSnapshotBegin(GfxSnapshot* snap, uint64_t frame) {
         snap->dma[i].dest = snap->dma[i].control ? HwGbaAddress(dest) : 0;
     }
     // Until the frame is drawn, every line looks like line 0.
-    for (int line = 0; line < PPU_HEIGHT; line++) {
+    for (int line = 0; line < PPU_MAX_HEIGHT; line++) {
         memcpy(snap->lines[line], gHwIo, HW_LINE_REGS);
     }
     snap->hasLines = 0;

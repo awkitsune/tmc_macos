@@ -641,6 +641,7 @@ static void LoadEntityDrawState(DrawState* st, Entity* e) {
         st->y -= (s16)gOAMControls._6;
     } else {
         st->x += PORT_HUD_X; // screen space: the GBA layout's place in the view
+        st->y += PORT_HUD_Y;
     }
     st->attr = (settings & 0x3E003F00) | (gOAMControls.spritesOffset << 12) |
                (((e->frameSpriteSettings ^ settings) & 0xC0) << 22);

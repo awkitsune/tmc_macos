@@ -12,6 +12,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 extern NSString* const kFilterDefault;
 extern NSString* const kIntegerScalingDefault;
+// The view (port/notes/widescreen.md): 0 "GBA (original)" (240x160), 1 "Fit to display".
+extern NSString* const kViewDefault;
+extern NSString* _Nonnull const kViewNames[2];
 extern NSString* const kGamepadLayoutDefault;
 extern NSString* const kGpuPpuDefault;
 // Moves the old per-option GPU rendering dictionary into kGpuPpuDefault.

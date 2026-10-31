@@ -56,8 +56,12 @@ static struct {
 
 // The newest finished frame, guarded by sFrameLock.
 static os_unfair_lock sFrameLock = OS_UNFAIR_LOCK_INIT;
-static uint32_t sFrame[PPU_WIDTH * PPU_HEIGHT];
+static uint32_t sFrame[PPU_MAX_WIDTH * PPU_MAX_HEIGHT];
+static int sFrameWidth = PPU_WIDTH, sFrameHeight = PPU_HEIGHT;
 static uint64_t sFrameSequence;
+// The view the front end asks for (width << 16 | height), applied by the game
+// thread between frames.
+static atomic_uint sViewRequest = (PPU_WIDTH << 16) | PPU_HEIGHT;
 // The sequence of the newest frame that does not follow on from the one before
 // (after a state load or a reset), so the renderer can drop its LCD history.
 static uint64_t sCutSequence;
@@ -205,8 +209,12 @@ bool FrontendGpuCaptureStats(size_t* bytes, unsigned* pages) {
     return available;
 }
 
-bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCompactCapture* gpu, bool* gpuAvailable,
-                       bool* cpuAvailable) {
+void FrontendSetView(int width, int height) {
+    atomic_store(&sViewRequest, ((unsigned)width << 16) | (unsigned)height);
+}
+
+bool FrontendCopyFrame(uint32_t* dest, int* width, int* height, uint64_t* sequence, bool* cut, PpuCompactCapture* gpu,
+                       bool* gpuAvailable, bool* cpuAvailable) {
     bool fresh;
 
     os_unfair_lock_lock(&sFrameLock);
@@ -214,7 +222,9 @@ bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCompact
     fresh = sFrameSequence != *sequence && (sCpuFrameValid || gpuMatch);
     if (fresh) {
         *cpuAvailable = sCpuFrameValid;
-        if (sCpuFrameValid) memcpy(dest, sFrame, sizeof(sFrame));
+        *width = sFrameWidth;
+        *height = sFrameHeight;
+        if (sCpuFrameValid) memcpy(dest, sFrame, (size_t)sFrameWidth * sFrameHeight * sizeof(*sFrame));
         *gpuAvailable = gpuMatch;
         if (gpuMatch) memcpy(gpu, sGpuShared, PpuCompactSize(sGpuShared));
         *cut = sCutSequence > *sequence;
@@ -226,10 +236,11 @@ bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCompact
 
 // raw is NULL for a frame only the GPU draws (from the capture, if gpu).
 static uint64_t PublishFrame(const uint16_t* raw, bool gpu) {
-    static uint32_t sConverted[PPU_WIDTH * PPU_HEIGHT];
+    static uint32_t sConverted[PPU_MAX_WIDTH * PPU_MAX_HEIGHT];
+    int pixels = PpuWidth() * PpuHeight();
 
     if (raw != NULL) {
-        for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) {
+        for (int i = 0; i < pixels; i++) {
             uint32_t r = raw[i] & 0x1F, g = (raw[i] >> 5) & 0x1F, b = (raw[i] >> 10) & 0x1F;
             r = (r << 3) | (r >> 2);
             g = (g << 3) | (g >> 2);
@@ -239,7 +250,9 @@ static uint64_t PublishFrame(const uint16_t* raw, bool gpu) {
     }
     os_unfair_lock_lock(&sFrameLock);
     sCpuFrameValid = raw != NULL;
-    if (sCpuFrameValid) memcpy(sFrame, sConverted, sizeof(sFrame));
+    sFrameWidth = PpuWidth();
+    sFrameHeight = PpuHeight();
+    if (sCpuFrameValid) memcpy(sFrame, sConverted, pixels * sizeof(*sFrame));
     if (gpu) {
         PpuCompactCapture* old = sGpuShared;
         sGpuShared = sGpuWork;
@@ -391,7 +404,7 @@ static void ServiceMapRequest(void) {
     atomic_store(&sMapNow, true);
 }
 
-static uint16_t sRaw[PPU_WIDTH * PPU_HEIGHT];
+static uint16_t sRaw[PPU_MAX_WIDTH * PPU_MAX_HEIGHT];
 static uint64_t sFramePeriod; // mach ticks
 static double sTicksToNs;
 static double sMarginMs = 7; // TMC_SYNC_MARGIN_MS: room after the frame's work for the draw and the GPU
@@ -683,6 +696,10 @@ void PlatformVBlank(void) {
         usleep((useconds_t)stall * 1000);
     }
     sPublished = PublishFrame(draw, captureGpu);
+    // A new view takes effect here, so the next frame's game logic and picture
+    // both have it.
+    unsigned view = atomic_load(&sViewRequest);
+    PortViewSet((int)(view >> 16), (int)(view & 0xFFFF));
     if (perf && stall == 0) PerformanceEndFrame(gPlatformFrame, gameNs, hardwareNs, PerformanceNow() - publishStart, 1000.0 / GameFrameRate(driven) / (atomic_load(&sFastForward) ? 4.0 : 1.0));
     LatencyFrameDone(sPublished, frameStart);
     gPlatformFrame++;

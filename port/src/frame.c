@@ -227,7 +227,11 @@ void HwRunLines(uint16_t* framebuffer) {
             HwRaiseInterrupt(INTR_HBLANK);
         }
         bool dmaMayWriteMemory = false;
-        HwDmaHBlank(compactCapture ? &dmaMayWriteMemory : NULL);
+        // The game's HBlank tables are 160 lines long: in a taller view the lines
+        // after the GBA's last keep its registers.
+        if (line < PPU_HEIGHT - 1 || PpuLines() <= PPU_HEIGHT) {
+            HwDmaHBlank(compactCapture ? &dmaMayWriteMemory : NULL);
+        }
         // No game code runs between lines unless one of these occurs. On the
         // game thread VRAM, palette and OAM must therefore be unchanged; a
         // VCOUNT interrupt at the next line invalidates this proof before its

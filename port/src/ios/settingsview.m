@@ -554,6 +554,17 @@ static SettingsPage* DisplayPage(id<SettingsHost> host) {
                                                        weakHost.renderer.filter = (FilterMode)index;
                                                        [NSUserDefaults.standardUserDefaults setInteger:index forKey:kFilterDefault];
                                                    }),
+                                               Choice(
+                                                   @"View", @[ kViewNames[0], kViewNames[1] ],
+                                                   ^NSInteger { return weakHost.renderer.viewFit ? 1 : 0; },
+                                                   ^(NSInteger index) {
+                                                       weakHost.renderer.viewFit = index == 1;
+                                                       [NSUserDefaults.standardUserDefaults setInteger:index forKey:kViewDefault];
+                                                       // The touch layout gives a fitted view all the room it has.
+                                                       [NSNotificationCenter.defaultCenter
+                                                           postNotificationName:kTouchControlsChangedNotification
+                                                                         object:nil];
+                                                   }),
                                                Toggle(
                                                    @"Integer scaling", ^BOOL { return weakHost.renderer.integerScaling; },
                                                    ^(BOOL on) {
@@ -572,8 +583,9 @@ static SettingsPage* DisplayPage(id<SettingsHost> host) {
                                                                                              forKey:kGpuPpuDefault];
                                                    }),
                                            ]
-                                         footer:@"Integer scaling keeps every GBA pixel the same size. "
-                                                 @"Off draws the game on the CPU."]];
+                                         footer:@"Fit to display shows more of the world to fill the screen; menus "
+                                                 @"stay at the GBA's size. Integer scaling keeps every GBA pixel the "
+                                                 @"same size. Off draws the game on the CPU."]];
     // The knobs, in their sections (as the macOS Display and Filters tabs).
     NSMutableArray<SettingsRow*>* rows = nil;
     for (size_t i = 0; i < KNOB_COUNT; i++) {

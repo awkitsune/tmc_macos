@@ -119,6 +119,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [defaults registerDefaults:@{
         kFilterDefault : @(FilterModeSharpBilinear),
         kIntegerScalingDefault : @YES,
+        kViewDefault : @0,
         kMutedDefault : @NO,
         kHighQualityAudioDefault : @NO,
         kStateSlotDefault : @1,
@@ -210,6 +211,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     }
     _renderer.filter = MIN((NSUInteger)[defaults integerForKey:kFilterDefault], FilterModeCount - 1);
     _renderer.integerScaling = [defaults boolForKey:kIntegerScalingDefault];
+    _renderer.viewFit = [defaults integerForKey:kViewDefault] == 1;
     _renderer.params = LoadFilterParams();
     _renderer.lcdResponse = [defaults boolForKey:kLcdResponseDefault];
     // Without the GPU PPU (or if Metal later fails to draw a frame) the
@@ -547,6 +549,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     CGFloat scale = _view.contentScaleFactor;
     TouchSettings settings = TouchSettingsLoad(self.portrait);
     settings.layout.integerScaling = _renderer == nil || _renderer.integerScaling;
+    settings.layout.viewFit = _renderer != nil && _renderer.viewFit;
     TouchLayout layout = TouchLayoutMake(size, self.view.safeAreaInsets, self.portrait,
                                          UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad, scale,
                                          &settings.layout);

@@ -55,11 +55,16 @@ static Sizes Scaled(const Sizes* s, CGFloat k) {
     return scaled;
 }
 
-static void Landscape(TouchLayout* layout, CGRect safe, const Sizes* s, CGFloat pixelsPerPoint, BOOL integerScaling) {
+static void Landscape(TouchLayout* layout, CGRect safe, const Sizes* s, CGFloat pixelsPerPoint, BOOL integerScaling,
+                      BOOL viewFit) {
     // At the narrowest, the controls keep a margin from the edge and half that from the picture.
     CGFloat column = MAX(s->dpad, s->faceDX + s->face) + 1.5 * s->margin;
     CGFloat width;
-    if (integerScaling) {
+    if (viewFit) {
+        // The view takes the shape of all the room there is (the renderer fits it).
+        width = floor((safe.size.width - 2 * column) * pixelsPerPoint) / pixelsPerPoint;
+        width = MAX(width, GBA_WIDTH / pixelsPerPoint);
+    } else if (integerScaling) {
         width = GBA_WIDTH * WholeScale(safe.size.width - 2 * column, safe.size.height, pixelsPerPoint) / pixelsPerPoint;
     } else {
         width = MIN(safe.size.width - 2 * column, safe.size.height * GBA_WIDTH / GBA_HEIGHT);
@@ -160,7 +165,7 @@ TouchLayout TouchLayoutMake(CGSize bounds, UIEdgeInsets safe, BOOL portrait, BOO
     if (portrait) {
         Portrait(&layout, area, &s, bounds.height);
     } else {
-        Landscape(&layout, area, &s, pixelsPerPoint, options->integerScaling);
+        Landscape(&layout, area, &s, pixelsPerPoint, options->integerScaling, options->viewFit);
     }
     Move(&layout, area, options->offsets);
     layout.deadZone = 0.18 * s.dpad / 2;

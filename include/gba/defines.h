@@ -104,17 +104,19 @@
 
 // The world view (port/notes/widescreen.md): the GBA screen, or larger on native
 // builds. DISPLAY_WIDTH/HEIGHT stay the size of the GBA layouts (HUD, menus).
-// PORT_HUD_X: where the GBA layout's left edge is in the view, for screen-space
+// PORT_HUD_X/Y: where the GBA layout's top left is in the view, for screen-space
 // sprites (the HUD).
 #ifdef PORT_HOSTED
-extern int gPortScreenW, gPortScreenH, gPortHudX;
+extern int gPortScreenW, gPortScreenH, gPortHudX, gPortHudY;
 #define PORT_SCREEN_W gPortScreenW
 #define PORT_SCREEN_H gPortScreenH
 #define PORT_HUD_X gPortHudX
+#define PORT_HUD_Y gPortHudY
 #else
 #define PORT_SCREEN_W DISPLAY_WIDTH
 #define PORT_SCREEN_H DISPLAY_HEIGHT
 #define PORT_HUD_X 0
+#define PORT_HUD_Y 0
 #endif
 #define PORT_VIEW_EXTENDED (PORT_SCREEN_W != DISPLAY_WIDTH || PORT_SCREEN_H != DISPLAY_HEIGHT)
 

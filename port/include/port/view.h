@@ -21,6 +21,10 @@ extern int gPortScreenW, gPortScreenH;
 /* Set the view size (clamped to 240x160 .. the maximum, even widths). Before the
    first frame, or between frames. */
 void PortViewSet(int width, int height);
+/* "Fit to display": the view for a picture area of width x height (any unit).
+   As wide as the GBA's 3:2 or wider: 160 lines, the width to the nearest 16.
+   Taller: 240 wide, the height to the nearest 8. Within 240x160 .. the maximum. */
+void PortViewFit(double width, double height, int* viewWidth, int* viewHeight);
 static inline bool PortViewExtended(void) {
     return gPortScreenW != 240 || gPortScreenH != 160;
 }
@@ -32,7 +36,8 @@ static inline bool PortViewExtended(void) {
  *   BG bg reads instead of its screen blocks, when bit bg of gHwWideMapMask is
  *   set. The GBA's BG VRAM has no room for 512-wide maps.
  * - gHwGbaLayerMask: BGs (bits 0-3) drawn as a 240x160 GBA layer centred in the
- *   view: their scroll is the GBA's and they are transparent outside the centre.
+ *   view: their scroll is the GBA's and they are transparent outside the centre
+ *   (PortViewGbaLeft, PortViewGbaTop).
  * - gHwGbaScreen: the whole picture is a 240x160 GBA screen centred in the view
  *   (menus, title, file select), black around it.
  * - gHwViewClip: in the world view, the part of the view the room covers (left,

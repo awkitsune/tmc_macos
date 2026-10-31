@@ -55,8 +55,15 @@ void FrontendStartGame(void);
 void FrontendSetSavePath(const char* path);
 
 /*
- * Copy the newest frame (PPU_WIDTH x PPU_HEIGHT, BGRA8) into dest if it is newer
- * than *sequence, updating *sequence. Returns whether a frame was copied. The
+ * The extended view (port/view.h) to show: 240x160 is the GBA's. Taken by the
+ * game thread after the frame it is drawing.
+ */
+void FrontendSetView(int width, int height);
+
+/*
+ * Copy the newest frame (*width x *height, at most PPU_MAX_WIDTH x
+ * PPU_MAX_HEIGHT, BGRA8) into dest if it is newer than *sequence, updating
+ * *sequence. Returns whether a frame was copied. The
  * game frames since the last copy are the change in *sequence; *cut is set when
  * a state load or a reset came in between (the picture does not follow on).
  * *cpuAvailable says whether dest holds the frame. If gpu is non-NULL, the
@@ -64,8 +71,8 @@ void FrontendSetSavePath(const char* path);
  * *gpuAvailable. A GPU-only frame is not returned to a caller without gpu; it
  * waits for the next software-drawn frame.
  */
-bool FrontendCopyFrame(uint32_t* dest, uint64_t* sequence, bool* cut, PpuCompactCapture* gpu, bool* gpuAvailable,
-                       bool* cpuAvailable);
+bool FrontendCopyFrame(uint32_t* dest, int* width, int* height, uint64_t* sequence, bool* cut, PpuCompactCapture* gpu,
+                       bool* gpuAvailable, bool* cpuAvailable);
 /* GPU PPU: the game thread keeps the hardware timing and captures each line's
  * state instead of drawing the frame. */
 bool FrontendSetGpuPpuEnabled(bool enabled);

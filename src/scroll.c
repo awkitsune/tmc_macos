@@ -97,6 +97,26 @@ void Scroll1(RoomControls* controls) {
     s32 uVar5;
     s32 targetValue;
 
+#ifdef PORT_HOSTED
+    // The extended view changed size, or a state saved at another size loaded:
+    // move a camera left outside the room's range back into it.
+    if (PORT_VIEW_EXTENDED && controls->camera_target != NULL) {
+        s32 range[2][2] = {
+            { CAMERA_MIN(controls->origin_x, controls->width, PORT_SCREEN_W),
+              CAMERA_MAX(controls->origin_x, controls->width, PORT_SCREEN_W) },
+            { CAMERA_MIN(controls->origin_y, controls->height, PORT_SCREEN_H),
+              CAMERA_MAX(controls->origin_y, controls->height, PORT_SCREEN_H) },
+        };
+        s16* scroll[2] = { &controls->scroll_x, &controls->scroll_y };
+        for (int i = 0; i < 2; i++) {
+            if (*scroll[i] < range[i][0]) {
+                *scroll[i] = min(*scroll[i] + controls->scrollSpeed, range[i][0]);
+            } else if (*scroll[i] > range[i][1]) {
+                *scroll[i] = max(*scroll[i] - controls->scrollSpeed, range[i][1]);
+            }
+        }
+    }
+#endif
     if (controls->camera_target != NULL) {
         // Scroll in x direction.
         unused = controls->scroll_x;

@@ -85,6 +85,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     Renderer* _renderer;
     Input* _input;
     NSPopUpButton* _filterPopup;
+    NSPopUpButton* _viewPopup;
     NSPopUpButton* _gamepadPopup;
     NSPopUpButton* _pacingPopup;
     NSTextField* _pacingNote;
@@ -145,6 +146,14 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     _filterPopup.action = @selector(filterChanged:);
     _filterPopup.identifier = kFilterDefault;
     [display addRow:@"Filter" control:_filterPopup value:nil];
+    _viewPopup = [NSPopUpButton new];
+    for (NSUInteger i = 0; i < 2; i++) {
+        [_viewPopup addItemWithTitle:kViewNames[i]];
+    }
+    _viewPopup.target = self;
+    _viewPopup.action = @selector(viewChanged:);
+    _viewPopup.identifier = kViewDefault;
+    [display addRow:@"View" control:_viewPopup value:nil];
     _integerScaling = [NSButton checkboxWithTitle:@"Integer scaling" target:self action:@selector(integerScalingChanged:)];
     _integerScaling.identifier = kIntegerScalingDefault;
     [display addRow:nil control:_integerScaling value:nil];
@@ -314,6 +323,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
 - (void)refresh {
     FilterParams params = _renderer.params;
     [_filterPopup selectItemAtIndex:(NSInteger)_renderer.filter];
+    [_viewPopup selectItemAtIndex:_renderer.viewFit ? 1 : 0];
     _integerScaling.state = _renderer.integerScaling ? NSControlStateValueOn : NSControlStateValueOff;
     _lcdResponse.state = _renderer.lcdResponse ? NSControlStateValueOn : NSControlStateValueOff;
     _gpuPpu.state = _renderer.gpuPpuEnabled ? NSControlStateValueOn : NSControlStateValueOff;
@@ -359,6 +369,11 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
 - (void)filterChanged:(NSPopUpButton*)sender {
     _renderer.filter = (FilterMode)sender.indexOfSelectedItem;
     [NSUserDefaults.standardUserDefaults setInteger:sender.indexOfSelectedItem forKey:kFilterDefault];
+}
+
+- (void)viewChanged:(NSPopUpButton*)sender {
+    _renderer.viewFit = sender.indexOfSelectedItem == 1;
+    [NSUserDefaults.standardUserDefaults setInteger:sender.indexOfSelectedItem forKey:kViewDefault];
 }
 
 - (void)integerScalingChanged:(NSButton*)sender {

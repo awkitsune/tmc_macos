@@ -53,9 +53,12 @@ static uint background(device const Line& l, device const uchar* pool, constant 
         return index ? pal(l, pool, index) : 0xffff;
     }
     bool wide = (v.wideMask >> bg) & 1;
-    int gbaLeft = !v.gbaScreen && ((v.gbaLayerMask >> bg) & 1) ? int(v.gbaLeft) : 0;
-    if (gbaLeft != 0 && (sx < gbaLeft || sx >= gbaLeft + 240)) return 0xffff;
-    sx -= gbaLeft;
+    bool gbaLayer = !v.gbaScreen && extended(v) && ((v.gbaLayerMask >> bg) & 1);
+    if (gbaLayer) {
+        sx -= int(v.gbaLeft);
+        line -= int(v.gbaTop);
+        if (sx < 0 || sx >= 240 || line < 0 || line >= 160) return 0xffff;
+    }
     int w = wide ? 512 : (cnt & 0x4000) ? 512 : 256, h = wide ? 256 : (cnt & 0x8000) ? 512 : 256;
     int x = (sx + (reg(l, 0x10 + bg * 4) & 511)) & (w - 1);
     int y = (line - (mosaic ? int(l.mosaicBgY) : 0) + (reg(l, 0x12 + bg * 4) & 511)) & (h - 1);

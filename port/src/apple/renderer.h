@@ -85,10 +85,12 @@ NSString* DebugBufferName(DebugBuffer buffer);
 @end
 
 /*
- * The largest rect with the GBA's 3:2 shape that fits, centred, in the area, in
- * whole pixels: scaled by a whole number (integerScaling) or as large as the
- * aspect ratio allows.
+ * The largest rect with the picture's shape (source, in game pixels) that fits,
+ * centred, in the area, in whole pixels: scaled by a whole number
+ * (integerScaling) or as large as the aspect ratio allows. RendererFitPicture
+ * is for the GBA's 240x160.
  */
+CGRect RendererFitPictureSize(CGRect area, BOOL integerScaling, CGSize source);
 CGRect RendererFitPicture(CGRect area, BOOL integerScaling);
 
 /*
@@ -99,6 +101,11 @@ CGRect RendererFitPicture(CGRect area, BOOL integerScaling);
 @interface Renderer : NSObject <MTKViewDelegate>
 @property(nonatomic) FilterMode filter;
 @property(nonatomic) BOOL integerScaling;
+// "Fit to display" (port/notes/widescreen.md): the game shows as much of the
+// world as fills the picture area (PortViewFit); NO for the GBA's 240x160.
+@property(nonatomic) BOOL viewFit;
+// The size of the frame on show, in game pixels.
+@property(nonatomic, readonly) CGSize frameSize;
 // Where the picture goes, in drawable pixels (iOS touch controls keep it clear
 // of the buttons); empty, the default, for the whole drawable.
 @property(nonatomic) CGRect pictureRect;

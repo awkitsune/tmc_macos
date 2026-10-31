@@ -169,6 +169,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     [defaults registerDefaults:@{
         kFilterDefault : @(FilterModeSharpBilinear),
         kIntegerScalingDefault : @YES,
+        kViewDefault : @0,
         kMutedDefault : @NO,
         kHighQualityAudioDefault : @NO,
         kStateSlotDefault : @1,
@@ -259,6 +260,7 @@ static void StateDone(bool ok, const char* message, uint64_t frame, void* contex
     }
     _renderer.filter = MIN((NSUInteger)[defaults integerForKey:kFilterDefault], FilterModeCount - 1);
     _renderer.integerScaling = [defaults boolForKey:kIntegerScalingDefault];
+    _renderer.viewFit = [defaults integerForKey:kViewDefault] == 1;
     _renderer.params = LoadFilterParams();
     _renderer.lcdResponse = [defaults boolForKey:kLcdResponseDefault];
     __weak AppDelegate* weakSelf = self;

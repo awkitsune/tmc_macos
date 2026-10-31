@@ -96,9 +96,21 @@ static void RenderTextBg(int bg, int line, BgLine* out) {
     int hofs = Reg16(0x10 + bg * 4) & 0x1FF;
     int vofs = Reg16(0x12 + bg * 4) & 0x1FF;
     int wide = (gHwWideMapMask >> bg) & 1;
-    // A GBA layer in a wider view: its 240 columns centred, nothing outside.
-    int gbaLeft = sLineWidth != PPU_WIDTH && ((gHwGbaLayerMask >> bg) & 1) ? PortViewGbaLeft() : 0;
+    // A GBA layer in a larger view: its 240x160 centred, nothing outside.
+    int gbaLayer = !gHwGbaScreen && PortViewExtended() && ((gHwGbaLayerMask >> bg) & 1);
+    int gbaLeft = gbaLayer ? PortViewGbaLeft() : 0;
     int y;
+
+    if (gbaLayer) {
+        line -= PortViewGbaTop();
+        if (line < 0 || line >= PPU_HEIGHT) {
+            for (int sx = 0; sx < sLineWidth; sx++) {
+                out->color[sx] = PIXEL_EMPTY;
+            }
+            out->priority = cnt & 3;
+            return;
+        }
+    }
 
     if (wide) {
         width = HW_WIDE_MAP_COLS * 8;
@@ -112,7 +124,7 @@ static void RenderTextBg(int bg, int line, BgLine* out) {
         uint16_t entry;
         uint32_t index;
 
-        if (gbaLeft != 0 && (sx < gbaLeft || sx >= gbaLeft + PPU_WIDTH)) {
+        if (gbaLayer && (sx < gbaLeft || sx >= gbaLeft + PPU_WIDTH)) {
             out->color[sx] = PIXEL_EMPTY;
             continue;
         }

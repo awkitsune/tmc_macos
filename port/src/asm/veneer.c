@@ -62,7 +62,7 @@ void UpdateScrollVram(void) {
 
 // ---- extended view (port/notes/widescreen.md) ----------------------------------
 
-int gPortHudX;
+int gPortHudX, gPortHudY;
 
 static int BgIndex(const void* bg) {
     if (bg == &gScreen.bg0) {
@@ -252,7 +252,7 @@ void PortViewUpdate(void) {
     gHwWideMapMask = 0;
     gHwGbaLayerMask = 0;
     gHwGbaScreen = FALSE;
-    gPortHudX = 0;
+    gPortHudX = gPortHudY = 0;
     if (!PortViewExtended()) {
         return;
     }
@@ -277,6 +277,7 @@ void PortViewUpdate(void) {
     // that scrolls with the camera: drawn across the view, wrapping at 256.
     gHwGbaLayerMask = ~gHwWideMapMask & 1;
     gPortHudX = PortViewGbaLeft();
+    gPortHudY = PortViewGbaTop();
 }
 
 // Tile positions index signed, as the asm's 32-bit address adds wrap: a caller's

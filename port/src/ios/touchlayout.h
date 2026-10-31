@@ -48,6 +48,7 @@ typedef struct {
     CGFloat size;                       // the controls' scale, 1 as designed
     CGPoint offsets[TouchClusterCount]; // each cluster moved from its place, in points
     BOOL integerScaling;                // the picture at a whole-number scale (the renderer's setting)
+    BOOL viewFit;                       // "Fit to display": the picture takes all the room between the controls
 } TouchLayoutOptions;
 
 extern const TouchLayoutOptions TouchLayoutDefaults; // size 1, nothing moved, integer scaling
