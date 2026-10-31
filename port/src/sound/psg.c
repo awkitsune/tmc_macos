@@ -553,27 +553,95 @@ void PsgAdvance(int frames, int sampleRate) {
  * PsgRender for the DSi, which has no FPU: the DirectSound frame (the 8-bit
  * mono slot MixAuthentic wrote) plus the CGB channels, in integers, as 16-bit
  * stereo for port/dsi/src/sound_dsi.c. The frame sequencer keeps PsgAdvance's
- * sub-sample timing (the Mac's); the channels are sampled once per output
- * sample, with no box filter. Levels are in sixteenths and the mix in half DAC
- * units, so the 50% ratios stay exact.
+ * sub-sample timing (the Mac's). Levels are in sixteenths and the mix in half
+ * DAC units, so the 50% ratios stay exact.
+ *
+ * At this output rate (the engine's, 15.8 kHz) the channels need care:
+ *  - the squares and the wave channel are the exact average of the waveform
+ *    over each output sample, so high notes keep their pitch without the
+ *    stray tones point sampling folds in;
+ *  - noise is point-sampled, as the GBA's DAC samples it: averaged, a noise
+ *    clock of up to 262 kHz would cancel itself out down to a hiss.
  */
 
 #define FIXED_ONE 0x10000u
+#define PHASE_FULL ((uint64_t)1 << 32)
 
-// A channel's phase step per output sample, numerator / denominator, divided
-// again only when the frequency setting (key) or the rate changes.
-static uint32_t PhaseStep(int ch, int key, int sampleRate, uint64_t numerator, uint64_t denominator) {
-    static struct {
-        int key, rate;
-        uint32_t step;
-    } cache[4];
+typedef struct {
+    int key, rate;
+    uint64_t step;    // phase per output sample, 32-bit fraction of a period
+    uint32_t inverse; // 2^48 / step, for averages
+} PhaseStep;
 
-    if (cache[ch].key != key || cache[ch].rate != sampleRate) {
-        cache[ch].key = key;
-        cache[ch].rate = sampleRate;
-        cache[ch].step = (uint32_t)(numerator / denominator);
+static PhaseStep sSteps[4];
+
+// A channel's phase step, numerator / denominator, divided again only when its
+// frequency setting (key) or the rate changes.
+static const PhaseStep* Step(int ch, int key, int sampleRate, uint64_t numerator, uint64_t denominator) {
+    PhaseStep* s = &sSteps[ch];
+
+    if (s->key != key || s->rate != sampleRate) {
+        s->key = key;
+        s->rate = sampleRate;
+        s->step = numerator / denominator;
+        s->inverse = s->step != 0 && s->step < PHASE_FULL ? (uint32_t)(((uint64_t)1 << 48) / s->step) : 0;
     }
-    return cache[ch].step;
+    return s;
+}
+
+/*
+ * The average of a waveform of n equal steps (n = 2^bits) over the next output
+ * sample, in its level units times 2^16, from the steps' values and their
+ * running sums (sum[k] = values before step k, sum[n] the period's).
+ */
+static uint32_t Average(PsgChannel* c, const PhaseStep* s, const uint8_t* value, const uint16_t* sum, int bits) {
+    int shift = 32 - bits;
+    uint32_t mask = ((uint32_t)1 << shift) - 1;
+    uint32_t from = c->fixedPhase;
+    uint32_t to;
+    uint64_t area;
+
+    if (s->inverse == 0) {
+        // A period or more per output sample: the period's average.
+        c->fixedPhase += (uint32_t)s->step;
+        return (uint32_t)(((uint64_t)sum[1 << bits] << 16) >> bits);
+    }
+    to = from + (uint32_t)s->step;
+    c->fixedPhase = to;
+    // Area up to a phase: whole steps, then the part of the current one.
+    area = ((uint64_t)sum[to >> shift] << shift) + (uint64_t)value[to >> shift] * (to & mask);
+    area -= ((uint64_t)sum[from >> shift] << shift) + (uint64_t)value[from >> shift] * (from & mask);
+    if (to < from) {
+        area += (uint64_t)sum[1 << bits] << shift; // wrapped into the next period
+    }
+    return (uint32_t)((area * s->inverse) >> 32);
+}
+
+// The squares' duty patterns as levels 0/1 and running sums.
+static uint8_t sDutyValue[4][8];
+static uint16_t sDutySum[4][9];
+// The wave channel this frame: its 32 samples at NR32's volume, and sums.
+static uint8_t sWaveValue[32];
+static uint16_t sWaveSum[33];
+
+static void PrepareWaveforms(void) {
+    static const int shift[4] = { 4, 0, 1, 2 };
+    int vol = REG(NR32);
+
+    if (sDutySum[0][8] == 0) {
+        for (int d = 0; d < 4; d++) {
+            for (int k = 0; k < 8; k++) {
+                sDutyValue[d][k] = sDuty[d][k];
+                sDutySum[d][k + 1] = sDutySum[d][k] + sDuty[d][k];
+            }
+        }
+    }
+    for (int k = 0; k < 32; k++) {
+        int byte = gHwIo[REG_OFFSET_WAVE_RAM0 + k / 2];
+        int sample = (k & 1) ? byte & 0xF : byte >> 4;
+        sWaveValue[k] = (vol & 0x80) ? (sample * 3) >> 2 : sample >> shift[(vol >> 5) & 3];
+        sWaveSum[k + 1] = sWaveSum[k] + sWaveValue[k];
+    }
 }
 
 // Level 0-15 of a channel at this output sample, in sixteenths.
@@ -582,50 +650,35 @@ static int LevelFixed(int ch, int sampleRate) {
 
     if (ch < 2) {
         int x = Frequency(ch);
-        uint32_t step = PhaseStep(ch, x, sampleRate, (uint64_t)131072 << 32, (uint64_t)(2048 - x) * sampleRate);
-        int level = sDuty[gHwIo[sNrx1[ch]] >> 6][c->fixedPhase >> 29] ? c->volume << 4 : 0;
-        c->fixedPhase += step;
-        return level;
+        int duty = gHwIo[sNrx1[ch]] >> 6;
+        const PhaseStep* s = Step(ch, x, sampleRate, (uint64_t)131072 << 32, (uint64_t)(2048 - x) * sampleRate);
+        uint32_t high = Average(c, s, sDutyValue[duty], sDutySum[duty], 3); // 0-1 in 2^16ths
+        return (c->volume * 16 * high) >> 16;
     }
     if (ch == 2) {
-        static const int shift[4] = { 4, 0, 1, 2 };
         int x = Frequency(2);
-        uint32_t step = PhaseStep(2, x, sampleRate, (uint64_t)65536 << 32, (uint64_t)(2048 - x) * sampleRate);
-        int index = c->fixedPhase >> 27;
-        int byte = gHwIo[REG_OFFSET_WAVE_RAM0 + index / 2];
-        int sample = (index & 1) ? byte & 0xF : byte >> 4;
-        int vol = REG(NR32);
-        c->fixedPhase += step;
-        if (vol & 0x80) {
-            return ((sample * 3) >> 2) << 4;
-        }
-        return (sample >> shift[(vol >> 5) & 3]) << 4;
+        const PhaseStep* s = Step(2, x, sampleRate, (uint64_t)65536 << 32, (uint64_t)(2048 - x) * sampleRate);
+        return (Average(c, s, sWaveValue, sWaveSum, 5) * 16) >> 16;
     }
     {
         // The noise clock is 524288 / r / 2^(s+1) Hz, r = 0 counting as 0.5.
         int nr43 = REG(NR43);
         int s = nr43 >> 4;
         uint32_t rTimes2 = (nr43 & 7) ? 2 * (nr43 & 7) : 1;
-        int sum, n;
 
-        if (s >= 14) {
-            return c->noiseOut ? c->volume << 4 : 0;
-        }
-        c->fixedPhase += PhaseStep(3, nr43 & 0xF7, sampleRate, (uint64_t)1048576 * FIXED_ONE,
-                                   (uint64_t)rTimes2 * (2u << s) * sampleRate);
-        sum = c->noiseOut ? c->volume : 0;
-        n = 1;
-        while (c->fixedPhase >= FIXED_ONE) {
-            c->fixedPhase -= FIXED_ONE;
-            c->noiseOut = c->lfsr & 1;
-            c->lfsr >>= 1;
-            if (c->noiseOut) {
-                c->lfsr ^= (nr43 & 8) ? 0x60 : 0x6000;
+        if (s < 14) {
+            c->fixedPhase += (uint32_t)Step(3, nr43 & 0xF7, sampleRate, (uint64_t)1048576 * FIXED_ONE,
+                                            (uint64_t)rTimes2 * (2u << s) * sampleRate)->step;
+            while (c->fixedPhase >= FIXED_ONE) {
+                c->fixedPhase -= FIXED_ONE;
+                c->noiseOut = c->lfsr & 1;
+                c->lfsr >>= 1;
+                if (c->noiseOut) {
+                    c->lfsr ^= (nr43 & 8) ? 0x60 : 0x6000;
+                }
             }
-            sum += c->noiseOut ? c->volume : 0;
-            n++;
         }
-        return (sum << 4) / n;
+        return c->noiseOut ? c->volume << 4 : 0;
     }
 }
 
@@ -640,6 +693,7 @@ void PsgRenderDsi(const int8_t* mono, int16_t* stereo, int frames, int sampleRat
     int nr50, nr51, bias, ds, dsVol[2], vol[2], low, high;
 
     BeginFrame();
+    PrepareWaveforms();
 
     // DirectSound A: an 8-bit step is 4 DAC units at 100%, 2 at 50%.
     cnt = REG(SOUNDCNT_H) | (gHwIo[REG_OFFSET_SOUNDCNT_H + 1] << 8);
