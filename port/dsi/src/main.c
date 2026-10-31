@@ -34,7 +34,9 @@ static void LogV(const char* format, va_list args) {
     if ((size_t)length >= sizeof(line)) {
         length = sizeof(line) - 1;
     }
-    fputs(line, stdout);
+    if (DSI_CHECKS) {
+        fputs(line, stdout);
+    }
     if (sLogLength + length < sizeof(gDsiLog)) {
         memcpy(gDsiLog + sLogLength, line, length + 1);
         sLogLength += length;
@@ -119,6 +121,9 @@ __attribute__((target("arm"), noinline)) static void EnableInterrupts(void) {
  */
 static _Noreturn void Halt(void) {
     gDsiHalted = true;
+    if (!DSI_CHECKS) {
+        DsiShowLog();
+    }
     DsiSoundStop();
     gDsiLogDone = 1;
     DC_FlushAll();
@@ -146,6 +151,7 @@ int main(int argc, char** argv) {
     uint32_t reserved, crc;
 
     consoleDemoInit();
+    DsiScreenBoot();
     DsiLog("TMC DSi port\n");
     DsiLog("started as %s\n", argc > 0 && argv[0] != NULL ? argv[0] : "(no argv)");
     DsiLog("DSi mode: %s\n", isDSiMode() ? "yes" : "no");
@@ -175,6 +181,10 @@ int main(int argc, char** argv) {
         crc = HwCrc32(0, __rom_copy, __rom_copy_end - __rom_copy);
         DsiLog("copy CRC32 %08lx (%lu ms)\n", (unsigned long)crc, (unsigned long)timerTicks2msec(cpuEndTiming()));
     }
+    if (gDsiSettingsPath != NULL) {
+        DsiSettingsLoad(gDsiSettingsPath);
+    }
+    DsiSettingsMenu(gDsiSettingsPath);
     DsiProtectGbaSlot();
     DsiLogFlush();
 #ifdef DSI_TEST_STRAY_READ

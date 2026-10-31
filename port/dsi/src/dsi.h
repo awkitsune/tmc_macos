@@ -12,7 +12,8 @@
 #include <stdint.h>
 
 /*
- * Boot log: printed on the console and kept in gDsiLog (read through GDB).
+ * Boot log: kept in gDsiLog (read through GDB), printed on the console in
+ * DSI_CHECKS builds (else shown when the port stops, DsiShowLog).
  * Once rom.c has a card, DsiLogToFile names the file (tmc/boot.txt next to the
  * ROM) and writes it; DsiLogFlush rewrites it with all logged so far, at each
  * stage that matters and when the port stops, so a hang leaves the log up to
@@ -29,6 +30,22 @@ extern char gDsiLog[DSI_LOG_SIZE];
 extern volatile int gDsiLogDone;
 /* Set when the port stops (DsiFatal, an exception): the VBlank does no more game work. */
 extern volatile bool gDsiHalted;
+
+/*
+ * The bottom screen and the boot options (settings_dsi.c). ScreenBoot shows
+ * the title and looks for a held Start (half a second); once rom.c has a card,
+ * SettingsLoad reads tmc/settings.txt there and SettingsMenu shows the options
+ * if Start was held, saving them if changed; SettingsApply sets the game up
+ * with them. ShowLog puts the end of the boot log on the screen (the port
+ * stopped).
+ */
+void DsiScreenBoot(void);
+void DsiShowLog(void);
+void DsiSettingsLoad(const char* path);
+void DsiSettingsMenu(const char* path);
+void DsiSettingsApply(void);
+/* tmc/settings.txt on the card rom.c uses; NULL before it has one. */
+extern const char* gDsiSettingsPath;
 
 /* The GBA IWRAM (32 KB): the game's IWRAM globals live here (ram_layout.ld). */
 #define DSI_IWRAM_SIZE 0x8000

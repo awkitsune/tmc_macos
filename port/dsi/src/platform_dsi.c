@@ -4,14 +4,12 @@
 
 #include <nds.h>
 #include <setjmp.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "port/headless_state.h"
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
-#include "port/view.h"
 
 #include "dsi.h"
 
@@ -258,36 +256,6 @@ _Noreturn void PlatformSoftReset(void) {
     longjmp(sResetPoint, 1);
 }
 
-/*
- * tmc/settings.txt, read at boot: "screen=fullscreen" (the default; 256x192 of
- * the world, port/notes/widescreen.md) or "screen=bordered" (the GBA's 240x160
- * with a border). Other lines are ignored.
- */
-static void LoadSettings(void) {
-    static const char* const paths[] = { "sd:/tmc/settings.txt", "fat:/tmc/settings.txt" };
-    char line[128];
-    bool fullscreen = true;
-    FILE* file = NULL;
-
-    for (unsigned i = 0; i < sizeof(paths) / sizeof(*paths) && file == NULL; i++) {
-        file = fopen(paths[i], "rb");
-    }
-    while (file != NULL && fgets(line, sizeof(line), file) != NULL) {
-        if (strncmp(line, "screen=bordered", 15) == 0) {
-            fullscreen = false;
-        } else if (strncmp(line, "screen=fullscreen", 17) == 0) {
-            fullscreen = true;
-        }
-    }
-    if (file != NULL) {
-        fclose(file);
-    }
-    if (fullscreen) {
-        PortViewSet(256, 192);
-    }
-    DsiLog("screen: %s%s\n", fullscreen ? "fullscreen" : "bordered", file == NULL ? " (no tmc/settings.txt)" : "");
-}
-
 _Noreturn void DsiRunGame(void) {
     ResetStats();
     disableSleep(); // the lid is handled at the frame boundary (SleepUntilLidOpens)
@@ -295,7 +263,7 @@ _Noreturn void DsiRunGame(void) {
     irqEnable(IRQ_VBLANK);
     cpuStartTiming(0);
     DsiPresentInit();
-    LoadSettings();
+    DsiSettingsApply();
     if (DSI_CHECKS) {
         DsiInputLoad();
     }

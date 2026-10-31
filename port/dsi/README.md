@@ -395,7 +395,19 @@ The SD card (FAT32):
 | `sd:/tmc_dsi.nds` | `build/dsi/tmc_dsi.nds` (any folder works) |
 | `sd:/tmc/boot.txt` | written by the port |
 | `sd:/tmc/tmc.sav` | the save, written by the port |
-| `sd:/tmc/settings.txt` | optional: `screen=bordered` for the GBA's 240x160 with a border; without it (or with `screen=fullscreen`) the game fills the screen with more of the world (`port/notes/widescreen.md`) |
+| `sd:/tmc/settings.txt` | the boot options, written by the options menu (below); without it the game is fullscreen |
+
+**The bottom screen** shows the title, "DSi version" and the version (`project(... VERSION)` in
+`port/CMakeLists.txt`). Holding Start in the first half second of the boot opens the options menu
+before the game starts: Up and Down pick an option, A (or Left and Right) changes it, Start plays.
+The choices are saved in `tmc/settings.txt` next to the save, one `key=value` line each:
+
+| Option | Key | Values |
+|---|---|---|
+| Screen | `screen` | `bordered` (the GBA's 240x160 with a border), `fullscreen` (the default: 256x192 of the world, `port/notes/widescreen.md`) |
+
+The boot log is on the bottom screen only in `DSI_CHECKS` builds, or when the port stops (its last
+lines); it is always written to `tmc/boot.txt`.
 
 - **TWiLight Menu++:** browse to `tmc_dsi.nds` and start it. It needs DSi mode:
   if the bottom screen says "needs DSi mode", set the game's *Run in* setting

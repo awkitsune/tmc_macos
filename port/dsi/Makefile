@@ -55,7 +55,10 @@ GAME_FLAGS := $(COMMON_FLAGS) $(GAME_DEFINES) -std=gnu11 -fwrapv -fno-short-enum
 # from tmc/input.txt instead of the DS's.
 DSI_CHECKS ?= 0
 DSI_RECORDS ?= 1024
+# The version shown on the bottom screen: the Mac build's (port/CMakeLists.txt).
+TMC_VERSION := $(shell sed -n 's/^project.tmc_native VERSION \([0-9.]*\).*/\1/p' $(ROOT)/port/CMakeLists.txt)
 DSI_FLAGS := $(COMMON_FLAGS) -Wall -I$(BLOCKSDS)/libs/libnds/include -I$(ROOT)/port/include \
+	-DTMC_VERSION=\"$(TMC_VERSION)\" \
 	-DDSI_CHECKS=$(DSI_CHECKS) -DDSI_FRAME_RECORDS=$(DSI_RECORDS) $(DSI_DEFINES)
 
 GAME_SRCS := $(filter-out src/eeprom.c,$(shell cd $(ROOT) && find src -name '*.c' | sort))

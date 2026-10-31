@@ -172,8 +172,9 @@ effects and VBlank at line 160), drawn into rows `PpuLineRow()` on; the rows abo
 
 ### DSi
 
-`port/dsi/src/present.c`. Fullscreen (`tmc/settings.txt`: `screen=fullscreen`, the default) sets the view to
-256x192 at boot; `screen=bordered` keeps 240x160 with the border, drawn as before.
+`port/dsi/src/present.c`. The Screen option (boot options menu: hold Start at boot, `port/dsi/README.md`;
+saved in `tmc/settings.txt`) is Fullscreen by default, the view 256x192; Bordered keeps 240x160 with the
+border, drawn as before.
 
 - A world frame is 192 game lines from (0, 0). Menus (GBA screen) are 240x160 at (8, 16) as in the bordered
   mode: the backdrop around them, not black as on the Mac (the DS has no layer left to draw black with).

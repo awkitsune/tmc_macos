@@ -59,6 +59,8 @@ static const char* const sDataTempPaths[] = { "sd:/tmc/gamedata.tmp", "fat:/tmc/
 static const char* const sRomPaths[] = { "sd:/tmc/baserom.gba", "fat:/tmc/baserom.gba" };
 static const char* const sLogPaths[] = { "sd:/tmc/boot.txt", "fat:/tmc/boot.txt" };
 static const char* const sSavePaths[] = { "sd:/tmc/tmc.sav", "fat:/tmc/tmc.sav" };
+static const char* const sSettingsPaths[] = { "sd:/tmc/settings.txt", "fat:/tmc/settings.txt" };
+const char* gDsiSettingsPath;
 #define CARDS (sizeof(sDataPaths) / sizeof(sDataPaths[0]))
 static const char* sSavePath;
 
@@ -80,6 +82,7 @@ static void HexDigest(char* out, const uint8_t* digest) {
 
 static void UseCard(size_t card) {
     sSavePath = sSavePaths[card];
+    gDsiSettingsPath = sSettingsPaths[card];
     DsiLogToFile(sLogPaths[card]);
 }
 
