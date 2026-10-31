@@ -176,6 +176,10 @@ need to stay on the SD card.
   still makes an option C build.
 - If the binary grows past the estimate, option B (packing out the 0.83 MB of code
   holes) buys 0.8 MB. ROM-to-ROM fix-ups then become run-table lookups at boot.
+- **Changed with `tmc/gamedata.bin`: the build uses option B.** The copy is the
+  data objects' 258 extents packed, 13,758,068 bytes at 0x022D5000-0x02FF3E74,
+  and the heap below it grows by 804 KB. The add-base fix-ups look up their
+  extent (`DsiRomPtr`, a binary search). `--rom-end` is gone.
 
 ## Build structure
 
@@ -358,35 +362,46 @@ Hosted behaviour that milestone 2 has to provide on the DSi:
 
 ## ROM loading and relocation at boot
 
-As built at milestone 3 (`port/dsi/src/rom.c`, `sha1.c`; the CRC is `port/src/hw_crc.c` since milestone 4):
+As built at milestone 3 (`port/dsi/src/rom.c`, `sha1.c`; the CRC is `port/src/hw_crc.c` since milestone 4),
+with `tmc/gamedata.bin` since:
 
-1. **Find the ROM.** `sd:/tmc/baserom.gba` (the DSi SD slot), then
-   `fat:/tmc/baserom.gba` (DLDI: flashcards and melonDS tests). It must be
-   16,777,216 bytes. A config file naming another path can come later.
-2. **Read and hash it in one pass.** 128 KB `fread`s, unbuffered: the first
-   14,581,156 bytes land straight in the copy, the rest in a scratch buffer, and
-   every chunk goes through SHA-1. The digest must equal the USA ROM's
+1. **Find the game data.** `sd:/tmc/gamedata.bin` (the DSi SD slot), then
+   `fat:/tmc/gamedata.bin` (DLDI: flashcards and melonDS tests). Its 512-byte
+   header holds a magic, the format, the extents' version (`gRomLayoutVersion`,
+   from a hash of the extent table), the copy's size and the ROM's SHA-1; the
+   copy's bytes follow, unrelocated, and are read straight into the copy in
+   128 KB `fread`s. A file from a build with other extents is passed over.
+2. **Otherwise make it from the ROM**, `tmc/baserom.gba` on the first card that
+   has one (16,777,216 bytes), read and hashed in one pass: 128 KB `fread`s,
+   unbuffered, into a scratch buffer; the extents' parts of each chunk are
+   copied into the copy, whose padding stays zero, and every chunk goes through
+   SHA-1. The digest must equal the USA ROM's
    `b4bd50e4131b027c334547b4524e2dbbd4227130`, the value `port/README.md` already
    uses. On a mismatch the log shows the digest found and the one expected, and
-   the program stops.
+   the program stops. Then the copy is written to `gamedata.tmp` and renamed to
+   `gamedata.bin`; if that fails, the next start reads the ROM again. The ROM is
+   only needed again for a build whose extents differ.
    - The DSi has no SHA-1 hardware. Its BIOS has SHA-1 (`swiSHA1*`, SWI 0x24-0x27)
      in software, and in melonDS 1.1 `swiSHA1Update` jumps to 0x02FFC00C (the
      header area) and faults. `sha1.c` is a plain C SHA-1, ARM code in ITCM,
      with the rounds unrolled by five.
 3. **Copy layout.** `__rom_copy` is a fixed address, 4 KB-aligned, ending below
-   0x02FF4000 (`rom_symbols.ld`): 14,239 KB at 0x0220C000 (option A, see RAM
-   budget). `main.c` shortens the libnds heap to end there (`reduceHeapSize`).
+   0x02FF4000 (`rom_symbols.ld`): 13,435 KB at 0x022D5000 (option B, see RAM
+   budget). The extents (`gRomExtents`: ROM offset, length, copy offset) are
+   the data objects' ROM sections and the two data tables inside asm objects,
+   merged where they touch and packed in ROM order, each at its ROM address
+   modulo 32. `main.c` shortens the libnds heap to end there (`reduceHeapSize`).
    The loader puts the DSi-only `.twl` section (the ARM9i binary, 872 bytes) at
    0x02400000, inside the copy, and crt0 moves it to its place after `.bss`
    before `main`, so the ROM read can overwrite it.
 4. **Game code addresses ROM symbols** through `rom_symbols.ld`. Each global
    symbol defined in a data object becomes an absolute symbol at `__rom_copy` plus
-   its GBA offset, so `extern const u8 gFoo[]` in the C resolves into the copy with
+   its offset in the copy, so `extern const u8 gFoo[]` in the C resolves into the copy with
    no source changes. C-defined tables (`src/**` rodata) are compiled into the
    binary as usual.
 5. **Relocate**, checking each word before it changes:
-   - "add base" entries: the word must be a ROM address inside the copy, then
-     `*(u32*)(copy + off) += (u32)__rom_copy - 0x08000000`;
+   - "add base" entries: the word must be a ROM address inside an extent, then
+     it becomes that address's place in the copy (`DsiRomPtr`);
    - symbol entries: the word must be a ROM, IWRAM or GBA hardware address, then
      `*(u32*)(copy + off) = value`, where the linker has already put the ARM9
      address in `value`. A Thumb function gets bit 0 set by the linker because
@@ -458,7 +473,7 @@ Option 2 is the default (simpler, cached); option 1 is a measured alternative.
 
 - 0x02 and 0x03: EWRAM (identity) or the IWRAM block;
 - 0x04: `gHwIo`; 0x05/0x06/0x07: the palette, VRAM and OAM shadows;
-- 0x08/0x09: `__rom_copy`;
+- 0x08/0x09: the copy (`DsiRomPtr`, inside the extents only);
 - anything else: abort with a message.
 
 Address-range tests in the game (for example "is this in ROM", `ptr >= 0x08000000`)
@@ -709,15 +724,17 @@ fifth line. It may come back as an experiment later.
    are the fallbacks.
 9. **Border fidelity** when the game uses windows (side columns), and HBlank
    effects that rewrite registers mid-line.
-10. **Boot time** of reading and hashing 16 MB from SD, unmeasured. The boot log
-    reports it; reading only the needed ranges would save 2.2 MB of padding.
+10. **Boot time:** the first start reads and hashes the 16 MB ROM and writes
+    `tmc/gamedata.bin`; later ones read only its 13.1 MB, with no hash. Both
+    are unmeasured on the DSi; the boot log reports them.
 11. **Mid-frame register writes by the game** outside HBlank DMA (VCount IRQ
     tricks) need their own handling in the presenter if they appear.
 
 ## What the user supplies
 
-- Their own USA `baserom.gba` on the SD card (`tmc/baserom.gba`). The build itself
-  also needs it locally, as now.
+- Their own USA `baserom.gba` on the SD card (`tmc/baserom.gba`), for the first
+  start, which makes `tmc/gamedata.bin` from it. The build itself also needs it
+  locally, as now.
 - DSi BIOS, firmware and NAND dumps for melonDS DSi mode (already in
   `~/dsi/support/`).
 - Tests on the real DSi from TWiLight Menu++ and Unlaunch, and the visual

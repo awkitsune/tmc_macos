@@ -2,8 +2,8 @@
  * port/hw.h on the DSi: the GBA hardware as shadow buffers in main RAM, which
  * the presenter turns into DS display state at VBlank (port/dsi/PLAN.md,
  * "Hardware layer"). The data keeps its GBA layout here, so GBA addresses map
- * by offset: EWRAM is at its own address, IWRAM is gDsiIwram, and the ROM is
- * the copy at __rom_copy.
+ * by offset: EWRAM is at its own address, IWRAM is gDsiIwram; the ROM's data
+ * objects are the packed copy at __rom_copy (DsiRomPtr).
  */
 
 #include <stdio.h>
@@ -172,6 +172,8 @@ static const struct {
 };
 
 void* HwGbaPtr(uint32_t address) {
+    uint8_t* rom;
+
     if (address - EWRAM_START < EWRAM_SIZE) {
         return (void*)address;
     }
@@ -180,8 +182,8 @@ void* HwGbaPtr(uint32_t address) {
             return sRegions[i].native + (address - sRegions[i].base);
         }
     }
-    if (address - DSI_ROM_BASE < (uint32_t)(__rom_copy_end - __rom_copy)) {
-        return __rom_copy + (address - DSI_ROM_BASE);
+    if ((rom = DsiRomPtr(address)) != NULL) {
+        return rom;
     }
     DsiFatal("HwGbaPtr: no DSi memory for GBA address 0x%08lx", (unsigned long)address);
 }
@@ -197,10 +199,7 @@ uint32_t HwGbaAddress(const void* pointer) {
             return sRegions[i].base + (uint32_t)(p - sRegions[i].native);
         }
     }
-    if (p >= __rom_copy && p < __rom_copy_end) {
-        return DSI_ROM_BASE + (uint32_t)(p - __rom_copy);
-    }
-    return 0;
+    return DsiRomAddress(p);
 }
 
 uint32_t HwRomAddress(uintptr_t pointer) {
@@ -215,10 +214,7 @@ uint32_t HwRomAddress(uintptr_t pointer) {
  */
 void* M4aGbaPtr(uint32_t address) {
     if (address - DSI_ROM_BASE < 0x02000000u) {
-        if (address - DSI_ROM_BASE < (uint32_t)(__rom_copy_end - __rom_copy)) {
-            return __rom_copy + (address - DSI_ROM_BASE);
-        }
-        return NULL;
+        return DsiRomPtr(address);
     }
     if (address - IWRAM_START < DSI_IWRAM_SIZE) {
         return gDsiIwram + (address - IWRAM_START);

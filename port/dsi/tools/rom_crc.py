@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """The relocated ROM copy's CRC32, computed on the host (milestone 3 check).
 
-    python3 -I port/dsi/tools/rom_crc.py build/dsi/tmc_dsi.elf baserom.gba
+    python3 -I port/dsi/tools/rom_crc.py build/dsi/tmc_dsi.elf baserom.gba [--gamedata OUT]
 
-Applies the relocation lists the DSi binary carries (rom_relocs.s, read back
-from the ELF) to the ROM, as port/dsi/src/rom.c does at boot, and prints the
-SHA-1, the counts and the CRC32 of the copy. The boot log must show the same.
-Nothing is written. Needs pyelftools.
+Packs the ROM's extents into the copy and applies the relocation lists, both as
+the DSi binary carries them (rom_relocs.s, read back from the ELF), as
+port/dsi/src/rom.c does at boot, and prints the SHA-1, the counts and the CRC32
+of the copy. The boot log must show the same. With --gamedata it also writes
+the tmc/gamedata.bin the port would make from this ROM (it holds ROM bytes: keep
+it out of the repository). Needs pyelftools.
 """
 
 import argparse
+import bisect
 import hashlib
 import struct
 import sys
@@ -18,12 +21,14 @@ import zlib
 from elftools.elf.elffile import ELFFile
 
 ROM_BASE = 0x08000000
+GAMEDATA_HEADER_SIZE = 512
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("elf")
     parser.add_argument("rom")
+    parser.add_argument("--gamedata", help="write the gamedata.bin for this build here")
     args = parser.parse_args()
 
     elf = ELFFile(open(args.elf, "rb"))
@@ -55,16 +60,36 @@ def main():
     copy_base = symbols["__rom_copy"]
     size = symbols["__rom_copy_end"] - copy_base
     rom = open(args.rom, "rb").read()
-    print("SHA-1 %s" % hashlib.sha1(rom).hexdigest())
-    copy = bytearray(rom[:size])
-    delta = copy_base - ROM_BASE
-    unexpected = 0
+    sha1 = hashlib.sha1(rom).digest()
+    print("SHA-1 %s" % sha1.hex())
+    version = struct.unpack("<2I", read(symbols["gRomLayoutVersion"], 8))
+    count = word("gRomExtentCount")
+    extents = [struct.unpack_from("<3I", read(symbols["gRomExtents"], 12 * count), 12 * i) for i in range(count)]
+    copy = bytearray(size)
+    for start, length, offset in extents:
+        copy[offset : offset + length] = rom[start : start + length]
+    if args.gamedata:
+        header = struct.pack("<8s5I20s", b"TMCDSI", 1, GAMEDATA_HEADER_SIZE, version[0], version[1], size, sha1)
+        with open(args.gamedata, "wb") as out:
+            out.write(header.ljust(GAMEDATA_HEADER_SIZE, b"\0") + copy)
+        print("wrote %s (%d extents, version %08x%08x)" % (args.gamedata, count, version[1], version[0]))
+    starts = [e[0] for e in extents]
 
+    def place(value):
+        """The copy address of a GBA ROM address, as DsiRomPtr; None outside the extents."""
+        i = bisect.bisect_right(starts, value - ROM_BASE) - 1
+        if value < ROM_BASE or i < 0 or value - ROM_BASE - extents[i][0] > extents[i][1]:
+            return None
+        return copy_base + extents[i][2] + value - ROM_BASE - extents[i][0]
+
+    unexpected = 0
     adds = 0
     for offset in offsets("gRomRelocAdds", "gRomRelocAddsEnd"):
-        value = struct.unpack_from("<I", copy, offset)[0]
-        unexpected += not (ROM_BASE <= value < ROM_BASE + size)
-        struct.pack_into("<I", copy, offset, (value + delta) & 0xFFFFFFFF)
+        target = place(struct.unpack_from("<I", copy, offset)[0])
+        if target is None:
+            unexpected += 1
+        else:
+            struct.pack_into("<I", copy, offset, target)
         adds += 1
     count = word("gRomRelocSymbolCount")
     table = struct.unpack("<%dI" % (2 * count), read(symbols["gRomRelocSymbols"], 8 * count))

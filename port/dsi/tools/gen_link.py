@@ -14,14 +14,17 @@ value per line); the hardware ones go to the shadows, as on the Mac.
 Writes into --out:
 
 - rom_symbols.ld: the ROM copy's address (__rom_copy) and every global symbol
-  defined in a GBA data object (data/**) as __rom_copy plus its ROM offset, so
-  game code reaches ROM data in the copy with no source changes;
+  defined in a GBA data object (data/**) as __rom_copy plus its offset in the
+  copy, so game code reaches ROM data in the copy with no source changes. The
+  copy holds only the data objects: their ROM stretches (extents), merged where
+  they touch and packed in ROM order, each keeping its ROM address modulo 32;
 - ram_layout.ld: the GBA EWRAM symbols at their GBA addresses (the binary is
   linked at 0x02040000, leaving 0x02000000-0x0203FFFF to them) and the IWRAM
   symbols in gDsiIwram, a 32 KB block in main RAM;
-- rom_relocs.s: the pointer words inside data objects that the boot code patches
-  in the copy (port/dsi/src/rom.c), the EWRAM ones it only checks, and the
-  expected counts per kind;
+- rom_relocs.s: the extents (ROM offset, length, offset in the copy) and their
+  version, which tmc/gamedata.bin records; the pointer words inside data
+  objects that the boot code patches in the copy (port/dsi/src/rom.c), the
+  EWRAM ones it only checks, and the expected counts per kind;
 - gen_report.txt: the figures.
 
 Everything written is offsets and symbol names from the link; no ROM bytes. The
@@ -31,7 +34,9 @@ plan is port/dsi/PLAN.md ("ROM loading and relocation at boot"). Needs pyelftool
 import argparse
 import bisect
 import collections
+import hashlib
 import os
+import struct
 import re
 import sys
 
@@ -47,6 +52,8 @@ HW_SHADOWS = {0x04: ("gHwIo", 0x400, "I/O"), 0x05: ("gHwPltt", 0x400, "palette")
 # (DTCM and the loader's area from 0x02FF4000).
 RAM_TOP = 0x02FF4000
 R_ARM_ABS32 = 2
+# Each extent keeps its ROM address modulo this in the copy (DMA and cache lines).
+EXTENT_ALIGN = 32
 
 # Data tables inside asm code objects, as (first label, end label); the same
 # list as datagen's ASM_DATA_REGIONS (port/tools/datagen/gbaobj.py). Their
@@ -103,8 +110,6 @@ def main():
     parser.add_argument("--linker-ld", required=True)
     parser.add_argument("--native-defs", required=True)
     parser.add_argument("--raw-pointers", required=True)
-    parser.add_argument("--rom-end", type=lambda s: int(s, 0),
-                        help="end of the ROM range copied to RAM (default: all used ROM)")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -125,11 +130,6 @@ def main():
         if section is not None and section[3].startswith("data/"):
             return True
         return any(start <= address < end for start, end in data_regions)
-
-    rom_end = args.rom_end or max(a + s for a, s, _, _ in sections)
-    rom_end = (rom_end + 3) & ~3
-    copy_size = rom_end - ROM_BASE
-    rom_copy = (RAM_TOP - copy_size) & ~0xFFF
 
     elf = ELFFile(open(args.relocs_elf, "rb"))
     rom = elf.get_section_by_name("rom")
@@ -160,34 +160,61 @@ def main():
         names.sort()
     addresses = sorted(by_address)
 
+    errors = []
+    report = []
+
     values = {sym.name: sym["st_value"] for sym in elf.get_section_by_name(".symtab").iter_symbols() if sym.name}
     for first, end in ASM_DATA_REGIONS:
         data_regions.append((values[first], values[end] & ~1))
 
+    # ---- extents: the data objects' ROM stretches, packed into the copy ----------
+    stretches = sorted([(a, a + s) for a, s, _, o in sections if o.startswith("data/")] + data_regions)
+    extents = []  # [rom start, rom end, copy offset]
+    for start, end in stretches:
+        if extents and start <= extents[-1][1]:
+            extents[-1][1] = max(extents[-1][1], end)
+        else:
+            extents.append([start, end, 0])
+    copy_size = 0
+    for extent in extents:
+        copy_size += (extent[0] - copy_size) % EXTENT_ALIGN
+        extent[2] = copy_size
+        copy_size += extent[1] - extent[0]
+    copy_size = (copy_size + 3) & ~3
+    rom_copy = (RAM_TOP - copy_size) & ~0xFFF
+    extent_starts = [e[0] for e in extents]
+    # What tmc/gamedata.bin holds depends on the extents only.
+    layout = hashlib.sha1(b"".join(struct.pack("<3I", e[0] - ROM_BASE, e[1] - e[0], e[2]) for e in extents))
+    layout_version = struct.unpack("<2I", layout.digest()[:8])
+
+    def copy_offset(address, size=1):
+        """The copy offset of ROM address..address+size, or None if not all in one extent."""
+        i = bisect.bisect_right(extent_starts, address) - 1
+        if i >= 0 and address + size <= extents[i][1]:
+            return extents[i][2] + address - extents[i][0]
+        return None
+
     def global_names(address):
         return [name for local, name in by_address.get(address, []) if not local and name_count[name] == 1]
 
-    errors = []
-    report = []
-
     # ---- ROM data symbols ------------------------------------------------------
     rom_symbols = []
-    beyond = 0
     for address in addresses:
         if not (ROM_BASE <= address < ROM_BASE + 0x02000000) or not is_data(address):
             continue
         for name in global_names(address):
             if name in native:
                 continue
-            if address >= rom_end:
-                beyond += 1
+            offset = copy_offset(address, 0)
+            if offset is None:
+                errors.append("%s at 0x%08X: not in an extent" % (name, address))
                 continue
-            rom_symbols.append((name, address - ROM_BASE))
+            rom_symbols.append((name, offset))
     rom_symbols.sort(key=lambda item: (item[1], item[0]))
 
     with open(os.path.join(args.out, "rom_symbols.ld"), "w") as out:
         out.write("/* Generated by port/dsi/tools/gen_link.py; do not edit. */\n")
-        out.write("/* GBA ROM 0x%08X-0x%08X, copied to RAM at boot. */\n" % (ROM_BASE, rom_end))
+        out.write("/* The GBA ROM's data objects in %d extents, loaded into RAM at boot. */\n" % len(extents))
         out.write("__rom_copy = 0x%08X;\n" % rom_copy)
         out.write("__rom_copy_size = 0x%X;\n" % copy_size)
         out.write("__rom_copy_end = __rom_copy + __rom_copy_size;\n")
@@ -239,8 +266,8 @@ def main():
         if reloc["r_info_type"] != R_ARM_ABS32:
             other_types[reloc["r_info_type"]] += 1
             continue
-        if offset >= rom_end:
-            kinds["outside the copy (not applied)"] += 1
+        if copy_offset(offset, 4) is None:
+            errors.append("pointer word at 0x%08X: not inside one extent" % offset)
             continue
         if offset % 4:
             unaligned += 1
@@ -257,8 +284,8 @@ def main():
             symbol_entries.append((offset, native_names[0], value - target if sym_type[native_names[0]] != "STT_FUNC" else 0))
             kinds["to a DSi definition (" + ("code" if sym_type[native_names[0]] == "STT_FUNC" else "data") + ")"] += 1
         elif region in (8, 9) and is_data(target):
-            if target >= rom_end:
-                errors.append("0x%08X points past the copy (0x%08X)" % (offset, value))
+            if copy_offset(value, 0) is None:
+                errors.append("0x%08X -> 0x%08X: not in an extent" % (offset, value))
             adds.append(offset)
             kinds["ROM data (add copy base)"] += 1
         elif region in (8, 9):
@@ -298,7 +325,7 @@ def main():
     for line in open(args.raw_pointers):
         offset, value = (int(field, 16) for field in line.split())
         region = value >> 24
-        if not is_data(offset) or offset >= rom_end:
+        if not is_data(offset) or copy_offset(offset, 4) is None:
             errors.append("raw pointer at 0x%08X: not in a data object in the copy" % offset)
         elif word(offset) != value:
             errors.append("raw pointer at 0x%08X: the GBA link has 0x%08X, not 0x%08X" % (offset, word(offset), value))
@@ -317,13 +344,14 @@ def main():
     kept.sort()
     symbol_entries.sort()
 
-    # Offsets as byte deltas in halfwords; 0 escapes a 32-bit delta.
+    # Copy offsets as byte deltas in halfwords; 0 escapes a 32-bit delta.
     def delta_stream(offsets):
         stream = []
         previous = 0
         for offset in offsets:
-            delta = offset - ROM_BASE - previous
-            previous = offset - ROM_BASE
+            offset = copy_offset(offset, 4)
+            delta = offset - previous
+            previous = offset
             if 0 < delta < 0x10000:
                 stream.append(delta)
             else:
@@ -334,24 +362,31 @@ def main():
     kept_stream = delta_stream(kept)
     with open(os.path.join(args.out, "rom_relocs.s"), "w") as out:
         out.write("@ Generated by port/dsi/tools/gen_link.py; do not edit.\n")
-        out.write("@ Pointer words in the ROM copy, by offset from its start (port/dsi/src/rom.c).\n")
+        out.write("@ The copy's extents, and the pointer words in it by offset from its start\n")
+        out.write("@ (port/dsi/src/rom.c).\n")
         out.write("\t.section .rodata.rom_relocs, \"a\"\n\t.balign 4\n")
+        out.write("\t.global gRomLayoutVersion\ngRomLayoutVersion:\n\t.word 0x%08X, 0x%08X\n" % layout_version)
+        out.write("\t.global gRomExtentCount\ngRomExtentCount:\n\t.word %d\n" % len(extents))
+        out.write("\t.global gRomExtents\ngRomExtents:\n")
+        for start, end, offset in extents:
+            out.write("\t.word 0x%06X, 0x%06X, 0x%06X\n" % (start - ROM_BASE, end - start, offset))
         out.write("\t.global gRomRelocAddCount\ngRomRelocAddCount:\n\t.word %d\n" % len(adds))
         out.write("\t.global gRomRelocSymbolCount\ngRomRelocSymbolCount:\n\t.word %d\n" % len(symbol_entries))
         out.write("\t.global gRomRelocKeptCount\ngRomRelocKeptCount:\n\t.word %d\n" % len(kept))
         out.write("\t.global gRomRelocSymbols\ngRomRelocSymbols:\n")
         for offset, name, addend in symbol_entries:
             target = name if addend == 0 else "%s + 0x%X" % (name, addend)
-            out.write("\t.word 0x%06X, %s\n" % (offset - ROM_BASE, target))
+            out.write("\t.word 0x%06X, %s\n" % (copy_offset(offset, 4), target))
         for label, values in (("gRomRelocAdds", stream), ("gRomRelocKept", kept_stream)):
             out.write("\t.global %s\n%s:\n" % (label, label))
             for i in range(0, len(values), 16):
                 out.write("\t.hword %s\n" % ", ".join(str(v) for v in values[i : i + 16]))
             out.write("\t.global %sEnd\n%sEnd:\n" % (label, label))
 
-    report.append("ROM copy: 0x%08X-0x%08X (%d bytes, %d KB) at 0x%08X-0x%08X"
-                  % (ROM_BASE, rom_end, copy_size, copy_size // 1024, rom_copy, rom_copy + copy_size))
-    report.append("ROM data symbols: %d (%d past the copy, not defined)" % (len(rom_symbols), beyond))
+    report.append("ROM copy: %d extents of 0x%08X-0x%08X, %d bytes (%d KB) at 0x%08X-0x%08X, version %08x%08x"
+                  % (len(extents), extents[0][0], extents[-1][1], copy_size, copy_size // 1024, rom_copy,
+                     rom_copy + copy_size, layout_version[1], layout_version[0]))
+    report.append("ROM data symbols: %d" % len(rom_symbols))
     report.append("RAM symbols: %d EWRAM, %d IWRAM, %d absolute"
                   % (len(regions["ewram"]), len(regions["iwram"]), len(absolute)))
     report.append("pointer words in data objects: %d" % sum(kinds.values()))

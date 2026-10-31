@@ -12,7 +12,9 @@ Contents:
 - `tools/gen_link.py`: generates the port's ROM symbols, RAM layout and
   relocation list from the GBA build.
 - `tools/rom_crc.py`: the relocated ROM copy's CRC32, computed on the host from
-  your ROM and the built ELF, to compare with the boot log.
+  your ROM and the built ELF, to compare with the boot log. With `--gamedata`
+  it writes the build's `tmc/gamedata.bin`, so the first start on the DSi can
+  skip reading the ROM.
 - `tools/icon_bmp.py`: the menu icon from the Mac app's icon.
 - `scripts/compare_frames.py`: the game's per-frame records (`gDsiFrames`)
   against the Mac headless run's `TMC_HW_HASH`.
@@ -223,8 +225,12 @@ prints the section sizes. The makefile uses the repository's `.venv` Python
 (pyelftools) and Homebrew's `arm-none-eabi-ld` for the GBA relink.
 
 Nothing it writes holds ROM bytes: the generated files are offsets and symbol
-names from the GBA link. The player's ROM is read at boot from
-`sd:/tmc/baserom.gba` (the DSi SD slot) or `fat:/tmc/baserom.gba` (DLDI).
+names from the GBA link. At boot the port reads its game data from
+`sd:/tmc/gamedata.bin` (the DSi SD slot) or `fat:/tmc/gamedata.bin` (DLDI). On
+the first start there is none: it reads the player's ROM, `tmc/baserom.gba` on
+either card, checks its SHA-1 and writes `gamedata.bin` next to it. The ROM is
+only needed again when a build changes which ROM bytes the game data holds (the
+log says so).
 
 The boot log goes on the console, in `gDsiLog` and in `tmc/boot.txt` next to
 the ROM (`sd:/tmc/boot.txt` on a DSi; with no ROM, the first `tmc/` there is).
@@ -380,9 +386,11 @@ The SD card (FAT32):
 
 | File | What |
 |---|---|
-| `sd:/tmc/baserom.gba` | your USA ROM (SHA-1 `b4bd50e4…`) |
+| `sd:/tmc/baserom.gba` | your USA ROM (SHA-1 `b4bd50e4…`), for the first start |
+| `sd:/tmc/gamedata.bin` | written by the port on the first start (13.1 MB), read on every later one |
 | `sd:/tmc_dsi.nds` | `build/dsi/tmc_dsi.nds` (any folder works) |
 | `sd:/tmc/boot.txt` | written by the port |
+| `sd:/tmc/tmc.sav` | the save, written by the port |
 
 - **TWiLight Menu++:** browse to `tmc_dsi.nds` and start it. It needs DSi mode:
   if the bottom screen says "needs DSi mode", set the game's *Run in* setting

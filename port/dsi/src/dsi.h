@@ -32,22 +32,29 @@ extern volatile int gDsiLogDone;
 #define DSI_IWRAM_SIZE 0x8000
 extern uint8_t gDsiIwram[DSI_IWRAM_SIZE];
 
-/* The ROM copy, from the linker (rom_symbols.ld). */
+/*
+ * The ROM copy, from the linker (rom_symbols.ld): the GBA ROM's data objects,
+ * packed. DsiRomPtr is a GBA ROM address's place in it (NULL outside the data
+ * objects), DsiRomAddress the reverse (0 outside them).
+ */
 extern uint8_t __rom_copy[];
 extern uint8_t __rom_copy_end[];
 #define DSI_ROM_BASE 0x08000000u
+uint8_t* DsiRomPtr(uint32_t address);
+uint32_t DsiRomAddress(const void* pointer);
 
 /* Zero the GBA EWRAM block and IWRAM, as the GBA's crt0 leaves them. */
 void DsiClearGbaRam(void);
 
 /*
- * Read the player's ROM into the copy and check it. False (with the reason
- * logged) if there is no usable ROM.
+ * Fill the copy from tmc/gamedata.bin, or, with none for this build, from the
+ * player's ROM (checked by its SHA-1), writing gamedata.bin for the next
+ * start. False (with the reason logged) if there is neither.
  */
 bool DsiRomLoad(void);
 
 /*
- * The save (port/src/eeprom.c): tmc/tmc.sav on the ROM's card, NULL before
+ * The save (port/src/eeprom.c): tmc/tmc.sav on the game data's card, NULL before
  * DsiRomLoad finds one. EepromFlush writes it once the game has stopped
  * writing, or at once with now: 0 nothing written, 1 written, -1 failed.
  */
