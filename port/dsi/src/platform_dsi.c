@@ -44,6 +44,9 @@ static bool SoundInterruptOn(void) {
 
 static void OnVBlank(void) {
     sVBlanks++;
+    if (gDsiHalted) {
+        return;
+    }
     DsiPresentVBlank();
     DsiSoundVBlank(SoundInterruptOn());
 }

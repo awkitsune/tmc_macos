@@ -18,6 +18,7 @@ static size_t sLogLength;
 
 // Set when main() stops: the log is complete (read through GDB).
 volatile int gDsiLogDone;
+volatile bool gDsiHalted;
 
 // The log's file (DsiLogToFile); NULL before there is one or after a failed write.
 static const char* sLogFile;
@@ -101,11 +102,27 @@ void DsiLogToDefaultFile(void) {
     }
 }
 
+// IRQs on in the CPU (ARM code: Thumb has no MSR) and in IME.
+__attribute__((target("arm"), noinline)) static void EnableInterrupts(void) {
+    uint32_t cpsr;
+
+    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
+    __asm__ volatile("msr cpsr_c, %0" : : "r"(cpsr & ~0x80u) : "memory");
+    REG_IME = 1;
+}
+
+/*
+ * An exception enters with interrupts off, and the SD card is the ARM7's: a
+ * write waits for its reply through the FIFO interrupt. So the interrupts go
+ * back on, with the VBlank's game work and the sound stopped first, and the
+ * log is written. The console already shows it if that write never returns.
+ */
 static _Noreturn void Halt(void) {
+    gDsiHalted = true;
     DsiSoundStop();
     gDsiLogDone = 1;
     DC_FlushAll();
-    // Last, as it may not return (from an exception, interrupts are off).
+    EnableInterrupts();
     DsiLogFlush();
     while (1) {
         swiWaitForVBlank();
@@ -152,9 +169,12 @@ int main(int argc, char** argv) {
     if (!DsiRomLoad() || !DsiRomRelocate()) {
         Halt();
     }
-    cpuStartTiming(0);
-    crc = HwCrc32(0, __rom_copy, __rom_copy_end - __rom_copy);
-    DsiLog("copy CRC32 %08lx (%lu ms)\n", (unsigned long)crc, (unsigned long)timerTicks2msec(cpuEndTiming()));
+    if (DSI_CHECKS) {
+        // 1.5 s on the DSi; tools/rom_crc.py prints the same for the build.
+        cpuStartTiming(0);
+        crc = HwCrc32(0, __rom_copy, __rom_copy_end - __rom_copy);
+        DsiLog("copy CRC32 %08lx (%lu ms)\n", (unsigned long)crc, (unsigned long)timerTicks2msec(cpuEndTiming()));
+    }
     DsiProtectGbaSlot();
     DsiLogFlush();
 #ifdef DSI_TEST_STRAY_READ

@@ -235,8 +235,11 @@ log says so).
 The boot log goes on the console, in `gDsiLog` and in `tmc/boot.txt` next to
 the ROM (`sd:/tmc/boot.txt` on a DSi; with no ROM, the first `tmc/` there is).
 The file is rewritten whole after the ROM is found, after the SHA-1, after
-relocation, after the copy CRC, at the start of the game, at each frame-time
-report and when the port stops, so a hang leaves the log up to its last stage.
+relocation, after the copy CRC (`DSI_CHECKS=1` builds only: it takes 1.5 s on
+the DSi), at the start of the game, at each frame-time report and when the port
+stops, so a hang leaves the log up to its last stage. After a crash (the
+exception's registers, then "fatal: ...") the port turns interrupts back on to
+write it, as the SD card is the ARM7's.
 
 Run it in melonDS and read the boot log. melonDS does not finish writes to
 the DSi SD slot (above), so with the ROM on an SD image the port stops at its
@@ -403,8 +406,8 @@ Let it run for a minute after the title screen shows (the frame-time report
 comes 1,024 frames, about 17 s, after the game starts), play a little, switch
 off, and copy `tmc/boot.txt` off the card before the next start.
 
-It must log the same SHA-1, relocation counts and copy CRC as melonDS; the
-CRC belongs to the build (`tools/rom_crc.py` on its ELF prints it). For the
+It must log the same SHA-1, relocation counts and (with the checks) copy CRC
+as melonDS; the CRC belongs to the build (`tools/rom_crc.py` on its ELF prints it). For the
 builds in `build/dsi/hw/` (not in the repository):
 
 | | `tmc_dsi.nds` | `tmc_dsi_checks.nds` (`DSI_CHECKS=1`) |

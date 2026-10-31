@@ -27,6 +27,8 @@ _Noreturn void DsiFatal(const char* format, ...) __attribute__((format(printf, 1
 extern char gDsiLog[DSI_LOG_SIZE];
 /* Set once the log is complete (after DSI_FRAME_RECORDS frames, twice that with DSI_CHECKS). */
 extern volatile int gDsiLogDone;
+/* Set when the port stops (DsiFatal, an exception): the VBlank does no more game work. */
+extern volatile bool gDsiHalted;
 
 /* The GBA IWRAM (32 KB): the game's IWRAM globals live here (ram_layout.ld). */
 #define DSI_IWRAM_SIZE 0x8000
