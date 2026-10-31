@@ -99,16 +99,17 @@ or makes sounds earlier.
   than the view is centred (only in the extended view).
 - Display extension (`port/include/port/view.h`), set each frame by `PortViewUpdate`
   (`port/src/asm/veneer.c`, called from `WaitForNextFrame` where the GBA DMAs its BG buffers):
-  - world view (`TASK_GAME` with room layers; of the subtasks only the world cutscenes, `SUBTASK_AUXCUTSCENE`,
-    `SUBTASK_PORTALCUTSCENE` and `SUBTASK_WORLDEVENT`, and the frames while a menu fades in or out): the
+  - world view (`TASK_GAME` with room layers; of the subtasks only the world cutscenes, `SUBTASK_AUXCUTSCENE`
+    and `SUBTASK_WORLDEVENT`, and the frames while a menu fades in or out): the
     room layers read `gHwWideMap` (64x32), filled from the
     room's 8x8 maps for the current scroll, 0 outside the room; BG0 (HUD, text) is a centred GBA layer;
     BG3 is drawn across the view with its own scroll; the picture is clipped to the room (`gHwViewClip`,
     backdrop outside, as past the GBA's screen edge; during transitions the union with the room before);
     screen-space sprites (UI elements, draw-mode-2
     entities) move by `PORT_HUD_X` = (W - 240) / 2.
-  - anything else (title, file select, the subtask menus: pause, maps, kinstones, figurines):
-    `gHwGbaScreen`, the 240x160 picture centred with black around it.
+  - anything else (title, file select, the subtask menus: pause, maps, kinstones, figurines; the portal
+    cutscene, `SUBTASK_PORTALCUTSCENE`, whose vortex is a full-screen picture of its own although the room's
+    BG settings stay set): `gHwGbaScreen`, the 240x160 picture centred with black around it.
   - windows: an edge at 240/160 means the view's edge.
 - Culling: `CheckOnScreen`, `CheckRectOnScreen`, `CheckRegionOnScreen`, OBJ emit, PPU OBJ wrap.
 - The GBA's own 32x32 copies (`UpdateScrollVram`) are skipped in the extended view.
@@ -138,6 +139,10 @@ other axis moves into the new room's range on the way.
   paths (12:02, 12:03; BG1 and BG3) and the Minish rafters (2e:00-03; BG1). Found by logging the
   registrations through the room smoke test.
 - Pictures narrower than the view in rooms narrower than the view are covered by the room clip.
+- Minish Woods light rays (`lightRayManager`, the screen-anchored mode): a 256-px picture at hofs 16, its
+  right edge on the screen's right edge. In the extended view it is a stream (`PortViewStreamBg`) with
+  nothing left of the picture, scrolled so its right edge is the view's; the scrolling-wave mode still
+  wraps at 256.
 
 ### Taller views
 
@@ -213,6 +218,13 @@ border, drawn as before.
   240x160 except the 3 frames after the state load (the camera moving from the 240 scroll) and one
   frame (192 px) as the world fades back in.
 
+- Light rays (00:00) at 288x160 and 256x160: BG3 alone contains the 240 picture at offsets 48 and 16 (the
+  view's right edge) with 0 differing pixels; the columns left of it are empty.
+- Portal cutscene (stump at 00:00 296,880, from `hyrule_field_north.tmcs` warped to 296,910 with
+  `TMC_WARP_ITEMS=1,0`, up for 60 frames, R; the subtask runs frames 23691-24100): at 288x160 and
+  256x192 the frames 23700, 23800, 23900, 24000 and 24090 contain the 240 run's frame at (24, 0) and
+  (8, 16) with 0 differing pixels, black around (the vortex frames have 29-68 colours).
+
 - Slides at 288x160: in the playthrough's two (house, between 240x160 rooms) all 48 sampled frames equal
   the 240 run at offset 24. 26 slides found by walking off every dungeon room left and right; in 50:13
   (into a 336-wide room, the camera travels 288 px in 4-5 px steps) each sampled mid-slide frame (BG1
@@ -237,7 +249,7 @@ border, drawn as before.
 - The digging-cave ellipse (`scrollAction` 5) and the wipe (`scrollAction` 4, no setter found in the C
   code) are implemented but not seen running yet.
 - BG3 pictures in rooms at least as wide as the view still wrap at 256 px (`staticBackgroundManager`,
-  `holeManager`, `lightRayManager`, `templeOfDropletsManager`, Vaati and Gyorg fights). Overlays that
+  `holeManager`, `lightRayManager`'s wave mode, `templeOfDropletsManager`, Vaati and Gyorg fights). Overlays that
   scroll across all 256 px on the GBA (clouds, animated backgrounds) wrap there too and are seamless.
 - Windows narrower than full screen past x 255 (8-bit registers), iris effects.
 - Tile 0 outside the room is assumed blank (true in the rooms checked); a dedicated blank entry may be needed.

@@ -79,7 +79,8 @@ extern Screen gScreen;
 
 #ifdef PORT_HOSTED
 // Extended view (port/src/asm/veneer.c): bg shows a window of a wider tile map,
-// src[row * stride + col0 + col], instead of the 32 columns its buffer holds.
+// src[row * stride + col0 + col] (0 outside 0 <= col0 + col < cols), instead of
+// the 32 columns its buffer holds; src NULL ends it.
 void PortViewStreamBg(const void* bg, const u16* src, s32 stride, s32 col0, s32 cols, s32 rows);
 #endif
 
