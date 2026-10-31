@@ -1,9 +1,11 @@
 # Roadmap after 1.0
 
 Features planned after the first public build, roughly in order. All of them are native only
-(`#ifdef PLATFORM_NATIVE` or port code): `tmc.gba` keeps matching, and the GBA save format does not change. Each
-one gets its own branch from `macos` and passes the usual checks (`make -j4` → `tmc.gba: OK`, the new-game
-playthrough hash, the room smoke test).
+(`#ifdef PORT_HOSTED`, `PORT_LAYOUT_64` for the 64-bit Mac/iOS builds only, or port code): `tmc.gba` keeps
+matching, and the GBA save format does not change. Each one gets its own branch from `native` (the Mac/iOS and DSi
+ports together) and passes the usual checks (`make -j4` → `tmc.gba: OK`, the new-game playthrough hash, the room
+smoke test, and `make -C port/dsi -j4` still links). Game-side work such as #9 is written for any view size, so
+the DSi's fullscreen 256x192 uses it too.
 
 ## Groundwork
 
