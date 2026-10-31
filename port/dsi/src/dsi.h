@@ -49,10 +49,10 @@ bool DsiRomLoad(void);
 /*
  * The save (port/src/eeprom.c): tmc/tmc.sav on the ROM's card, NULL before
  * DsiRomLoad finds one. EepromFlush writes it once the game has stopped
- * writing: 0 nothing written, 1 written, -1 failed.
+ * writing, or at once with now: 0 nothing written, 1 written, -1 failed.
  */
 const char* DsiSavePath(void);
-int EepromFlush(void);
+int EepromFlush(bool now);
 
 /*
  * Patch the pointer words in the copy (rom_relocs.s). False if a count is off
@@ -76,6 +76,13 @@ void DsiSha1Final(DsiSha1* ctx, uint8_t digest[20]);
 
 /* Run the game from AgbMain; a BIOS SoftReset comes back here. */
 _Noreturn void DsiRunGame(void);
+
+/*
+ * BIOS Stop: the game's Sleep (SetSleepMode, from the Quest Status page). The
+ * backlights go off until the keys the game set in KEYCNT are held (L+R+Select);
+ * closing the lid meanwhile puts the DSi to sleep until it opens.
+ */
+void DsiStop(void);
 
 /*
  * Per game frame, for the first DSI_FRAME_RECORDS frames: the hardware

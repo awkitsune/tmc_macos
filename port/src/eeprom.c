@@ -9,7 +9,8 @@
  * The DSi has no environment: the save is tmc/tmc.sav on the card the ROM came
  * from (port/dsi/src/rom.c). Rewriting the file on the SD card for each 8-byte
  * block would stall a save for seconds, so writes only mark the image dirty and
- * EepromFlush writes it once a frame has passed without one.
+ * EepromFlush writes it once a frame has passed without one (or at once, before
+ * the DSi sleeps).
  */
 
 #include <stdio.h>
@@ -27,7 +28,7 @@ static bool32 sLoaded;
 
 #ifdef PLATFORM_DSI
 const char* DsiSavePath(void);
-int EepromFlush(void);
+int EepromFlush(bool now);
 
 static bool32 sDirty;
 static bool32 sWrittenThisFrame;
@@ -64,10 +65,10 @@ static void StoreBlock(u16 address) {
 
 /*
  * Once a frame: write the image if it changed and the game wrote nothing since
- * the last call. In place ("r+b") when the file exists, so it is never left
+ * the last call, or with now whatever the game wrote last. In place ("r+b") when the file exists, so it is never left
  * truncated. 0 if nothing was written, 1 if it was, -1 if the write failed.
  */
-int EepromFlush(void) {
+int EepromFlush(bool now) {
     const char* path = SavePath();
     FILE* f;
     size_t written;
@@ -75,10 +76,11 @@ int EepromFlush(void) {
     if (!sDirty || path == NULL) {
         return 0;
     }
-    if (sWrittenThisFrame) {
+    if (sWrittenThisFrame && !now) {
         sWrittenThisFrame = FALSE;
         return 0;
     }
+    sWrittenThisFrame = FALSE;
     sDirty = FALSE;
     if ((f = fopen(path, "r+b")) == NULL && (f = fopen(path, "wb")) == NULL) {
         return -1;

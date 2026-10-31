@@ -43,6 +43,49 @@ static void Track(uint32_t* min, uint32_t* max, uint64_t* sum, uint32_t value) {
     *sum += value;
 }
 
+static void FlushSave(bool now) {
+    if (EepromFlush(now) < 0) {
+        DsiLog("save: writing %s failed\n", DsiSavePath());
+        DsiLogFlush();
+    }
+}
+
+/*
+ * The lid closed. The ARM7's own sleep on the lid is off (DsiRunGame), as it
+ * would come at any point, in the middle of a frame or of a save; here the save
+ * is on the card first. Sleep is allowed just for the request, and the DSi
+ * wakes when the lid opens.
+ */
+static void SleepUntilLidOpens(void) {
+    FlushSave(true);
+    enableSleep();
+    systemSleep();
+    disableSleep();
+}
+
+void DsiStop(void) {
+    uint16_t keycnt = gHwIo[0x132] | (gHwIo[0x133] << 8); // REG_KEYCNT, as SetSleepMode left it
+    uint16_t wake = keycnt & 0x3FF;
+
+    FlushSave(true);
+    powerOff(PM_BACKLIGHT_TOP | PM_BACKLIGHT_BOTTOM);
+    for (;;) {
+        uint16_t held;
+
+        swiWaitForVBlank();
+        scanKeys();
+        if (keysDown() & KEY_LID) {
+            SleepUntilLidOpens();
+        }
+        held = keysHeld() & 0x3FF;
+        // Bit 15: all of the keys (the game's L+R+Select), else any of them.
+        if (wake != 0 && ((keycnt & 0x8000) ? (held & wake) == wake : (held & wake) != 0)) {
+            break;
+        }
+    }
+    powerOn(PM_BACKLIGHT_TOP | PM_BACKLIGHT_BOTTOM);
+}
+
 static unsigned long Us(uint64_t ticks) {
     return (unsigned long)timerTicks2usec((uint32_t)ticks);
 }
@@ -102,6 +145,9 @@ void PlatformVBlank(void) {
         Track(&s->gameMin, &s->gameMax, &s->gameSum, start - sLeft);
     }
     scanKeys();
+    if (keysDown() & KEY_LID) {
+        SleepUntilLidOpens();
+    }
     HwSetKeys(DSI_CHECKS && frame < DSI_FRAME_RECORDS ? DsiInputKeys(frame) : keysHeld() & 0x3FF);
     HwRunLines(NULL);
     DsiPresentPrepare();
@@ -137,10 +183,7 @@ void PlatformVBlank(void) {
     HwRunVBlank();
     work += cpuGetTiming() - t;
     Track(&s->workMin, &s->workMax, &s->workSum, work);
-    if (EepromFlush() < 0) {
-        DsiLog("save: writing %s failed\n", DsiSavePath());
-        DsiLogFlush();
-    }
+    FlushSave(false);
 
     if (DSI_CHECKS && frame < DSI_FRAME_RECORDS) {
         DsiFrameRecord* r = &gDsiFrames[frame];
@@ -187,6 +230,7 @@ _Noreturn void PlatformSoftReset(void) {
 
 _Noreturn void DsiRunGame(void) {
     ResetStats();
+    disableSleep(); // the lid is handled at the frame boundary (SleepUntilLidOpens)
     irqSet(IRQ_VBLANK, OnVBlank);
     irqEnable(IRQ_VBLANK);
     cpuStartTiming(0);

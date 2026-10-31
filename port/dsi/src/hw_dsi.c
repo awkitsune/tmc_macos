@@ -231,6 +231,7 @@ void HwSystemCall(int number) {
     if (number != 3) {
         DsiFatal("HwSystemCall: unhandled BIOS call 0x%02x", number);
     }
+    DsiStop();
 }
 
 int PlatformEntityLimit(void) {
