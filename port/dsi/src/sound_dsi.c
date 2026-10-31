@@ -26,8 +26,9 @@
 #define RING 4096 // samples per channel; divides timer 3's 65536
 #define LEAD_FRAMES 3
 #define DRIFT 32  // samples of lead either way before correcting
-// A DS frame: 355 lines of 2,130 bus cycles, in sound clock cycles.
-#define SOUND_CYCLES_PER_FRAME (355 * 2130 / 2)
+// A DS frame: 263 lines of 2,130 bus cycles (355 dots of 6), in sound clock
+// cycles.
+#define SOUND_CYCLES_PER_FRAME (263 * 2130 / 2)
 
 static int16_t sRing[2][RING] __attribute__((aligned(32)));
 static bool sPlaying;
