@@ -190,6 +190,14 @@ border, drawn as before.
 - Game windows: an edge at 240/160 means 256/192; a window over all 256 columns stops at 255 (the DS cannot
   hold 256 in a window register; `fullWidthLines` counts them).
 - Verified only by building: melonDS is a GUI app, so the DSi is checked by hand.
+- First hardware test: the room layers came out in 8-px stripes. The wide maps were row-major (64 entries a
+  row), which the Mac renderers read that way but DS hardware reads as two 32x32 screen blocks. They are now
+  laid out as the GBA and the DS lay out a 512x256 map (`HwWideMapAt`) on every platform.
+- The same test found slowdown and sound stutter in fullscreen (Minish Woods' fog room, and walking in
+  general). The wide-map update now writes only the cells the view shows (36x29 at 256x192, against 64x32)
+  into double-buffered sets that the PPUs and the presenter read in place (`gHwWideMap` holds pointers),
+  instead of three 8 KB copies a frame. boot.txt gets a line per room stretch (game, work and present
+  times, late frames) to compare the modes on hardware.
 
 ### Checks
 

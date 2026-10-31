@@ -9,7 +9,7 @@
 // save states (this file is not in TMC_PORT_STATE_SOURCES).
 int gPortScreenW = 240;
 int gPortScreenH = 160;
-uint16_t gHwWideMap[4][HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS];
+const uint16_t* gHwWideMap[4];
 uint8_t gHwWideMapMask;
 uint8_t gHwGbaLayerMask;
 bool gHwGbaScreen;

@@ -64,7 +64,7 @@ static uint background(device const Line& l, device const uchar* pool, constant 
     int y = (line - (mosaic ? int(l.mosaicBgY) : 0) + (reg(l, 0x12 + bg * 4) & 511)) & (h - 1);
     uint entry;
     if (wide) {
-        entry = v.wideMap[bg][(y >> 3) * 64 + (x >> 3)];
+        entry = v.wideMap[bg][(x >> 8) << 10 | (y >> 3) << 5 | ((x >> 3) & 31)]; // two screen blocks
     } else {
         uint block = (x >= 256 ? 1 : 0) + (y >= 256 ? (w == 512 ? 2 : 1) : 0);
         uint entryAt = screenBase + block * 0x800 + (((y & 255) >> 3) * 32 + ((x & 255) >> 3)) * 2;

@@ -24,7 +24,7 @@ void DsiLogToFile(const char* path);
 void DsiLogToDefaultFile(void);
 void DsiLogFlush(void);
 _Noreturn void DsiFatal(const char* format, ...) __attribute__((format(printf, 1, 2)));
-#define DSI_LOG_SIZE 4096
+#define DSI_LOG_SIZE 16384
 extern char gDsiLog[DSI_LOG_SIZE];
 /* Set once the log is complete (after DSI_FRAME_RECORDS frames, twice that with DSI_CHECKS). */
 extern volatile int gDsiLogDone;

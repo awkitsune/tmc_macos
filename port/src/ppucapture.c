@@ -29,7 +29,11 @@ void PpuCaptureViewNow(PpuCaptureView* view) {
     for (int i = 0; i < 4; i++) {
         view->clip[i] = clipped ? gHwViewClip[i] : (i < 2 ? 0 : i == 2 ? PpuWidth() : PpuHeight());
     }
-    memcpy(view->wideMap, gHwWideMap, sizeof(view->wideMap));
+    for (int bg = 0; bg < 4; bg++) {
+        if (gHwWideMapMask & (1 << bg)) {
+            memcpy(view->wideMap[bg], gHwWideMap[bg], sizeof(view->wideMap[bg]));
+        }
+    }
 }
 
 // Captures count pages of one memory region starting at page first, sharing the

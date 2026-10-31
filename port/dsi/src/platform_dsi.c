@@ -10,6 +10,7 @@
 #include "port/hw.h"
 #include "port/platform.h"
 #include "port/ppu.h"
+#include "port/view.h"
 
 #include "dsi.h"
 
@@ -117,6 +118,8 @@ static void ResetStats(void) {
     gDsiFrameStats.first = gPlatformFrame;
     gDsiFrameStats.vblanks = sVBlanks;
 }
+
+static void ReportRooms(void);
 
 static void Report(const char* what) {
     const DsiFrameStats* s = &gDsiFrameStats;
@@ -244,9 +247,40 @@ void PlatformVBlank(void) {
         Report(DSI_CHECKS ? "no checks, keys" : "keys");
         gDsiLogDone = 1;
         DC_FlushAll();
+    } else {
+        ReportRooms();
     }
     sLeft = cpuGetTiming();
     sFrameWork = false;
+}
+
+/*
+ * After the start-up reports, one line per room stretch (at least 2 s) or
+ * 30 s, for comparing rooms and the screen modes: the times in us, and the
+ * frames that took more than one DS frame.
+ */
+static void ReportRooms(void) {
+    static int sArea = -1, sRoom = -1;
+    const DsiFrameStats* s = &gDsiFrameStats;
+    HeadlessState state;
+    uint32_t n = s->frames;
+
+    if (gPlatformFrame < (DSI_CHECKS ? 2 : 1) * DSI_FRAME_RECORDS) {
+        return;
+    }
+    HeadlessGetState(&state);
+    if (n > 0 && ((state.area != sArea || state.room != sRoom) ? n >= 120 : n >= 1800)) {
+        DsiLog("%02x:%02x %s %lu frames: game %lu/%lu, work %lu/%lu, present %lu/%lu (avg/max us), %lu late\n",
+               sArea, sRoom, gPortScreenW == 256 ? "full" : "bordered", (unsigned long)n, Us(s->gameSum / n),
+               Us(s->gameMax), Us(s->workSum / n), Us(s->workMax), Us(s->presentSum / n), Us(s->presentMax),
+               (unsigned long)s->late);
+        DsiLogFlush();
+        ResetStats();
+    } else if (state.area != sArea || state.room != sRoom) {
+        ResetStats();
+    }
+    sArea = state.area;
+    sRoom = state.room;
 }
 
 _Noreturn void PlatformSoftReset(void) {

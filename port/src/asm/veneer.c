@@ -79,9 +79,10 @@ static int BgIndex(const void* bg) {
 // new room's tiles that the transition has reached (sub_0807D280, sub_0807D46C,
 // sub_0807D6D8); the rest is what was on screen. Part of save states, like the
 // GBA's buffers.
-static u16 sShown[2][HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS];
+// Two sets, shown and next, so that a frame reads the last one's while it writes.
+static u16 sMaps[2][2][HW_WIDE_MAP_SIZE];
+static s32 sShownSet;
 static s32 sShownX, sShownY;
-static u16 sNext[2][HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS] STATE_EXCLUDE;
 
 // Whether the transition in progress has put the new room's tile at room
 // position (x, y) on screen (the tile's centre), as the GBA's copies decide it.
@@ -125,46 +126,58 @@ static bool32 TransitionReached(s32 x, s32 y) {
     }
 }
 
+// The wide map cells the view can show: the window starts up to 15 px left of
+// the view and 23 px above it (ram_sub_080B197C's layout), and a screen shake
+// moves it a few pixels more.
+static s32 ViewCols(void) {
+    return min((PORT_SCREEN_W + 14) / 8 + 2, HW_WIDE_MAP_COLS);
+}
+
+static s32 ViewRows(void) {
+    return min((PORT_SCREEN_H + 22) / 8 + 2, HW_WIDE_MAP_ROWS);
+}
+
 // The window of the room's 8x8 tile maps (128 entries a row) that the view shows,
-// into sShown for the layers in the mask, laid out as ram_sub_080B197C lays out the 32x32
-// buffers: from the metatile-aligned scroll, one row above it. Outside the room (a
-// room smaller than the view) the entries are 0.
+// into the next set for the layers in the mask, which becomes the shown one, laid out as ram_sub_080B197C lays out the
+// 32x32 buffers: from the metatile-aligned scroll, one row above it. Outside the
+// room (a room smaller than the view) the entries are 0. Only the cells the view
+// shows are written.
 static void CopyRoomWindow(int layers) {
-    static u16* const sMaps[2] = { gMapDataBottomSpecial, gMapDataTopSpecial };
+    static u16* const sRoomMaps[2] = { gMapDataBottomSpecial, gMapDataTopSpecial };
     s32 col0 = ((gRoomControls.scroll_x - gRoomControls.origin_x) >> 4) * 2;
     s32 row0 = ((gRoomControls.scroll_y - gRoomControls.origin_y) >> 4) * 2 - 1;
-    s32 cols = gRoomControls.width >> 3, rows = gRoomControls.height >> 3;
+    s32 cols = min(gRoomControls.width >> 3, 0x80), rows = min(gRoomControls.height >> 3, 0x80);
     s32 shownX = gRoomControls.origin_x + col0 * 8, shownY = gRoomControls.origin_y + row0 * 8;
+    s32 viewCols = ViewCols(), viewRows = ViewRows();
     bool32 all = gRoomControls.scrollAction < 2 || gRoomControls.scrollAction > 5;
 
-    for (s32 r = 0; r < HW_WIDE_MAP_ROWS; r++) {
-        s32 row = row0 + r;
-        s32 oldRow = (shownY + r * 8 - sShownY) >> 3;
-        for (s32 c = 0; c < HW_WIDE_MAP_COLS; c++) {
-            s32 col = col0 + c;
-            s32 oldCol = (shownX + c * 8 - sShownX) >> 3;
-            u32 inside = row >= 0 && row < rows && row < 0x80 && col >= 0 && col < cols && col < 0x80;
-            u32 old = oldRow >= 0 && oldRow < HW_WIDE_MAP_ROWS && oldCol >= 0 && oldCol < HW_WIDE_MAP_COLS;
-            u32 fresh = all || TransitionReached(col * 8 + 4, row * 8 + 4);
+    for (int layer = 0; layer < 2; layer++) {
+        const u16* shown = sMaps[sShownSet][layer];
+        u16* next = sMaps[sShownSet ^ 1][layer];
 
-            for (int layer = 0; layer < 2; layer++) {
-                u16* out = &sNext[layer][r * HW_WIDE_MAP_COLS + c];
-                if (!(layers & (1 << layer))) {
-                    continue;
-                }
-                if (fresh) {
-                    *out = inside ? sMaps[layer][row * 0x80 + col] : 0;
+        if (!(layers & (1 << layer))) {
+            continue;
+        }
+        for (s32 r = 0; r < viewRows; r++) {
+            s32 row = row0 + r;
+            s32 oldRow = (shownY + r * 8 - sShownY) >> 3;
+            const u16* src = &sRoomMaps[layer][row * 0x80];
+
+            for (s32 c = 0; c < viewCols; c++) {
+                s32 col = col0 + c;
+                u32 inside = row >= 0 && row < rows && col >= 0 && col < cols;
+
+                if (all || TransitionReached(col * 8 + 4, row * 8 + 4)) {
+                    next[HwWideMapAt(c, r)] = inside ? src[col] : 0;
                 } else {
-                    *out = old ? sShown[layer][oldRow * HW_WIDE_MAP_COLS + oldCol] : 0;
+                    s32 oldCol = (shownX + c * 8 - sShownX) >> 3;
+                    u32 old = oldRow >= 0 && oldRow < viewRows && oldCol >= 0 && oldCol < viewCols;
+                    next[HwWideMapAt(c, r)] = old ? shown[HwWideMapAt(oldCol, oldRow)] : 0;
                 }
             }
         }
     }
-    for (int layer = 0; layer < 2; layer++) {
-        if (layers & (1 << layer)) {
-            memcpy(sShown[layer], sNext[layer], sizeof(sShown[layer]));
-        }
-    }
+    sShownSet ^= 1;
     sShownX = shownX;
     sShownY = shownY;
 }
@@ -177,6 +190,7 @@ static struct {
     const u16* src;
     s32 stride, col0, cols, rows;
     u8 area, room;
+    u16 map[HW_WIDE_MAP_SIZE];
 } sStreams[4] STATE_EXCLUDE;
 
 void PortViewStreamBg(const void* bg, const u16* src, s32 stride, s32 col0, s32 cols, s32 rows) {
@@ -200,13 +214,14 @@ static void CopyStreams(void) {
             sStreams[bg].src = NULL;
             continue;
         }
-        for (s32 r = 0; r < HW_WIDE_MAP_ROWS; r++) {
-            for (s32 c = 0; c < HW_WIDE_MAP_COLS; c++) {
+        for (s32 r = 0; r < HW_WIDE_MAP_ROWS; r++) { // their own vertical scroll
+            for (s32 c = 0; c < ViewCols(); c++) {
                 s32 col = sStreams[bg].col0 + c;
-                gHwWideMap[bg][r * HW_WIDE_MAP_COLS + c] =
+                sStreams[bg].map[HwWideMapAt(c, r)] =
                     r < sStreams[bg].rows && col < sStreams[bg].cols ? sStreams[bg].src[r * sStreams[bg].stride + col] : 0;
             }
         }
+        gHwWideMap[bg] = sStreams[bg].map;
         gHwWideMapMask |= 1 << bg;
     }
 }
@@ -263,12 +278,12 @@ void PortViewUpdate(void) {
     CopyRoomWindow((gMapBottom.bgSettings != NULL) | ((gMapTop.bgSettings != NULL) << 1));
     if (gMapBottom.bgSettings != NULL) {
         int bg = BgIndex(gMapBottom.bgSettings);
-        memcpy(gHwWideMap[bg], sShown[0], sizeof(gHwWideMap[bg]));
+        gHwWideMap[bg] = sMaps[sShownSet][0];
         gHwWideMapMask |= 1 << bg;
     }
     if (gMapTop.bgSettings != NULL) {
         int bg = BgIndex(gMapTop.bgSettings);
-        memcpy(gHwWideMap[bg], sShown[1], sizeof(gHwWideMap[bg]));
+        gHwWideMap[bg] = sMaps[sShownSet][1];
         gHwWideMapMask |= 1 << bg;
     }
     CopyStreams();

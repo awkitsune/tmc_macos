@@ -129,7 +129,7 @@ static void RenderTextBg(int bg, int line, BgLine* out) {
             continue;
         }
         if (wide) {
-            entry = gHwWideMap[bg][(y >> 3) * HW_WIDE_MAP_COLS + (x >> 3)];
+            entry = gHwWideMap[bg][HwWideMapAt(x >> 3, y >> 3)];
         } else {
             // 32x32 screen blocks, laid out left-right then top-bottom.
             uint32_t block = (x >= 256 ? 1 : 0) + (y >= 256 ? (width == 512 ? 2 : 1) : 0);

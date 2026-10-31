@@ -568,7 +568,7 @@ void DsiPresent(void) {
         }
         for (int bg = 0; bg < 4; bg++) {
             if (sGeo.wide & (1 << bg)) {
-                dmaCopyWords(3, gHwWideMap[bg], (void*)(MAP_WINDOW + bg * 0x1000), sizeof(gHwWideMap[bg]));
+                dmaCopyWords(3, gHwWideMap[bg], (void*)(MAP_WINDOW + bg * 0x1000), HW_WIDE_MAP_SIZE * 2);
             }
         }
         sMapWindowDirty = true;

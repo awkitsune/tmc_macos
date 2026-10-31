@@ -32,9 +32,11 @@ static inline bool PortViewExtended(void) {
 /*
  * The port's display extension, read by the PPU and the presenters each frame:
  *
- * - gHwWideMap[bg]: a 64x32-entry text map (row-major, 64 entries a row) that
- *   BG bg reads instead of its screen blocks, when bit bg of gHwWideMapMask is
- *   set. The GBA's BG VRAM has no room for 512-wide maps.
+ * - gHwWideMap[bg]: a 64x32-entry text map (HW_WIDE_MAP_SIZE entries, where
+ *   the game keeps it) that BG bg reads instead of its screen blocks, when bit
+ *   bg of gHwWideMapMask is set: a 512x256 map as the
+ *   GBA and the DS lay it out, two 32x32 screen blocks side by side
+ *   (HwWideMapAt). The GBA's BG VRAM has no room for 512-wide maps.
  * - gHwGbaLayerMask: BGs (bits 0-3) drawn as a 240x160 GBA layer centred in the
  *   view: their scroll is the GBA's and they are transparent outside the centre
  *   (PortViewGbaLeft, PortViewGbaTop).
@@ -48,7 +50,12 @@ static inline bool PortViewExtended(void) {
  */
 #define HW_WIDE_MAP_COLS 64
 #define HW_WIDE_MAP_ROWS 32
-extern uint16_t gHwWideMap[4][HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS];
+#define HW_WIDE_MAP_SIZE (HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS)
+extern const uint16_t* gHwWideMap[4];
+/* The entry for tile column col (0-63) and row (0-31) of a wide map. */
+static inline int HwWideMapAt(int col, int row) {
+    return (col >> 5) << 10 | row << 5 | (col & 31);
+}
 extern uint8_t gHwWideMapMask;
 extern uint8_t gHwGbaLayerMask;
 extern bool gHwGbaScreen;
