@@ -587,10 +587,12 @@ As built: the ARM9 mixes, the default ARM7 program only plays.
   output stage in integers, as the Mac's `PsgRender` does in floating point:
   SOUNDCNT_H/NR50/NR51 levels in half DAC units, the clip around SOUNDBIAS, the
   5 Hz output high-pass in Q8, then 16-bit stereo (half DAC unit x 32). The
-  frame sequencer keeps `PsgAdvance`'s sub-sample timing; the channels are
-  sampled once per output sample, without the Mac's box filter. Checked on the
-  host against `PsgRender` (square + DirectSound, wave, noise, sweep): same peaks
-  and levels, the rest is the box filter.
+  frame sequencer keeps `PsgAdvance`'s sub-sample timing. The squares and the
+  wave channel are the exact average of the waveform over each output sample
+  (point sampling folded stray tones into high notes on the DSi); noise is
+  point-sampled, as the GBA's DAC does (averaged, a fast noise clock cancelled
+  itself out). Checked on the host against `PsgRender` (square + DirectSound,
+  wave, noise, sweep, a high square): same peaks and levels.
 - `port/dsi/src/sound_dsi.c` streams the frame into a 4,096-sample ring per
   side, which DS channels 0 (left) and 1 (right) loop as PCM16, started by
   `soundPlaySampleChannel` (FIFO to the ARM7). Their sample period is a DS frame
