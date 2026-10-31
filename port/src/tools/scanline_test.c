@@ -98,7 +98,8 @@ static void RunFrames(uint16_t* frame) {
     HwRunFrame(getenv("TMC_GPU_CASE_DIR") && getenv("TMC_GPU_CASE_SKIP_CPU") ? NULL : frame);
     PpuCaptureTo(NULL);
     PpuCompactCaptureTo(NULL);
-    memcpy(sGpuCapture->reference, frame, sizeof(sGpuCapture->reference));
+    PpuCaptureViewNow(&sGpuCapture->view);
+    memcpy(sGpuCapture->reference, frame, PPU_WIDTH * PPU_HEIGHT * sizeof(*frame));
     sCompactBad = 0;
     for (int line = 0; line < PPU_HEIGHT; line++) {
         PpuCompactLine* packed = &compact->lines[line];

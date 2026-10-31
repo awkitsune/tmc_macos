@@ -2,6 +2,7 @@
 #define PORT_PPU_H
 
 #include <stdint.h>
+#include <string.h>
 
 #include "port/view.h"
 
@@ -20,6 +21,22 @@ static inline int PpuWidth(void) {
 static inline int PpuHeight(void) {
     return gPortScreenH;
 }
+/* The lines a frame draws: the view's, or the GBA's 160 while the picture is a
+   GBA screen centred in a taller view (gHwGbaScreen); line n goes to row
+   n + PpuLineRow(). The other rows are black. */
+static inline int PpuLines(void) {
+    return gHwGbaScreen && PortViewExtended() ? PPU_HEIGHT : gPortScreenH;
+}
+static inline int PpuLineRow(void) {
+    return gHwGbaScreen && PortViewExtended() ? PortViewGbaTop() : 0;
+}
+/* Black for the rows a frame does not draw. */
+static inline void PpuClearRows(uint16_t* framebuffer) {
+    int width = PpuWidth(), first = PpuLineRow(), end = first + PpuLines();
+
+    memset(framebuffer, 0, (size_t)first * width * sizeof(*framebuffer));
+    memset(&framebuffer[end * width], 0, (size_t)(PpuHeight() - end) * width * sizeof(*framebuffer));
+}
 
 /*
  * Software GBA picture processor: renders the frame described by the hardware
@@ -34,7 +51,7 @@ void PpuRenderFrame(uint16_t* framebuffer);
  * PpuRenderLine draws one line (out may be NULL to only advance the line state),
  * and PpuIoWritten tells the PPU that registers in [offset, offset + size) were
  * written mid-frame, which reloads the affine reference points they cover.
- * PpuRenderFrame is all PpuHeight() lines with no changes in between.
+ * PpuRenderFrame is all PpuLines() lines with no changes in between.
  */
 void PpuBeginFrame(void);
 void PpuRenderLine(int line, uint16_t* out);

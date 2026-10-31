@@ -10,7 +10,27 @@ _Static_assert(offsetof(PpuCaptureLine, palette) == PPU_CAPTURE_PALETTE_PAGE * P
 _Static_assert(sizeof(PpuCaptureMeta) == sizeof(PpuCaptureLine) - offsetof(PpuCaptureLine, regs), "capture metadata layout");
 _Static_assert(offsetof(PpuCompactLine, meta) == PPU_CAPTURE_PAGES * sizeof(uint32_t), "compact line layout");
 _Static_assert(PPU_CAPTURE_PAGES == 98 && sizeof(PpuCaptureMeta) == 33 * sizeof(uint32_t), "Metal compact layout");
-_Static_assert(offsetof(PpuCompactCapture, pages) == PPU_HEIGHT * sizeof(PpuCompactLine) + sizeof(uint32_t), "Metal page pool offset");
+_Static_assert(sizeof(PpuCaptureView) == 13 * sizeof(uint32_t) + 4 * HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS * 2,
+               "Metal view layout");
+_Static_assert(offsetof(PpuCompactCapture, view) == PPU_MAX_HEIGHT * sizeof(PpuCompactLine), "Metal view offset");
+
+void PpuCaptureViewNow(PpuCaptureView* view) {
+    bool clipped = !gHwGbaScreen && PortViewExtended();
+
+    view->width = PpuWidth();
+    view->height = PpuHeight();
+    view->lines = PpuLines();
+    view->lineRow = PpuLineRow();
+    view->wideMask = gHwWideMapMask;
+    view->gbaLayerMask = gHwGbaLayerMask;
+    view->gbaScreen = gHwGbaScreen && PortViewExtended();
+    view->gbaLeft = PortViewGbaLeft();
+    view->gbaTop = PortViewGbaTop();
+    for (int i = 0; i < 4; i++) {
+        view->clip[i] = clipped ? gHwViewClip[i] : (i < 2 ? 0 : i == 2 ? PpuWidth() : PpuHeight());
+    }
+    memcpy(view->wideMap, gHwWideMap, sizeof(view->wideMap));
+}
 
 // Captures count pages of one memory region starting at page first, sharing the
 // previous line's copy of each page that is unchanged.

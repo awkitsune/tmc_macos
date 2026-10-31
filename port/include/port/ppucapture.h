@@ -19,9 +19,20 @@ typedef struct {
     uint32_t mosaicBgY, mosaicObjY, layerMask;
 } PpuCaptureLine;
 
+// The extended view (port/view.h) as a frame was drawn: the same for all its
+// lines, since the game sets it between frames.
 typedef struct {
-    PpuCaptureLine lines[PPU_HEIGHT];
-    uint16_t reference[PPU_WIDTH * PPU_HEIGHT];
+    uint32_t width, height;  // the picture (PpuWidth, PpuHeight)
+    uint32_t lines, lineRow; // lines drawn and the row of line 0 (PpuLines, PpuLineRow)
+    uint32_t wideMask, gbaLayerMask, gbaScreen, gbaLeft, gbaTop;
+    int32_t clip[4]; // left, top, right, bottom; the whole picture when not clipped
+    uint16_t wideMap[4][HW_WIDE_MAP_COLS * HW_WIDE_MAP_ROWS];
+} PpuCaptureView;
+
+typedef struct {
+    PpuCaptureLine lines[PPU_MAX_HEIGHT];
+    PpuCaptureView view;
+    uint16_t reference[PPU_MAX_WIDTH * PPU_MAX_HEIGHT]; // view.width pixels a row
 } PpuCapture;
 
 // The compact form shares unchanged 1 KiB pages of memory between scanlines:
@@ -33,7 +44,7 @@ typedef struct {
 #define PPU_CAPTURE_PALETTE_PAGE PPU_CAPTURE_VRAM_PAGES
 #define PPU_CAPTURE_OAM_PAGE (PPU_CAPTURE_VRAM_PAGES + 1)
 #define PPU_CAPTURE_PAGES (PPU_CAPTURE_VRAM_PAGES + 2)
-#define PPU_CAPTURE_MAX_PAGES (PPU_HEIGHT * PPU_CAPTURE_PAGES)
+#define PPU_CAPTURE_MAX_PAGES (PPU_MAX_HEIGHT * PPU_CAPTURE_PAGES)
 // A line's state other than memory (PpuCaptureLine from regs on).
 typedef struct {
     uint8_t regs[HW_LINE_REGS + 2];
@@ -45,7 +56,8 @@ typedef struct {
     PpuCaptureMeta meta;
 } PpuCompactLine;
 typedef struct {
-    PpuCompactLine lines[PPU_HEIGHT];
+    PpuCompactLine lines[PPU_MAX_HEIGHT];
+    PpuCaptureView view;
     uint32_t pageCount;
     uint8_t pages[PPU_CAPTURE_MAX_PAGES * PPU_CAPTURE_PAGE_SIZE];
     // CPU-only scratch after the page pool, never uploaded to the GPU: the
@@ -59,6 +71,9 @@ void PpuCompactCaptureTo(PpuCompactCapture* capture);
 bool PpuCompactCaptureActive(void);
 /* Frame loop only: VRAM, palette and OAM cannot have changed since the preceding line. */
 void PpuCompactMemoryUnchanged(void);
+/* The view as it is now: for the full capture, after its frame (the compact one
+   takes it at the frame's start). */
+void PpuCaptureViewNow(PpuCaptureView* view);
 void PpuCompactAppend(PpuCompactCapture* capture, int line, const uint8_t* vram, const uint8_t* palette,
                       const uint8_t* oam, const PpuCaptureMeta* meta);
 void PpuCompactReuse(PpuCompactCapture* capture, int line, const PpuCaptureMeta* meta);

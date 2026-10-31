@@ -10,6 +10,17 @@ struct Line {
     int refX[2], refY[2], mosaicRefX[2], mosaicRefY[2];
     uint mosaicBgY, mosaicObjY, layerMask;
 };
+// The extended view (port/view.h) for the frame. Must match PpuCaptureView.
+// Layers and sprites are drawn in line coordinates: lineWidth x lines, from
+// (0, 0); compose places them in the picture (width x height).
+struct View {
+    uint width, height, lines, lineRow;
+    uint wideMask, gbaLayerMask, gbaScreen, gbaLeft, gbaTop;
+    int clip[4];
+    ushort wideMap[4][64 * 32];
+};
+static int line_width(constant View& v) { return v.gbaScreen ? 240 : int(v.width); }
+static bool extended(constant View& v) { return v.width != 240 || v.height != 160; }
 
 static uint word(device const uchar* p, uint at) { return p[at] | (uint(p[at + 1]) << 8); }
 static uint reg(device const Line& l, uint at) { return word(l.regs, at); }
@@ -23,7 +34,7 @@ static uint texel(device const Line& l, device const uchar* pool, uint base, int
     uint v = VRAM(l, at);
     return bpp8 ? v : ((x & 1) ? v >> 4 : v & 15);
 }
-static uint background(device const Line& l, device const uchar* pool, int bg, int sx, int line, int mode) {
+static uint background(device const Line& l, device const uchar* pool, constant View& v, int bg, int sx, int line, int mode) {
     uint cnt = reg(l, 8 + bg * 2), charBase = ((cnt >> 2) & 3) * 0x4000;
     uint screenBase = ((cnt >> 8) & 31) * 0x800;
     bool mosaic = cnt & 0x40;
@@ -41,12 +52,21 @@ static uint background(device const Line& l, device const uchar* pool, int bg, i
         uint index = texel(l, pool, charBase + tile * 64, x & 7, y & 7, true, 0x10000);
         return index ? pal(l, pool, index) : 0xffff;
     }
-    int w = (cnt & 0x4000) ? 512 : 256, h = (cnt & 0x8000) ? 512 : 256;
+    bool wide = (v.wideMask >> bg) & 1;
+    int gbaLeft = !v.gbaScreen && ((v.gbaLayerMask >> bg) & 1) ? int(v.gbaLeft) : 0;
+    if (gbaLeft != 0 && (sx < gbaLeft || sx >= gbaLeft + 240)) return 0xffff;
+    sx -= gbaLeft;
+    int w = wide ? 512 : (cnt & 0x4000) ? 512 : 256, h = wide ? 256 : (cnt & 0x8000) ? 512 : 256;
     int x = (sx + (reg(l, 0x10 + bg * 4) & 511)) & (w - 1);
     int y = (line - (mosaic ? int(l.mosaicBgY) : 0) + (reg(l, 0x12 + bg * 4) & 511)) & (h - 1);
-    uint block = (x >= 256 ? 1 : 0) + (y >= 256 ? (w == 512 ? 2 : 1) : 0);
-    uint entryAt = screenBase + block * 0x800 + (((y & 255) >> 3) * 32 + ((x & 255) >> 3)) * 2;
-    uint entry = VRAM(l, entryAt) | (uint(VRAM(l, entryAt + 1)) << 8);
+    uint entry;
+    if (wide) {
+        entry = v.wideMap[bg][(y >> 3) * 64 + (x >> 3)];
+    } else {
+        uint block = (x >= 256 ? 1 : 0) + (y >= 256 ? (w == 512 ? 2 : 1) : 0);
+        uint entryAt = screenBase + block * 0x800 + (((y & 255) >> 3) * 32 + ((x & 255) >> 3)) * 2;
+        entry = VRAM(l, entryAt) | (uint(VRAM(l, entryAt + 1)) << 8);
+    }
     int tx = x & 7, ty = y & 7;
     if (entry & 0x400) tx = 7 - tx;
     if (entry & 0x800) ty = 7 - ty;
@@ -56,7 +76,7 @@ static uint background(device const Line& l, device const uchar* pool, int bg, i
 }
 
 struct Obj { uint color, priority, semi, window; };
-static Obj one_sprite(device const Line& l, device const uchar* pool, int x, int line, uint display, int n) {
+static Obj one_sprite(device const Line& l, device const uchar* pool, int x, int line, uint display, int n, int lineWidth) {
     constexpr uchar widths[12] = {8,16,32,64,16,32,32,64,8,8,16,32};
     constexpr uchar heights[12] = {8,16,32,64,8,8,16,32,16,32,32,64};
     Obj result = {0xffff, 4, 0, 0};
@@ -68,7 +88,7 @@ static Obj one_sprite(device const Line& l, device const uchar* pool, int x, int
     int w = widths[shape * 4 + size], h = heights[shape * 4 + size];
     int bw = w << (affine && doubleOrHidden), bh = h << (affine && doubleOrHidden);
     int top = a0 & 255; if (top + bh > 256) top -= 256;
-    int left = a1 & 511; if (left >= 240) left -= 512;
+    int left = a1 & 511; if (left >= lineWidth) left -= 512;
     int bx = x - left, by = line - top;
     if (bx < 0 || bx >= bw || by < 0 || by >= bh) return result;
     if (a0 & 0x1000) {
@@ -118,7 +138,8 @@ static uint brightness(uint a, uint y, bool up) {
     return result;
 }
 // Composes the background layers with the sprite pass, windows and effects.
-static ushort gpu_color(device const Line* lines, device const uchar* pool, uint2 pos, Obj obj, texture2d_array<uint, access::read> layers) {
+static ushort gpu_color(device const Line* lines, device const uchar* pool, constant View& v, uint2 pos, Obj obj,
+                        texture2d_array<uint, access::read> layers) {
     device const Line& l = lines[pos.y];
     uint display = reg(l, 0);
     if (display & 0x80) return 0x7fff;
@@ -128,13 +149,19 @@ static ushort gpu_color(device const Line* lines, device const uchar* pool, uint
         priority[bg] = reg(l, 8 + bg*2) & 3;
     }
     uint enable = 0x3f;
-    if (display & 0xe000) {
+    if (int(pos.x) < v.clip[0] || int(pos.x) >= v.clip[2] || int(pos.y) < v.clip[1] || int(pos.y) >= v.clip[3]) {
+        enable = 0x20; // past the room: backdrop, with the colour effect
+    } else if (display & 0xe000) {
         uint in = reg(l, 0x48), out = reg(l, 0x4a);
         enable = out & 0x3f;
         if ((display & 0x8000) && obj.window) enable = (out >> 8) & 0x3f;
         for (int w = 1; w >= 0; w--) if (display & (0x2000 << w)) {
-            uint h = reg(l, 0x40 + w*2), v = reg(l, 0x44 + w*2);
-            int x1 = h >> 8, x2 = h & 255, y1 = v >> 8, y2 = v & 255;
+            uint h = reg(l, 0x40 + w*2), vv = reg(l, 0x44 + w*2);
+            int x1 = h >> 8, x2 = h & 255, y1 = vv >> 8, y2 = vv & 255;
+            if (!v.gbaScreen && extended(v)) { // the GBA's screen edge is the view's
+                x2 = x2 == 240 ? int(v.width) : x2;
+                y2 = y2 == 160 ? int(v.height) : y2;
+            }
             bool inX = x1 <= x2 ? (int(pos.x) >= x1 && int(pos.x) < x2) : (int(pos.x) >= x1 || int(pos.x) < x2);
             bool inY = y1 <= y2 ? (int(pos.y) >= y1 && int(pos.y) < y2) : (int(pos.y) >= y1 || int(pos.y) < y2);
             if (inX && inY) enable = (in >> (w*8)) & 0x3f;
@@ -172,7 +199,7 @@ struct SpriteVertex {
 };
 vertex SpriteVertex sprite_vertex(uint vid [[vertex_id]], uint instance [[instance_id]],
                                   device const Line* lines [[buffer(0)]], constant uint& windowPass [[buffer(1)]],
-                                  device const uchar* pool [[buffer(2)]]) {
+                                  device const uchar* pool [[buffer(2)]], constant View& v [[buffer(3)]]) {
     uint line = instance / 128, index = instance % 128;
     device const Line& l = lines[line];
     device const uchar* oam = oam_of(l, pool);
@@ -190,27 +217,28 @@ vertex SpriteVertex sprite_vertex(uint vid [[vertex_id]], uint instance [[instan
     int width = int(widths[shape * 4 + size]) << (affine && doubled);
     int height = int(heights[shape * 4 + size]) << (affine && doubled);
     int top = a0 & 255; if (top + height > 256) top -= 256;
-    int left = a1 & 511; if (left >= 240) left -= 512;
-    if (int(line) < top || int(line) >= top + height || left >= 240 || left + width <= 0) {
+    int lineWidth = line_width(v);
+    int left = a1 & 511; if (left >= lineWidth) left -= 512;
+    if (int(line) < top || int(line) >= top + height || left >= lineWidth || left + width <= 0) {
         out.position = float4(-2.0, -2.0, 0, 1); return out;
     }
     float x = float(left + ((vid & 1) ? width : 0));
     float y = float(line + (vid >> 1));
     float depth = float(((a2 >> 10) & 3) * 128 + index + 1) / 513.0;
-    out.position = float4(x / 120.0 - 1.0, 1.0 - y / 80.0, depth, 1.0);
+    out.position = float4(x * 2.0 / float(lineWidth) - 1.0, 1.0 - y * 2.0 / float(v.lines), depth, 1.0);
     return out;
 }
 fragment float4 sprite_fragment(SpriteVertex in [[stage_in]], device const Line* lines [[buffer(0)]],
-                                device const uchar* pool [[buffer(2)]]) {
+                                device const uchar* pool [[buffer(2)]], constant View& v [[buffer(3)]]) {
     device const Line& l = lines[in.line];
-    Obj obj = one_sprite(l, pool, int(in.position.x), int(in.line), reg(l, 0), int(in.index));
+    Obj obj = one_sprite(l, pool, int(in.position.x), int(in.line), reg(l, 0), int(in.index), line_width(v));
     if (obj.color == 0xffff || !(l.layerMask & 16)) discard_fragment();
     return float4(float(obj.color & 255), float(obj.color >> 8), float(obj.priority), float(obj.semi + 1)) / 255.0;
 }
 fragment float4 sprite_window_fragment(SpriteVertex in [[stage_in]], device const Line* lines [[buffer(0)]],
-                                       device const uchar* pool [[buffer(2)]]) {
+                                       device const uchar* pool [[buffer(2)]], constant View& v [[buffer(3)]]) {
     device const Line& l = lines[in.line];
-    Obj obj = one_sprite(l, pool, int(in.position.x), int(in.line), reg(l, 0), int(in.index));
+    Obj obj = one_sprite(l, pool, int(in.position.x), int(in.line), reg(l, 0), int(in.index), line_width(v));
     if (!obj.window) discard_fragment();
     return float4(1.0);
 }
@@ -224,14 +252,15 @@ static Obj raster_sprite(uint2 pos, texture2d<float, access::read> colors,
 
 // A separate pass stores each background's 15-bit color (0xffff = transparent).
 kernel void gpu_background_layers(device const Line* lines [[buffer(0)]], device const uchar* pool [[buffer(2)]],
+                                  constant View& v [[buffer(3)]],
                                   texture2d_array<uint, access::write> layers [[texture(0)]],
                                   uint3 pos [[thread_position_in_grid]]) {
-    if (pos.x >= 240 || pos.y >= 160 || pos.z >= 4) return;
+    if (int(pos.x) >= line_width(v) || pos.y >= v.lines || pos.z >= 4) return;
     device const Line& l = lines[pos.y];
     uint display = reg(l, 0), mode = display & 7, bg = pos.z;
     bool enabled = (display & (0x100 << bg)) && (l.layerMask & (1 << bg)) &&
                    !(mode == 1 && bg == 3) && !(mode == 2 && bg < 2) && mode <= 2;
-    uint color = enabled ? background(l, pool, bg, pos.x, pos.y, mode) : 0xffff;
+    uint color = enabled ? background(l, pool, v, bg, pos.x, pos.y, mode) : 0xffff;
     layers.write(uint4(color, 0, 0, 0), pos.xy, bg);
 }
 static float4 frame_color(uint c) {
@@ -240,11 +269,19 @@ static float4 frame_color(uint c) {
     return float4(float3(rgb) / 255.0, 1.0);
 }
 kernel void gpu_compose(device const Line* lines [[buffer(0)]], device const uchar* pool [[buffer(2)]],
+                        constant View& v [[buffer(3)]],
                         texture2d<float, access::write> output [[texture(0)]],
                         texture2d<float, access::read> colors [[texture(1)]],
                         texture2d<float, access::read> windows [[texture(2)]],
                         texture2d_array<uint, access::read> layers [[texture(3)]],
                         uint2 pos [[thread_position_in_grid]]) {
-    if (pos.x < 240 && pos.y < 160)
-        output.write(frame_color(gpu_color(lines, pool, pos, raster_sprite(pos, colors, windows), layers)), pos);
+    if (pos.x >= v.width || pos.y >= v.height) return;
+    // A GBA screen sits at (gbaLeft, lineRow) with black around it.
+    int2 at = int2(pos) - (v.gbaScreen ? int2(v.gbaLeft, v.lineRow) : int2(0));
+    if (at.x < 0 || at.y < 0 || at.x >= line_width(v) || at.y >= int(v.lines)) {
+        output.write(float4(0, 0, 0, 1), pos);
+        return;
+    }
+    uint2 p = uint2(at);
+    output.write(frame_color(gpu_color(lines, pool, v, p, raster_sprite(p, colors, windows), layers)), pos);
 }

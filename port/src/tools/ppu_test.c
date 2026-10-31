@@ -124,6 +124,7 @@ static int Report(const char* name, int bad, int x, int y, uint16_t got, uint16_
             PpuRenderFrame(capture->reference);
         }
         PpuCaptureTo(NULL);
+        PpuCaptureViewNow(&capture->view);
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s.bin", dir, name);
         FILE* file = fopen(path, "wb");
@@ -573,6 +574,7 @@ static int TestCompactCapture(void) {
     }
     PpuCaptureTo(NULL);
     PpuCompactCaptureTo(NULL);
+    PpuCaptureViewNow(&full->view);
     int bad = compact->pageCount < PPU_CAPTURE_PAGES || compact->pageCount > PPU_CAPTURE_MAX_PAGES;
     for (int line = 0; line < PPU_HEIGHT; line++) {
         PpuCompactLine* packed = &compact->lines[line];
@@ -595,10 +597,11 @@ static int TestCompactCapture(void) {
             exit(1);
         }
     }
-    // Worst case: every page changes on every line and uses the full capacity.
+    // Worst case: every page changes on every line of the tallest view and uses
+    // the full capacity.
     PpuCompactCaptureTo(compact);
     PpuBeginFrame();
-    for (int line = 0; line < PPU_HEIGHT; line++) {
+    for (int line = 0; line < PPU_MAX_HEIGHT; line++) {
         memset(gHwVram, line, sizeof(gHwVram));
         memset(gHwPltt, line, sizeof(gHwPltt));
         memset(gHwOam, line, sizeof(gHwOam));

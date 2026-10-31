@@ -196,9 +196,12 @@ void HwRunLines(uint16_t* framebuffer) {
     // Drawing line by line costs no more than a whole frame: each line reads its
     // registers once, and the HBlank steps are a few compares when nothing is armed.
     PpuBeginFrame();
+    if (draw != NULL) {
+        PpuClearRows(draw);
+    }
     bool compactCapture = PpuCompactCaptureActive();
     bool memoryUnchanged = false;
-    for (int line = 0; line < PpuHeight(); line++) {
+    for (int line = 0; line < PpuLines(); line++) {
         REG_VCOUNT = line;
         if (line == lyc) {
             REG_DISPSTAT |= DISPSTAT_VCOUNT;
@@ -216,7 +219,7 @@ void HwRunLines(uint16_t* framebuffer) {
             memcpy(gHwLineCapture[line], gHwIo, HW_LINE_REGS);
         }
         if (compactCapture && memoryUnchanged) PpuCompactMemoryUnchanged();
-        PpuRenderLine(line, draw != NULL ? &draw[line * PpuWidth()] : NULL);
+        PpuRenderLine(line, draw != NULL ? &draw[(line + PpuLineRow()) * PpuWidth()] : NULL);
 
         REG_DISPSTAT |= DISPSTAT_HBLANK;
         bool hblankInterrupt = (REG_DISPSTAT & DISPSTAT_HBLANK_INTR) != 0;
@@ -243,7 +246,7 @@ void HwRunLines(uint16_t* framebuffer) {
 void HwRunVBlank(void) {
     int lyc;
 
-    REG_VCOUNT = PpuHeight();
+    REG_VCOUNT = PpuLines();
     REG_DISPSTAT = (REG_DISPSTAT & ~DISPSTAT_VCOUNT) | DISPSTAT_VBLANK;
     HwDmaVBlank();
     if (REG_DISPSTAT & DISPSTAT_VBLANK_INTR) {
@@ -251,7 +254,7 @@ void HwRunVBlank(void) {
     }
     // A VCOUNT match inside VBlank (none in this game) comes after the VBlank handler.
     lyc = REG_DISPSTAT >> 8;
-    if (lyc >= PpuHeight() && lyc < LINES_PER_FRAME && (REG_DISPSTAT & DISPSTAT_VCOUNT_INTR)) {
+    if (lyc >= PpuLines() && lyc < LINES_PER_FRAME && (REG_DISPSTAT & DISPSTAT_VCOUNT_INTR)) {
         REG_VCOUNT = lyc;
         REG_DISPSTAT |= DISPSTAT_VCOUNT;
         HwRaiseInterrupt(INTR_VCOUNT);

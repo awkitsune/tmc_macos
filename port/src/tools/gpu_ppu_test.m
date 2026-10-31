@@ -37,9 +37,12 @@ int main(int argc, const char** argv) {
 
         // The capture file holds full lines; pack them as the app's game thread does.
         PpuCompactCapture* compact = [ppu input:0];
+        const PpuCaptureView* view = &capture->view;
+        int width = view->width, height = view->height;
         compact->pageCount = 0;
+        compact->view = *view;
         double start = NowMs();
-        for (int i = 0; i < PPU_HEIGHT; i++) {
+        for (int i = 0; i < (int)view->lines; i++) {
             const PpuCaptureLine* line = &capture->lines[i];
             PpuCaptureMeta meta;
             memcpy(&meta, line->regs, sizeof(meta));
@@ -48,7 +51,7 @@ int main(int argc, const char** argv) {
         double packMs = NowMs() - start;
 
         id<MTLCommandQueue> queue = [device newCommandQueue];
-        id<MTLBuffer> output = [device newBufferWithLength:PPU_WIDTH * PPU_HEIGHT * 4 options:MTLResourceStorageModeShared];
+        id<MTLBuffer> output = [device newBufferWithLength:width * height * 4 options:MTLResourceStorageModeShared];
         if (!queue || !output) { fprintf(stderr, "Metal allocation failed\n"); return 2; }
         double gpuMs = 0, wallMs = 0;
         const int runs = 8;
@@ -58,9 +61,9 @@ int main(int argc, const char** argv) {
             [ppu encode:commands slot:0];
             id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
             [blit copyFromTexture:[ppu output:0] sourceSlice:0 sourceLevel:0
-                     sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(PPU_WIDTH, PPU_HEIGHT, 1)
-                         toBuffer:output destinationOffset:0 destinationBytesPerRow:PPU_WIDTH * 4
-          destinationBytesPerImage:PPU_WIDTH * PPU_HEIGHT * 4];
+                     sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(width, height, 1)
+                         toBuffer:output destinationOffset:0 destinationBytesPerRow:width * 4
+          destinationBytesPerImage:width * height * 4];
             [blit endEncoding];
             [commands commit];
             [commands waitUntilCompleted];
@@ -72,16 +75,16 @@ int main(int argc, const char** argv) {
         // The output is RGBA8 with each 5-bit channel widened by (c << 3) | (c >> 2).
         const uint8_t* got = output.contents;
         int bad = 0, first = -1;
-        for (int i = 0; i < PPU_WIDTH * PPU_HEIGHT; i++) {
+        for (int i = 0; i < width * height; i++) {
             uint16_t want = capture->reference[i];
             bool same = got[i * 4 + 3] == 255;
             for (int c = 0; c < 3; c++) same &= got[i * 4 + c] >> 3 == ((want >> (c * 5)) & 31);
             if (!same) { if (first < 0) first = i; bad++; }
         }
-        printf("%s: %d differing pixels", device.name.UTF8String, bad);
+        printf("%s: %dx%d, %d differing pixels", device.name.UTF8String, width, height, bad);
         if (first >= 0) {
             const uint8_t* p = got + first * 4;
-            printf("; first (%d,%d): GPU %04x CPU %04x", first % PPU_WIDTH, first / PPU_WIDTH,
+            printf("; first (%d,%d): GPU %04x CPU %04x", first % width, first / width,
                    (p[0] >> 3) | (p[1] >> 3) << 5 | (p[2] >> 3) << 10, capture->reference[first]);
         }
         printf("\ninput %.2f MiB (%u pages, packed in %.3f ms), GPU %.3f ms, submit/wait %.3f ms (mean of %d warm runs)\n",

@@ -358,6 +358,8 @@ unsigned PpuLayerMask(void) {
     return sLayerMask;
 }
 
+static PpuCompactCapture* sCompactCapture; // see "captures" below
+
 void PpuBeginFrame(void) {
     static int sReady;
 
@@ -370,6 +372,9 @@ void PpuBeginFrame(void) {
         sRefY[i] = Reg28(0x2C + i * 0x10);
     }
     sMosaicBgY = sMosaicObjY = 0;
+    if (sCompactCapture != NULL) {
+        PpuCaptureViewNow(&sCompactCapture->view);
+    }
 }
 
 void PpuIoWritten(uint32_t offset, uint32_t size) {
@@ -529,9 +534,7 @@ static void RenderLine(int line, uint16_t* out) {
         // A GBA screen centred in the view, black around it.
         memset(out, 0, PpuWidth() * sizeof(*out));
         sLineWidth = PPU_WIDTH;
-        if (line < PPU_HEIGHT) {
-            RenderGbaLine(line, out + PortViewGbaLeft());
-        }
+        RenderGbaLine(line, out + PortViewGbaLeft());
     } else {
         sLineWidth = PpuWidth();
         RenderGbaLine(line, out);
@@ -613,8 +616,9 @@ void PpuRenderLine(int line, uint16_t* out) {
 
 void PpuRenderFrame(uint16_t* framebuffer) {
     PpuBeginFrame();
-    for (int line = 0; line < PpuHeight(); line++) {
-        PpuRenderLine(line, &framebuffer[line * PpuWidth()]);
+    PpuClearRows(framebuffer);
+    for (int line = 0; line < PpuLines(); line++) {
+        PpuRenderLine(line, &framebuffer[(line + PpuLineRow()) * PpuWidth()]);
     }
 }
 

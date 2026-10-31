@@ -949,6 +949,7 @@ void PlatformVBlank(void) {
         }
         if (capture != NULL) {
             PpuCaptureTo(NULL);
+            PpuCaptureViewNow(&capture->view);
             memcpy(capture->reference, sFrame, sizeof(capture->reference));
             FILE* file = fopen(capturePath + 1, "wb");
             if (file == NULL || fwrite(capture, sizeof(*capture), 1, file) != 1) {

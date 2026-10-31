@@ -17,7 +17,8 @@ NS_ASSUME_NONNULL_BEGIN
 // Where the CPU writes the slot's capture; the GPU must be done with the slot.
 - (PpuCompactCapture*)input:(NSUInteger)slot;
 - (void)encode:(id<MTLCommandBuffer>)commands slot:(NSUInteger)slot;
-// The slot's picture (RGBA8, 240x160), valid once the encoded work completes.
+// The slot's picture (RGBA8, the capture's view size), valid once the encoded
+// work completes. A slot's texture is replaced when the size changes.
 - (id<MTLTexture>)output:(NSUInteger)slot;
 @end
 
