@@ -24,7 +24,7 @@ else()
     endif()
 endif()
 
-project(tmc_native VERSION 0.1 LANGUAGES C OBJC ASM)
+project(tmc_native VERSION 1.0 LANGUAGES C OBJC ASM)
 
 # Native (macOS, arm64 and/or x86_64) build of the decompiled game code. The GBA build in the
 # repository root is unaffected; everything here is opt-in via PLATFORM_NATIVE.

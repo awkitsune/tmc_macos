@@ -175,7 +175,15 @@ programs that also run on Intel Macs. Only Python runs during the build
 (datagen, the name tables), and datagen's output suits both architectures,
 since the native data layouts are the same.
 
-A universal distributable app, zipped with its ad hoc signature intact:
+A universal distributable app, zipped with its ad hoc signature intact and its read-me
+(`port/dist/Read me first.txt`), as `build/TheMinishCap-1.0-macos-universal.zip` (the version is the one in
+`port/CMakeLists.txt`):
+
+```bash
+port/scripts/package_macos.sh
+```
+
+By hand, without the read-me:
 
 ```bash
 cmake -S port -B build/dist -DTMC_BAKE_DATA=OFF -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_BUILD_TYPE=Release
@@ -217,6 +225,9 @@ baseline x86_64 has no FMA instructions. Rosetta cannot show:
   a GPU.
 - **macOS 12 itself.** Only the compiler's availability checks stand for it.
 - **Speed on an older Intel Mac**, CPU or GPU.
+
+Before 1.0 the universal app was played on a real Intel Mac with its own GPU: the Metal renderer (the GPU PPU
+included), the filters and the debug tools all worked as on Apple silicon. macOS 12 itself is still unchecked.
 
 ### Playing
 
@@ -889,7 +900,7 @@ that need a pointer type natively (e.g. pointer tables declared as `u32[]`).
 
 ## Status
 
-The game is playable on the Mac and on iPhone and iPad, and has been played
+Version 1.0 (`v1.0`; release notes in [port/dist/release-notes-1.0.md](port/dist/release-notes-1.0.md)). The game is playable on the Mac and on iPhone and iPad, and has been played
 by hand from a new game to the end credits on the Mac. Every function in `asm/src` has a C version, the BIOS calls
 are in C, the save EEPROM is emulated, and sound is a C version of the m4a
 engine. Rendering and sound follow the hardware (`port/notes/ppu-audit.md`,
