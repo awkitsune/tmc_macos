@@ -237,8 +237,10 @@ the ROM (`sd:/tmc/boot.txt` on a DSi; with no ROM, the first `tmc/` there is).
 The file is rewritten whole after the ROM is found, after the SHA-1, after
 relocation, after the copy CRC (`DSI_CHECKS=1` builds only: it takes 1.5 s on
 the DSi), at the start of the game, at each frame-time report and when the port
-stops, so a hang leaves the log up to its last stage; also when the game's
-Sleep starts and when it wakes ("sleep ...", "wake after N DS frames"). After
+stops, so a hang leaves the log up to its last stage; also before each step
+of the game's Sleep (the save, the sound, the screens) and when it wakes
+("sleep ...", "wake after N DS frames"). Each frame-time report also has a
+"shown:" line: the shown frame's BG controls and scrolls as the DS got them. After
 a crash the port turns interrupts back on to write it, as the SD card is the
 ARM7's: the exception handler only keeps the registers and switches to system
 mode on a stack of its own, and from there logs the kind of exception and the

@@ -555,6 +555,21 @@ static void ArmLines(void) {
     }
 }
 
+/*
+ * For the frame-time reports: what the shown frame's line 0 gave the DS, per
+ * BG its control and scroll (a wide map is size 512x256, 0x4000).
+ */
+void DsiPresentReport(void) {
+    const Row* r = &sShown.top;
+
+    DsiLog("  shown: %s, wide %x, DISPCNT %08lx; BG cnt x,y:", sShown.world ? "world" : "GBA screen",
+           (unsigned)gHwWideMapMask, (unsigned long)r->dispcnt);
+    for (int bg = 0; bg < 4; bg++) {
+        DsiLog(" %04x %u,%u", r->h[H(0x08) + bg], r->h[H(0x10) + bg * 2], r->h[H(0x12) + bg * 2]);
+    }
+    DsiLog("\n");
+}
+
 /* From the VBlank interrupt, every DS frame: the shown frame from line 0 again. */
 void DsiPresentVBlank(void) {
     ArmLines();

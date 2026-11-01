@@ -179,6 +179,7 @@ extern DsiFrameStats gDsiFrameStats;
  */
 void DsiPresentInit(void);
 void DsiPresentPrepare(void);
+void DsiPresentReport(void); // a line for the frame-time reports: the shown BGs
 void DsiPresent(void);
 /* From the VBlank interrupt: re-arm the shown frame's per-line registers. */
 void DsiPresentVBlank(void);

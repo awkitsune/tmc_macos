@@ -134,14 +134,18 @@ static void SleepUntilLidOpens(void) {
 void DsiStop(void) {
     uint16_t keycnt = gHwIo[0x132] | (gHwIo[0x133] << 8); // REG_KEYCNT, as SetSleepMode left it
     uint16_t wake = keycnt & 0x3FF;
-
     uint32_t start = sVBlanks;
 
+    // Each step on the card before it is taken: a hang in one of them leaves
+    // the log ending at its line (a hang here has stopped the interrupts).
+    DsiLog("sleep (the game's Stop) after frame %lu: save\n", (unsigned long)gPlatformFrame);
+    DsiLogFlush();
     FlushSave(true);
+    DsiLog("sleep: sound\n");
+    DsiLogFlush();
     DsiSoundStop(); // the channels would loop the last frames
     sStopped = true;
-    // In the log at once, so a crash after the wake shows where it came from.
-    DsiLog("sleep (the game's Stop) after frame %lu\n", (unsigned long)gPlatformFrame);
+    DsiLog("sleep: screens off\n");
     DsiLogFlush();
     powerOff(PM_BACKLIGHT_TOP | PM_BACKLIGHT_BOTTOM);
     for (;;) {
@@ -362,6 +366,7 @@ static void ReportParts(void) {
            Part(t[PROFILE_SOUND_OUT]), (unsigned long)gProfileCount[PROFILE_SOUND_MIX]);
 #endif
     ReportStacks();
+    DsiPresentReport();
 }
 
 /*
