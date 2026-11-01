@@ -12,6 +12,16 @@
  */
 #define DSI_SOUND_FIFO FIFO_USER_01
 
+/*
+ * The ARM7's main loop ending (port/dsi/arm7: Start+Select+L+R held, or the
+ * power button), which powers the DSi off: the ARM7 sends the reason
+ * (DSI_QUIT_*) and waits up to two seconds for the ARM9's answer on the same
+ * channel, so the save and the log reach the card first (platform_dsi.c).
+ */
+#define DSI_QUIT_FIFO FIFO_USER_02
+#define DSI_QUIT_KEYS 1
+#define DSI_QUIT_POWER 2
+
 typedef struct {
     uint32_t cnt;
     uint32_t src;

@@ -240,7 +240,11 @@ the DSi), at the start of the game, at each frame-time report and when the port
 stops, so a hang leaves the log up to its last stage; also before each step
 of the game's Sleep (the save, the sound, the screens) and when it wakes
 ("sleep ...", "wake after N DS frames"). Each frame-time report also has a
-"shown:" line: the shown frame's BG controls and scrolls as the DS got them. After
+"shown:" line: the shown frame's BG controls and scrolls as the DS got them. Closing
+the lid logs "lid closed ...", "lid: sleep" and "lid opened after N DS frames"
+(about none if the DSi slept). Before the ARM7 powers the DSi off (the power
+button, or Start+Select+L+R held for half a second) the save and the log are
+written, with "ARM7 quits: ..." saying why. After
 a crash the port turns interrupts back on to write it, as the SD card is the
 ARM7's: the exception handler only keeps the registers and switches to system
 mode on a stack of its own, and from there logs the kind of exception and the

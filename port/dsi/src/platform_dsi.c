@@ -15,6 +15,7 @@
 #include "port/view.h"
 
 #include "dsi.h"
+#include "sound_image.h"
 
 void AgbMain(void);
 
@@ -96,6 +97,37 @@ static void Track(uint32_t* min, uint32_t* max, uint64_t* sum, uint32_t value) {
     *sum += value;
 }
 
+static volatile uint32_t sQuit; // DSI_QUIT_* from the ARM7
+
+static void OnQuit(u32 reason, void* userdata) {
+    (void)userdata;
+    sQuit = reason;
+}
+
+static void FlushSave(bool now);
+
+/*
+ * The ARM7 is about to power the DSi off: the save and the log go to the card,
+ * then the answer lets it go on. Polled where the game waits (each frame, the
+ * Sleep and the lid).
+ */
+static void CheckQuit(void) {
+    uint32_t reason = sQuit;
+
+    if (reason == 0) {
+        return;
+    }
+    sQuit = 0;
+    DsiLog("ARM7 quits: %s, at frame %lu\n",
+           reason == DSI_QUIT_KEYS    ? "Start+Select+L+R held"
+           : reason == DSI_QUIT_POWER ? "power button"
+                                      : "?",
+           (unsigned long)gPlatformFrame);
+    FlushSave(true);
+    DsiLogFlush();
+    fifoSendValue32(DSI_QUIT_FIFO, 1);
+}
+
 static void ReportStacks(void) {
     uint32_t user, irq, svc;
 
@@ -136,6 +168,7 @@ static void SleepUntilLidOpens(void) {
     systemSleep();
     do {
         swiWaitForVBlank();
+        CheckQuit();
         scanKeys();
     } while (keysHeld() & KEY_LID);
     disableSleep();
@@ -166,6 +199,7 @@ void DsiStop(void) {
         uint16_t held;
 
         swiWaitForVBlank();
+        CheckQuit();
         scanKeys();
         if (keysDown() & KEY_LID) {
             SleepUntilLidOpens();
@@ -251,6 +285,7 @@ void PlatformVBlank(void) {
     if (frame != s->first) {
         Track(&s->gameMin, &s->gameMax, &s->gameSum, start - sLeft);
     }
+    CheckQuit();
     scanKeys();
     if (keysDown() & KEY_LID) {
         SleepUntilLidOpens();
@@ -423,6 +458,7 @@ _Noreturn void PlatformSoftReset(void) {
 _Noreturn void DsiRunGame(void) {
     ResetStats();
     disableSleep(); // the lid is handled at the frame boundary (SleepUntilLidOpens)
+    fifoSetValue32Handler(DSI_QUIT_FIFO, OnQuit, NULL);
     irqSet(IRQ_VBLANK, OnVBlank);
     irqEnable(IRQ_VBLANK);
     cpuStartTiming(0);
