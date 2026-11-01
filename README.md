@@ -179,7 +179,7 @@ programs that also run on Intel Macs. Only Python runs during the build
 since the native data layouts are the same.
 
 A universal distributable app, zipped with its ad hoc signature intact and its read-me
-(`port/dist/Read me first.txt`), as `build/TheMinishCap-1.0-macos-universal.zip` (the version is the one in
+(`port/dist/Read me first.txt`), as `build/TheMinishCap-1.1-macos-universal.zip` (the version is the one in
 `port/CMakeLists.txt`):
 
 ```bash
@@ -294,6 +294,12 @@ in full screen. Beam and gap sizes follow one brightness value per pixel
 (halfway between luma and the brightest channel), the same for all three
 channels, so bloom adds no colour fringes. Each CRT pixel sums the beams of its
 own scanline and the two around it, so bright lines spread into dark ones.
+
+**View** (Settings → Display → View) is "GBA (original)", the GBA's 240x160, or "Fit to display",
+which shows more of the world to fill the window: 160 lines and as wide as the window's shape asks (up
+to 432, in steps of 16), or taller on screens narrower than 3:2 (up to 224 lines). The HUD keeps the GBA
+layout, centred, and menus stay at 240x160 with black around them. How it works and what is not done yet:
+`port/notes/widescreen.md`.
 
 **LCD response** (Settings → Display → LCD response, off by default) imitates the GBA
 screen's slow pixels, which some effects count on: sprites flickered on
@@ -905,7 +911,8 @@ that need a pointer type natively (e.g. pointer tables declared as `u32[]`).
 
 ## Status
 
-Version 1.0 (`v1.0`; release notes in [port/dist/release-notes-1.0.md](port/dist/release-notes-1.0.md)). The game is playable on the Mac and on iPhone and iPad, and has been played
+Version 1.1 (`v1.1`; release notes in [port/dist/release-notes-1.1.md](port/dist/release-notes-1.1.md),
+1.0's in [port/dist/release-notes-1.0.md](port/dist/release-notes-1.0.md)). The game is playable on the Mac and on iPhone and iPad, and has been played
 by hand from a new game to the end credits on the Mac. Every function in `asm/src` has a C version, the BIOS calls
 are in C, the save EEPROM is emulated, and sound is a C version of the m4a
 engine. Rendering and sound follow the hardware (`port/notes/ppu-audit.md`,
