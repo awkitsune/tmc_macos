@@ -115,18 +115,32 @@ static void FlushSave(bool now) {
  * The lid closed. The ARM7's own sleep on the lid is off (DsiRunGame), as it
  * would come at any point, in the middle of a frame or of a save; here the save
  * is on the card first and the sound is stopped (it starts again with the
- * next frame). Sleep is allowed just for the request, and the DSi wakes when
- * the lid opens.
+ * next frame). Sleep is allowed from the request until the lid opens: the ARM7
+ * sleeps after the request's reply, so allowing it again at once could cancel
+ * it, and the game must not go on with the lid closed whether the DSi slept or
+ * not. Each step is on the card before it is taken; the DS frames counted
+ * meanwhile say whether it slept (none pass in sleep).
  */
 static void SleepUntilLidOpens(void) {
     bool stopped = sStopped;
+    uint32_t start = sVBlanks;
 
+    DsiLog("lid closed after frame %lu: save\n", (unsigned long)gPlatformFrame);
+    DsiLogFlush();
     FlushSave(true);
     DsiSoundStop();
     sStopped = true;
+    DsiLog("lid: sleep\n");
+    DsiLogFlush();
     enableSleep();
     systemSleep();
+    do {
+        swiWaitForVBlank();
+        scanKeys();
+    } while (keysHeld() & KEY_LID);
     disableSleep();
+    DsiLog("lid opened after %lu DS frames\n", (unsigned long)(sVBlanks - start));
+    DsiLogFlush();
     sFrameVBlank = sVBlanks;
     sStopped = stopped;
 }

@@ -151,8 +151,9 @@ other axis moves into the new room's range on the way.
   registrations through the room smoke test.
 - Pictures narrower than the view in rooms narrower than the view are covered by the room clip.
 - Minish Woods light rays (`lightRayManager`, the screen-anchored mode): a 256-px picture at hofs 16, its
-  right edge on the screen's right edge. In the extended view it is a stream (`PortViewStreamBg`) with
-  nothing left of the picture, scrolled so its right edge is the view's; the scrolling-wave mode still
+  right edge on the screen's right edge. In the extended view it is a stream (`PortViewStreamBg`) in
+  columns 16-47 of the wide map with nothing around it, scrolled so its right edge is the view's (not
+  32-63: at scroll 256 the DSi showed the map's last column in its first 8 pixels); the scrolling-wave mode still
   wraps at 256.
 
 ### Taller views

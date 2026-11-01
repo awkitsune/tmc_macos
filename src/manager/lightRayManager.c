@@ -240,11 +240,12 @@ void sub_08057450(LightRayManager* this) {
     gScreen.bg3.subTileMap = &gBG3Buffer[(y / 0x40) << 8];
 #ifdef PORT_HOSTED
     // Extended view: the rays come in at the top right of the GBA's screen, its
-    // right edge at map column 31. The picture goes into the right half of a wide
-    // map with nothing left of it, its right edge at the view's.
+    // right edge at map column 31. The picture goes into columns 16-47 of a wide
+    // map with nothing around it, its right edge at the view's. Not at 32-63:
+    // at scroll 256 the DS shows the map's last column in the first 8 pixels.
     if (PORT_VIEW_EXTENDED) {
-        gScreen.bg3.xOffset = 512 - PORT_SCREEN_W;
-        PortViewStreamBg(&gScreen.bg3, (u16*)gScreen.bg3.subTileMap, 0x20, -0x20, 0x20, 0x20);
+        gScreen.bg3.xOffset = (384 - PORT_SCREEN_W) & 0x1ff;
+        PortViewStreamBg(&gScreen.bg3, (u16*)gScreen.bg3.subTileMap, 0x20, -0x10, 0x20, 0x20);
     }
 #endif
 #ifdef PORT_LAYOUT_64
