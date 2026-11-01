@@ -237,9 +237,21 @@ the ROM (`sd:/tmc/boot.txt` on a DSi; with no ROM, the first `tmc/` there is).
 The file is rewritten whole after the ROM is found, after the SHA-1, after
 relocation, after the copy CRC (`DSI_CHECKS=1` builds only: it takes 1.5 s on
 the DSi), at the start of the game, at each frame-time report and when the port
-stops, so a hang leaves the log up to its last stage. After a crash (the
-exception's registers, then "fatal: ...") the port turns interrupts back on to
-write it, as the SD card is the ARM7's.
+stops, so a hang leaves the log up to its last stage; also when the game's
+Sleep starts and when it wakes ("sleep ...", "wake after N DS frames"). After
+a crash the port turns interrupts back on to write it, as the SD card is the
+ARM7's: the exception handler only keeps the registers and switches to system
+mode on a stack of its own, and from there logs the kind of exception and the
+mode it came in, r0-r15 and the CPSR, six words at sp, the last IRQ frame (the
+r0-r3, r12 and return address the BIOS pushed at the top of the IRQ stack) and
+the stacks' unused bytes, then "fatal: exception". The console shows the same
+lines first. A stall with no exception (no game frame for 10 s outside a sleep)
+puts the log on the bottom screen with the address the VBlank interrupt came
+in at; the card is not written then. Each frame-time report ends with the
+unused bytes of the user, IRQ and SVC stacks (filled with a pattern at boot;
+the user stack is 15.5 KB of DTCM, and an overflow would run into the ROM copy
+without a fault). `DSI_DEFINES=-DDSI_TEST_STRAY_READ` makes a build that reads
+the GBA slot at boot, to see a crash report on the card.
 
 Run it in melonDS and read the boot log. melonDS does not finish writes to
 the DSi SD slot (above), so with the ROM on an SD image the port stops at its

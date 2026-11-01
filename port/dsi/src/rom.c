@@ -448,17 +448,6 @@ bool DsiRomRelocate(void) {
     return unexpected == 0;
 }
 
-// The registers BlocksDS saved, into the log; PC is as saved (a data abort is
-// 8 bytes past the faulting instruction, 4 in Thumb).
-static void Exception(void) {
-    const uint32_t* r = (const uint32_t*)exceptionRegisters;
-
-    DsiLog("exception: pc %08lx lr %08lx sp %08lx\n", (unsigned long)r[15], (unsigned long)r[14],
-           (unsigned long)r[13]);
-    DsiFatal("r0 %08lx r1 %08lx r2 %08lx r3 %08lx", (unsigned long)r[0], (unsigned long)r[1],
-             (unsigned long)r[2], (unsigned long)r[3]);
-}
-
 /*
  * Stray GBA ROM pointers must fault: on the DSi the GBA slot reads back 0xFF.
  * BlocksDS leaves 0x08000000-0x0AFFFFFF out of every MPU region, so an access
@@ -475,6 +464,6 @@ void DsiProtectGbaSlot(void) {
             CP15_SetRegion(region, 0);
         }
     }
-    setExceptionHandler(Exception);
+    setExceptionHandler(DsiException);
     DsiLog("GBA slot unmapped (MPU)\n");
 }

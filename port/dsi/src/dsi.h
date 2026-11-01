@@ -115,6 +115,14 @@ void DsiSoundStop(void);
  */
 void DsiSoundVBlank(bool mayRun);
 
+/*
+ * Crashes (main.c). DsiException: BlocksDS's exception handler; the registers,
+ * the words at sp and the last IRQ frame go to the log and the card, then the
+ * port stops. DsiStacksUnused: bytes never used of the user, IRQ and SVC stacks.
+ */
+void DsiException(void);
+void DsiStacksUnused(uint32_t* user, uint32_t* irq, uint32_t* svc);
+
 /* Run the game from AgbMain; a BIOS SoftReset comes back here. */
 _Noreturn void DsiRunGame(void);
 

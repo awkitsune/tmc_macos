@@ -36,6 +36,8 @@ static volatile uint32_t sVBlanks; // DS VBlanks, counted by the IRQ
 static uint32_t sLastVBlank;
 static uint32_t sLeft;             // timer ticks when the game got its frame back
 static volatile bool sFrameWork;   // in PlatformVBlank: the frame's lines, VBlank, present
+static volatile uint32_t sFrameVBlank; // sVBlanks at the last game frame (the stall check)
+static volatile bool sStopped;         // in the game's Sleep or the lid's: no frames are due
 
 /*
  * TMC runs m4aSoundMain from its VCount interrupt, so on the GBA the music
@@ -50,10 +52,35 @@ static bool SoundInterruptOn(void) {
     return !DSI_CHECKS && !sFrameWork && (gHwIo[0x208] & 1) && (gHwIo[0x200] & 4) && (gHwIo[0x004] & 0x20);
 }
 
+/*
+ * No game frame for STALL_VBLANKS DS frames outside a sleep: the game or the
+ * port is stuck, where no exception says so. The card cannot be written from
+ * the interrupt (its replies come through the FIFO interrupt, and the code it
+ * stopped may be in the middle of a write), so the log goes to the bottom
+ * screen, with where the interrupt came in: the BIOS's IRQ entry pushed r0-r3,
+ * r12 and lr (the interrupted PC + 4) at the top of the IRQ stack.
+ */
+#define STALL_VBLANKS (10 * 60)
+
+extern uint8_t __sp_irq[];
+
+static void Stall(void) {
+    const volatile uint32_t* frame = (const volatile uint32_t*)((uintptr_t)__sp_irq - 24);
+
+    DsiLog("stall: no frame for %d s\nafter frame %lu\n", STALL_VBLANKS / 60, (unsigned long)gPlatformFrame);
+    DsiLog("interrupted at %08lx\n", (unsigned long)(frame[5] - 4));
+    DsiLog("r0 %08lx r1 %08lx\nr2 %08lx r3 %08lx\n", (unsigned long)frame[0], (unsigned long)frame[1],
+           (unsigned long)frame[2], (unsigned long)frame[3]);
+    DsiShowLog();
+}
+
 static void OnVBlank(void) {
     sVBlanks++;
     if (gDsiHalted) {
         return;
+    }
+    if (!sStopped && sVBlanks - sFrameVBlank == STALL_VBLANKS) {
+        Stall();
     }
     DsiPresentVBlank();
     DsiSoundVBlank(SoundInterruptOn());
@@ -67,6 +94,14 @@ static void Track(uint32_t* min, uint32_t* max, uint64_t* sum, uint32_t value) {
         *max = value;
     }
     *sum += value;
+}
+
+static void ReportStacks(void) {
+    uint32_t user, irq, svc;
+
+    DsiStacksUnused(&user, &irq, &svc);
+    DsiLog("  unused stack (bytes): user %lu, irq %lu, svc %lu\n", (unsigned long)user, (unsigned long)irq,
+           (unsigned long)svc);
 }
 
 static void FlushSave(bool now) {
@@ -84,19 +119,30 @@ static void FlushSave(bool now) {
  * the lid opens.
  */
 static void SleepUntilLidOpens(void) {
+    bool stopped = sStopped;
+
     FlushSave(true);
     DsiSoundStop();
+    sStopped = true;
     enableSleep();
     systemSleep();
     disableSleep();
+    sFrameVBlank = sVBlanks;
+    sStopped = stopped;
 }
 
 void DsiStop(void) {
     uint16_t keycnt = gHwIo[0x132] | (gHwIo[0x133] << 8); // REG_KEYCNT, as SetSleepMode left it
     uint16_t wake = keycnt & 0x3FF;
 
+    uint32_t start = sVBlanks;
+
     FlushSave(true);
     DsiSoundStop(); // the channels would loop the last frames
+    sStopped = true;
+    // In the log at once, so a crash after the wake shows where it came from.
+    DsiLog("sleep (the game's Stop) after frame %lu\n", (unsigned long)gPlatformFrame);
+    DsiLogFlush();
     powerOff(PM_BACKLIGHT_TOP | PM_BACKLIGHT_BOTTOM);
     for (;;) {
         uint16_t held;
@@ -113,6 +159,11 @@ void DsiStop(void) {
         }
     }
     powerOn(PM_BACKLIGHT_TOP | PM_BACKLIGHT_BOTTOM);
+    DsiLog("wake after %lu DS frames\n", (unsigned long)(sVBlanks - start));
+    ReportStacks();
+    DsiLogFlush();
+    sFrameVBlank = sVBlanks;
+    sStopped = false;
 }
 
 static unsigned long Us(uint64_t ticks) {
@@ -274,6 +325,7 @@ void PlatformVBlank(void) {
         ReportRooms();
     }
     sLeft = cpuGetTiming();
+    sFrameVBlank = sVBlanks;
     sFrameWork = false;
 }
 
@@ -309,6 +361,7 @@ static void ReportParts(void) {
            Part(t[PROFILE_SOUND_CGB]), Part(t[PROFILE_SOUND_MIX]), Part(t[PROFILE_SOUND_PSG]),
            Part(t[PROFILE_SOUND_OUT]), (unsigned long)gProfileCount[PROFILE_SOUND_MIX]);
 #endif
+    ReportStacks();
 }
 
 /*
@@ -359,6 +412,7 @@ _Noreturn void DsiRunGame(void) {
     if (DSI_CHECKS) {
         DsiInputLoad();
     }
+    sFrameVBlank = sVBlanks;
     DsiLog("running the game\n");
     DsiLogFlush();
     HwSetKeys(0); // KEYINPUT is active low: all zero would be every key held
