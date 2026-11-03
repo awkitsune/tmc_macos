@@ -13,7 +13,8 @@ zip=$root/build/TheMinishCap-$version-macos-universal.zip
 
 cmake -S "$root/port" -B "$build" -DTMC_BAKE_DATA=OFF -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
     -DCMAKE_BUILD_TYPE=Release > /dev/null
-cmake --build "$build" --target tmc_app -j4
+# tmc too: its post-build step checks the save state map against the Release build.
+cmake --build "$build" --target tmc tmc_app -j4
 
 rm -rf "$package" "$zip"
 mkdir -p "$package"

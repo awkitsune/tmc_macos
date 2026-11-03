@@ -112,9 +112,7 @@ static int CompareName(const void* a, const void* b) {
     return c != 0 ? c : (x->addr > y->addr) - (x->addr < y->addr);
 }
 
-// The map of a symbol in the segment ("#n" duplicates share their name's).
-static const StateMapVar* MapNamed(const char* name) {
-    size_t len = strcspn(name, "#");
+static const StateMapVar* MapNamedLen(const char* name, size_t len) {
     uint32_t lo = 0, hi = gStateMapVarCount;
 
     while (lo < hi) {
@@ -133,6 +131,26 @@ static const StateMapVar* MapNamed(const char* name) {
         }
     }
     return NULL;
+}
+
+// The map of a symbol in the segment ("#n" duplicates share their name's).
+// An optimised build can split a static array into its elements ("sClip.0",
+// "sClip.1"...); a piece takes its variable's map when that holds no pointers.
+static const StateMapVar* MapNamed(const char* name) {
+    size_t len = strcspn(name, "#");
+    const StateMapVar* var = MapNamedLen(name, len);
+    size_t dot = len;
+
+    while (var == NULL && dot > 0 && name[dot - 1] >= '0' && name[dot - 1] <= '9') {
+        dot--;
+    }
+    if (var == NULL && dot < len && dot > 1 && name[dot - 1] == '.') {
+        const StateMapVar* whole = MapNamedLen(name, dot - 1);
+        if (whole != NULL && whole->pool == STATE_POOL_NONE && whole->runCount == 0) {
+            var = whole;
+        }
+    }
+    return var;
 }
 
 // The program's symbol table, from __LINKEDIT as mapped in memory.
