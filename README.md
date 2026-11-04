@@ -179,7 +179,7 @@ programs that also run on Intel Macs. Only Python runs during the build
 since the native data layouts are the same.
 
 A universal distributable app, zipped with its ad hoc signature intact and its read-me
-(`port/dist/Read me first.txt`), as `build/TheMinishCap-1.1.1-macos-universal.zip` (the version is the one in
+(`port/dist/Read me first.txt`), as `build/TheMinishCap-1.2-macos-universal.zip` (the version is the one in
 `port/CMakeLists.txt`):
 
 ```bash
@@ -916,7 +916,7 @@ that need a pointer type natively (e.g. pointer tables declared as `u32[]`).
 
 ## Status
 
-Version 1.1.1 (`v1.1.1`, a fix of 1.1; release notes in [port/dist/release-notes-1.1.1.md](port/dist/release-notes-1.1.1.md) and [port/dist/release-notes-1.1.md](port/dist/release-notes-1.1.md),
+Version 1.2 (`v1.2`, the Soft Subpixel filter; release notes in [port/dist/release-notes-1.2.md](port/dist/release-notes-1.2.md), [port/dist/release-notes-1.1.1.md](port/dist/release-notes-1.1.1.md) and [port/dist/release-notes-1.1.md](port/dist/release-notes-1.1.md),
 1.0's in [port/dist/release-notes-1.0.md](port/dist/release-notes-1.0.md)). The game is playable on the Mac and on iPhone and iPad, and has been played
 by hand from a new game to the end credits on the Mac. Every function in `asm/src` has a C version, the BIOS calls
 are in C, the save EEPROM is emulated, and sound is a C version of the m4a
