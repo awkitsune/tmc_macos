@@ -48,7 +48,7 @@ typedef struct {
     NSString* _Nullable format;  // for the value label (nil: two decimals)
 } Knob;
 
-#define KNOB_COUNT 15
+#define KNOB_COUNT 20
 extern const Knob kKnobs[KNOB_COUNT];
 
 float* KnobValue(FilterParams* params, const Knob* knob);

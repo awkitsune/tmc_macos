@@ -28,6 +28,8 @@ NSString* FilterModeName(FilterMode mode) {
             return @"LCD Grid";
         case FilterModeCRT:
             return @"CRT Scanlines";
+        case FilterModeSoftSubpixel:
+            return @"Soft Subpixel";
         default:
             return @"?";
     }
@@ -50,6 +52,11 @@ FilterParams FilterParamsDefaults(void) {
         .lcdGapBloom = 0.0f,
         .lcdResponseMs = 22.0f,
         .lcdDarkSlowdown = 1.3f,
+        .softSubpixel = 1.0f,
+        .softGlow = 1.0f,
+        .softGlowRadius = 0.115f,
+        .softColour = 1.0f,
+        .softBrightness = 1.0f,
     };
 }
 

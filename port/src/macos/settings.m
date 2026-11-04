@@ -133,6 +133,7 @@ static NSString* const kSettingsTabDefault = @"SettingsTab";
     NSDictionary<NSString*, SettingsPage*>* knobPages = @{
         @"LCD Grid" : filters,
         @"CRT Scanlines" : filters,
+        @"Soft Subpixel" : filters,
         @"LCD Response (all filters)" : display,
         @"Colour (all filters)" : display,
     };

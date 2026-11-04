@@ -262,10 +262,15 @@ switches Xbox and PlayStation pads to the GBA's positions instead (right and top
 buttons = A, bottom and left = B); Nintendo pads already have A on the right, so
 they are the same either way.
 
-Menu shortcuts: ⌘1–⌘5 pick the filter (nearest neighbour, sharp bilinear,
-smooth bilinear, LCD grid, CRT scanlines), ⌘I toggles integer scaling, ⌃⌘F
+Menu shortcuts: ⌘1–⌘6 pick the filter (nearest neighbour, sharp bilinear,
+smooth bilinear, LCD grid, CRT scanlines, soft subpixel), ⌘I toggles integer scaling, ⌃⌘F
 toggles full screen (Escape leaves it), ⌘P pauses, ⌘R resets (the game's own
 A+B+Select+Start reset). The filter and scaling choice are remembered.
+
+Soft subpixel follows the look of Nintendo Switch Online's GBA LCD filter: its
+colour response and B-G-R stripes, bright pixels driven into a soft white clip
+so they fill out while dark ones keep their stripes, and a glow; its constants
+were fitted to a capture of NSO (port/src/apple/shaders.metal).
 
 The Minish Cap → Settings… (⌘,) adjusts the filters live; values are saved and
 Reset to Defaults restores these:

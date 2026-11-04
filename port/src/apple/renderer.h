@@ -9,6 +9,7 @@ typedef NS_ENUM(NSUInteger, FilterMode) {
     FilterModeBilinear = 2,
     FilterModeLCD = 3,
     FilterModeCRT = 4,
+    FilterModeSoftSubpixel = 5, // after the look of Nintendo Switch Online's GBA LCD filter
     FilterModeCount,
 };
 
@@ -31,6 +32,11 @@ typedef struct {
     float lcdGapBloom;
     float lcdResponseMs;   // LCD response: 10-90% time of a pixel getting brighter
     float lcdDarkSlowdown; // how much longer getting darker takes
+    float softSubpixel;    // Soft Subpixel: stripe and row-gap strength (0 = flat pixels)
+    float softGlow;        // Soft Subpixel: glow of bright pixels (1 = as measured)
+    float softGlowRadius;  // Soft Subpixel: glow spread (Gaussian sigma, in GBA pixels)
+    float softColour;      // Soft Subpixel: its colour mixing between channels (0 = none)
+    float softBrightness;  // Soft Subpixel: drive into the soft white clip
 } FilterParams;
 
 /*
