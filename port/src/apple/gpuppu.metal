@@ -115,12 +115,13 @@ static Obj one_sprite(device const Line& l, device const uchar* pool, int x, int
     tile += (display & 0x40) ? ((ty >> 3) * (w >> 3) + (tx >> 3)) * (bpp8 ? 2 : 1)
                              : (ty >> 3) * 32 + (tx >> 3) * (bpp8 ? 2 : 1);
     uint index = texel(l, pool, 0x10000 + (tile & 0x3ff) * 32, tx & 7, ty & 7, bpp8, 0x18000);
-    if (!index) return result;
-    if (mode == 2) { result.window = 1; return result; }
-    uint priority = (a2 >> 10) & 3;
-    if (priority <= result.priority) {
+    if (mode == 2) {
+        result.window = index != 0;
+        return result;
+    }
+    result.priority = (a2 >> 10) & 3;
+    if (index != 0) {
         result.color = pal(l, pool, 0x100 + (bpp8 ? index : (a2 >> 12) * 16 + index));
-        result.priority = priority;
         result.semi = mode == 1;
     }
     return result;
@@ -250,11 +251,23 @@ fragment float4 sprite_window_fragment(SpriteVertex in [[stage_in]], device cons
     if (!obj.window) discard_fragment();
     return float4(1.0);
 }
-static Obj raster_sprite(uint2 pos, texture2d<float, access::read> colors,
-                         texture2d<float, access::read> windows) {
-    uint4 c = uint4(round(colors.read(pos) * 255.0));
-    Obj obj = { c.a ? (c.r | (c.g << 8)) : 0xffffu, c.a ? c.b : 4u, c.a ? c.a - 1 : 0u,
-                windows.read(pos).r > 0.5 ? 1u : 0u };
+static Obj resolve_sprite(device const Line& l, device const uchar* pool, uint2 pos, int width,
+                          texture2d<float, access::read> colors, texture2d<float, access::read> windows) {
+    Obj obj = { 0xffffu, 4u, 0u, windows.read(pos).r > 0.5 ? 1u : 0u };
+    if (colors.read(pos).a == 0.0) return obj;
+
+    // The raster pass finds pixels with OBJ color. Replay OAM in order there:
+    // transparent texels can raise the priority of the color already drawn.
+    uint display = reg(l, 0);
+    for (int i = 0; i < 128 && obj.priority != 0; ++i) {
+        Obj sample = one_sprite(l, pool, int(pos.x), int(pos.y), display, i, width);
+        if (sample.priority >= obj.priority) continue;
+        if (sample.color != 0xffffu) {
+            obj.color = sample.color;
+            obj.semi = sample.semi;
+        }
+        if (obj.color != 0xffffu) obj.priority = sample.priority;
+    }
     return obj;
 }
 
@@ -291,5 +304,6 @@ kernel void gpu_compose(device const Line* lines [[buffer(0)]], device const uch
         return;
     }
     uint2 p = uint2(at);
-    output.write(frame_color(gpu_color(lines, pool, v, p, raster_sprite(p, colors, windows), layers)), pos);
+    Obj obj = resolve_sprite(lines[p.y], pool, p, line_width(v), colors, windows);
+    output.write(frame_color(gpu_color(lines, pool, v, p, obj, layers)), pos);
 }

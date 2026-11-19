@@ -208,8 +208,8 @@ static void RenderObjs(int line, int oneDimensional, int mosaicH, ObjLine* out) 
         out->semiTransparent[i] = 0;
         out->window[i] = 0;
     }
-    // Lower OAM index wins at equal priority, so draw from the back.
-    for (int obj = 127; obj >= 0; obj--) {
+    // Later OAM entries can change the priority of a pixel already drawn.
+    for (int obj = 0; obj < 128; obj++) {
         const uint8_t* oam = &gHwOam[obj * 8];
         uint16_t attr0 = oam[0] | (oam[1] << 8);
         uint16_t attr1 = oam[2] | (oam[3] << 8);
@@ -259,9 +259,9 @@ static void RenderObjs(int line, int oneDimensional, int mosaicH, ObjLine* out) 
         for (int bx = 0; bx < boxWidth; bx++) {
             int sx = left + bx;
             int tx, ty, sampleX = bx;
-            uint32_t tile, index, color;
+            uint32_t tile, index;
 
-            if (sx < 0 || sx >= sLineWidth) {
+            if (sx < 0 || sx >= sLineWidth || (mode != 2 && priority >= out->priority[sx])) {
                 continue;
             }
             if (mosaic) {
@@ -293,18 +293,19 @@ static void RenderObjs(int line, int oneDimensional, int mosaicH, ObjLine* out) 
             }
             tile &= 0x3FF;
             index = TilePixel(0x10000 + tile * 32, tx & 7, ty & 7, is8bpp, HW_VRAM_SIZE);
-            if (index == 0) {
-                continue;
-            }
             if (mode == 2) {
-                out->window[sx] = 1;
+                if (index != 0) {
+                    out->window[sx] = 1;
+                }
                 continue;
             }
-            color = Palette(0x100 + (is8bpp ? index : (attr2 >> 12) * 16 + index));
-            if (priority <= out->priority[sx]) {
-                out->color[sx] = color;
-                out->priority[sx] = priority;
+            if (index != 0) {
+                out->color[sx] = Palette(0x100 + (is8bpp ? index : (attr2 >> 12) * 16 + index));
                 out->semiTransparent[sx] = mode == 1;
+            }
+            // A transparent texel can move existing OBJ color in front of a BG.
+            if (out->color[sx] != PIXEL_EMPTY) {
+                out->priority[sx] = priority;
             }
         }
     }

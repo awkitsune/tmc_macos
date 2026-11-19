@@ -420,8 +420,6 @@ static int TestBgObjVram(void) {
     return Report("bgobjvram", bad, 0, 0, 0, 0);
 }
 
-// Overlapping objects exercise priority, OAM tie-breaking, transparency and
-// the GBA's forced alpha for semi-transparent objects over a background.
 static int TestMaskedObjWindow(void) {
     int bad = 0;
     ClearHardware();
@@ -445,6 +443,8 @@ static int TestMaskedObjWindow(void) {
     return failed;
 }
 
+// Overlapping objects exercise priority, OAM tie-breaking, transparency and
+// the GBA's forced alpha for semi-transparent objects over a background.
 static int TestObjPriority(void) {
     int failed = 0;
     const int pixel = 20 * PPU_WIDTH + 20;
@@ -469,6 +469,15 @@ static int TestObjPriority(void) {
     for (int i = 0; i < 32 * 32; i++) gHwVram[0xF800 + i * 2] = 1;
     Reg16(0x08, 0x1F01); // BG0 priority 1
     Reg16(0x00, 0x1140); // BG0 and OBJ
+
+    SetObj(0, 20, 20, 3 << 10);
+    SetObj(1, 20, 21, (1 << 10) | 3); // blank tile promotes OBJ 0 above BG0
+    SetObj(2, 20, 22, (1 << 10) | 2); // the promoted pixel wins this tie
+    PpuRenderFrame(sMosaic);
+    failed |= Report("obj-prio-bg", sMosaic[pixel] != Color(4), 20, 20, sMosaic[pixel], Color(4));
+    failed |= Report("obj-prio-promote", sMosaic[pixel + 1] != Color(0x101), 21, 20, sMosaic[pixel + 1], Color(0x101));
+    failed |= Report("obj-prio-promote-tie", sMosaic[pixel + 2] != Color(0x101), 22, 20, sMosaic[pixel + 2], Color(0x101));
+
     SetObj(0, 0x0400 | 20, 20, 0); // semi-transparent OBJ, priority 0
     Reg16(0x50, 0x0100); // BG0 is a second target
     Reg16(0x52, 0x0808);
